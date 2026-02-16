@@ -114,8 +114,12 @@ class StorageService {
       _logService.logInfo('  Account ID: ${accountId ?? "null"}');
       _logService.logInfo('  KV Namespace ID: ${kvNamespaceId ?? "null"}');
     } catch (e) {
-      _logService.logWarn('Failed to read from secure storage, using SharedPreferences fallback: $e');
-      // Fallback to SharedPreferences (persists across restarts)
+      _logService.logWarn('Exception reading from secure storage: $e');
+    }
+
+    // If secure storage returned null, try SharedPreferences fallback
+    if (apiToken == null || accountId == null || kvNamespaceId == null) {
+      _logService.logInfo('Secure storage empty, checking SharedPreferences fallback');
       apiToken = _prefs.getString('${_keyApiToken}_fallback');
       accountId = _prefs.getString('${_keyAccountId}_fallback');
       kvNamespaceId = _prefs.getString('${_keyKvNamespaceId}_fallback');
@@ -127,7 +131,7 @@ class StorageService {
     }
 
     if (apiToken == null || accountId == null || kvNamespaceId == null) {
-      _logService.logWarn('Credentials incomplete - returning null');
+      _logService.logWarn('Credentials incomplete in both storages - returning null');
       return null;
     }
 
