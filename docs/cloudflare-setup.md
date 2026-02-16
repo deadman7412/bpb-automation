@@ -34,13 +34,15 @@ You need three pieces of information:
 ## Step 2: Find Your KV Namespace ID
 
 1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com)
-2. Click "Workers & Pages" in sidebar
-3. Click "KV" in the submenu
-4. Find your BPB Panel KV namespace (usually named like `kv-2026-02-12-18-54-28`)
-5. Click on it
-6. The Namespace ID is shown at the top
+2. Click **"Storage & databases"** in the left sidebar
+3. Click **"Workers KV"**
+4. Find your BPB Panel KV namespace (usually named like `kv-2026-02-12_18-54-28`)
+5. Click on the namespace name to open it
+6. The **Namespace ID** is shown in the "ID" column
 
-**Example:** `7e1cf251226d449697c75059fb236437`
+**Example ID:** `7e1cf251226d449697c75059fb236437`
+
+**Note:** The namespace should contain a key named `proxySettings` - this is what BPB Panel uses.
 
 ### Alternative: From Workers Settings
 1. Go to "Workers & Pages"
@@ -56,39 +58,58 @@ You need three pieces of information:
 The API token gives access to your Cloudflare account. Keep it secure and never share it.
 
 ### Steps:
-1. Go to [Cloudflare API Tokens](https://dash.cloudflare.com/profile/api-tokens)
-2. Click "Create Token"
-3. Click "Create Custom Token"
+1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. Click **"My Profile"** (top right) → **"API Tokens"**
+   - Or go directly to: https://dash.cloudflare.com/profile/api-tokens
+3. Click **"Create Token"**
+4. Click **"Create Custom Token"**
 
 ### Token Configuration:
 
-**Permissions:**
-- Account → Workers KV Storage → Edit
+#### 1. Token Name
+Give it a descriptive name, e.g., `BPB Clean IP Updater` or `PanelAutomation`
 
-**Account Resources:**
-- Include → Your specific account
+#### 2. Permissions (CRITICAL - Must be exact)
+Click "Add more" and set:
+- **Account** → **Workers KV Storage** → **Edit**
 
-**Optional Settings:**
-- Client IP Address Filtering: Add your IP for extra security
-- TTL: Set expiration date (recommended)
+⚠️ **IMPORTANT:** Make sure you select **"Workers KV Storage"**, NOT:
+- ❌ Workers Agents Configuration
+- ❌ Workers Scripts
+- ❌ Workers KV Namespace
 
-### Template Configuration Example:
+The correct permission is specifically **"Workers KV Storage"** with **"Edit"** access.
+
+#### 3. Account Resources
+- **Include** → **All accounts** (or select your specific account)
+
+#### 4. Optional Settings (Recommended)
+- **Client IP Address Filtering**: Add your IP for extra security
+- **TTL**: Set expiration date (e.g., 1 year)
+
+### Complete Configuration Example:
 ```
-Token Name: BPB Clean IP Updater
+Token Name: PanelAutomation
+
 Permissions:
-  - Account | Workers KV Storage | Edit
+  Account | Workers KV Storage | Edit
+
 Account Resources:
-  - Include | [Your Account Name]
+  Include | All accounts
+
 Client IP Address Filtering:
-  - (Optional) Your IP address
+  (Optional) Add your IP address
+
 TTL:
-  - (Optional) 1 year
+  (Optional) Set expiration date
 ```
 
-4. Click "Continue to summary"
-5. Review permissions
-6. Click "Create Token"
-7. **COPY THE TOKEN IMMEDIATELY** - You won't be able to see it again
+#### 5. Create the Token
+1. Click **"Continue to summary"**
+2. Review the permissions carefully
+3. Click **"Create Token"**
+4. **COPY THE TOKEN IMMEDIATELY** - You won't be able to see it again!
+5. Store it securely (password manager recommended)
 
 **Token Format:** Starts with letters and contains alphanumeric characters
 **Example:** `4720857f4b06d8949bc9cc8e9bbcdf890`

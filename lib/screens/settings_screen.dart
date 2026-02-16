@@ -343,9 +343,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Text(
                                 '1. Log in to Cloudflare dashboard\n'
                                 '2. Go to My Profile > API Tokens\n'
-                                '3. Create token with Workers KV edit permissions\n'
+                                '3. Create token with Workers KV Storage edit permission\n'
                                 '4. Copy your Account ID from the dashboard\n'
-                                '5. Find your KV Namespace ID in Workers & Pages',
+                                '5. Find KV Namespace ID in Storage & databases > Workers KV',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.blue.shade900,
