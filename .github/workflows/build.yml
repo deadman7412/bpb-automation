@@ -44,13 +44,16 @@ jobs:
       - name: Build APK (Release)
         run: flutter build apk --release
 
+      - name: Rename APK
+        run: mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/BPB-Automation-Android-Universal.apk
+
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: |
             build/app/outputs/flutter-apk/app-debug.apk
-            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/BPB-Automation-Android-Universal.apk
           retention-days: 30
 
   # macOS Build
@@ -197,7 +200,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/android-apk/app-release.apk
+            artifacts/android-apk/BPB-Automation-Android-Universal.apk
             artifacts/macos-app/BPB-Automation-macOS.dmg
             artifacts/linux-x64/BPB-Automation-Linux-x64.tar.gz
             artifacts/windows-x64/BPB-Automation-Windows-x64.zip

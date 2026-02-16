@@ -128,11 +128,55 @@ class _ConfigScreenState extends State<ConfigScreen> {
                           () => _usePreset(ScannerConfig.thorough(), 'Thorough'),
                         ),
                         _buildPresetButton(
+                          'Emulator',
+                          Icons.phone_iphone,
+                          () => _usePreset(ScannerConfig.emulator(), 'Emulator'),
+                        ),
+                        _buildPresetButton(
                           'Default',
                           Icons.restore,
                           () => _usePreset(ScannerConfig(), 'Default'),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Important Notice
+                    Card(
+                      color: Colors.orange.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 32),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Important: Max IPs Setting',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.orange.shade900,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Setting too many IPs can crash the app, especially on mobile devices and emulators. Keep the IP count low (50-200). '
+                                    'IPs are selected randomly, so each scan tests a different set - you\'ll always discover new working IPs!',
+                                    style: TextStyle(
+                                      color: Colors.orange.shade900,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 24),
 
@@ -170,6 +214,14 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               100,
                               (value) => setState(() => _config = _config.copyWith(downloadCount: value.toInt())),
                               'Number of IPs to test for download speed (after latency filtering)',
+                            ),
+                            _buildSlider(
+                              'Max IPs to Test',
+                              _config.maxIPsToTest.toDouble(),
+                              10,
+                              3000,
+                              (value) => setState(() => _config = _config.copyWith(maxIPsToTest: value.toInt())),
+                              'Maximum IPs to test per scan (random selection changes each scan)',
                             ),
                           ],
                         ),

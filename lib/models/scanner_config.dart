@@ -47,13 +47,18 @@ class ScannerConfig {
   /// Prevents tests from running too long
   final int downloadTestTime;
 
+  /// Maximum number of IPs to test from the available pool (10-3000)
+  /// Lower values = faster scans, higher values = more IPs discovered
+  /// New random IPs are selected on each scan
+  final int maxIPsToTest;
+
   /// Creates a ScannerConfig with the specified values.
   ///
   /// All parameters are optional and will use defaults if not specified.
   const ScannerConfig({
-    this.threads = 200,
-    this.testCount = 4,
-    this.downloadCount = 20,
+    this.threads = 50,
+    this.testCount = 3,
+    this.downloadCount = 10,
     this.latencyLimit = 200,
     this.latencyLowerLimit = 40,
     this.speedLimit = 5,
@@ -62,14 +67,15 @@ class ScannerConfig {
     this.disableDownload = false,
     this.httpingMode = false,
     this.downloadTestTime = 10,
+    this.maxIPsToTest = 100,
   });
 
   /// Creates a ScannerConfig from JSON.
   factory ScannerConfig.fromJson(Map<String, dynamic> json) {
     return ScannerConfig(
-      threads: json['threads'] as int? ?? 200,
-      testCount: json['test_count'] as int? ?? 4,
-      downloadCount: json['download_count'] as int? ?? 20,
+      threads: json['threads'] as int? ?? 50,
+      testCount: json['test_count'] as int? ?? 3,
+      downloadCount: json['download_count'] as int? ?? 10,
       latencyLimit: json['latency_limit'] as int? ?? 200,
       latencyLowerLimit: json['latency_lower_limit'] as int? ?? 40,
       speedLimit: json['speed_limit'] as int? ?? 5,
@@ -79,6 +85,7 @@ class ScannerConfig {
       disableDownload: json['disable_download'] as bool? ?? false,
       httpingMode: json['httping_mode'] as bool? ?? false,
       downloadTestTime: json['download_test_time'] as int? ?? 10,
+      maxIPsToTest: json['max_ips_to_test'] as int? ?? 100,
     );
   }
 
@@ -96,6 +103,7 @@ class ScannerConfig {
       'disable_download': disableDownload,
       'httping_mode': httpingMode,
       'download_test_time': downloadTestTime,
+      'max_ips_to_test': maxIPsToTest,
     };
   }
 
@@ -146,6 +154,7 @@ class ScannerConfig {
       testCount: 3,
       downloadCount: 5,
       downloadTestTime: 5,
+      maxIPsToTest: 150,
     );
   }
 
@@ -158,6 +167,7 @@ class ScannerConfig {
       testCount: 5,
       downloadCount: 15,
       downloadTestTime: 15,
+      maxIPsToTest: 500,
     );
   }
 
@@ -170,6 +180,7 @@ class ScannerConfig {
       testCount: 2,
       downloadCount: 5,
       downloadTestTime: 5,
+      maxIPsToTest: 200,
     );
   }
 
@@ -182,7 +193,40 @@ class ScannerConfig {
       testCount: 10,
       downloadCount: 20,
       downloadTestTime: 20,
+      maxIPsToTest: 1000,
     );
+  }
+
+  /// Creates a minimal configuration for testing in emulators.
+  ///
+  /// Uses very conservative settings to avoid crashes on emulated devices.
+  factory ScannerConfig.emulator() {
+    return const ScannerConfig(
+      threads: 10,
+      testCount: 2,
+      downloadCount: 3,
+      latencyLimit: 500,
+      speedLimit: 1,
+      downloadTestTime: 5,
+      maxIPsToTest: 50,
+    );
+  }
+
+  /// Creates a platform-aware default configuration.
+  ///
+  /// Automatically uses mobile or desktop settings based on the platform.
+  factory ScannerConfig.platformDefault() {
+    // Check if running on mobile
+    try {
+      final isMobile = const bool.fromEnvironment('dart.library.io')
+          ? true  // Assume mobile if dart:io is available (simplified)
+          : false;
+
+      return isMobile ? ScannerConfig.mobile() : ScannerConfig.desktop();
+    } catch (e) {
+      // Fallback to mobile settings if detection fails
+      return ScannerConfig.mobile();
+    }
   }
 
   /// Validates the configuration.
@@ -231,6 +275,10 @@ class ScannerConfig {
       errors.add('Download test time must be between 1 and 60 seconds');
     }
 
+    if (maxIPsToTest < 10 || maxIPsToTest > 3000) {
+      errors.add('Max IPs to test must be between 10 and 3000');
+    }
+
     return errors;
   }
 
@@ -252,6 +300,7 @@ class ScannerConfig {
     bool? disableDownload,
     bool? httpingMode,
     int? downloadTestTime,
+    int? maxIPsToTest,
   }) {
     return ScannerConfig(
       threads: threads ?? this.threads,
@@ -265,6 +314,7 @@ class ScannerConfig {
       disableDownload: disableDownload ?? this.disableDownload,
       httpingMode: httpingMode ?? this.httpingMode,
       downloadTestTime: downloadTestTime ?? this.downloadTestTime,
+      maxIPsToTest: maxIPsToTest ?? this.maxIPsToTest,
     );
   }
 
@@ -293,7 +343,8 @@ class ScannerConfig {
         other.testUrl == testUrl &&
         other.disableDownload == disableDownload &&
         other.httpingMode == httpingMode &&
-        other.downloadTestTime == downloadTestTime;
+        other.downloadTestTime == downloadTestTime &&
+        other.maxIPsToTest == maxIPsToTest;
   }
 
   @override
@@ -310,6 +361,7 @@ class ScannerConfig {
       disableDownload,
       httpingMode,
       downloadTestTime,
+      maxIPsToTest,
     );
   }
 }

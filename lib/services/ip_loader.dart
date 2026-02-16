@@ -7,11 +7,11 @@ class IPLoader {
   final LogService _logService = LogService.instance;
 
   /// Load IPv4 addresses from assets
-  Future<List<String>> loadIPv4Addresses() async {
+  Future<List<String>> loadIPv4Addresses({int maxSamplesPerCIDR = 200}) async {
     try {
-      _logService.logInfo('Loading IPv4 addresses from assets');
+      _logService.logInfo('Loading IPv4 addresses from assets (max $maxSamplesPerCIDR per CIDR)');
       final content = await rootBundle.loadString('assets/ip_lists/ip.txt');
-      final ips = _parseIPList(content);
+      final ips = _parseIPList(content, maxSamplesPerCIDR: maxSamplesPerCIDR);
       _logService.logOk('Loaded ${ips.length} IPv4 addresses');
       return ips;
     } catch (e, stackTrace) {
@@ -21,11 +21,11 @@ class IPLoader {
   }
 
   /// Load IPv6 addresses from assets
-  Future<List<String>> loadIPv6Addresses() async {
+  Future<List<String>> loadIPv6Addresses({int maxSamplesPerCIDR = 200}) async {
     try {
-      _logService.logInfo('Loading IPv6 addresses from assets');
+      _logService.logInfo('Loading IPv6 addresses from assets (max $maxSamplesPerCIDR per CIDR)');
       final content = await rootBundle.loadString('assets/ip_lists/ipv6.txt');
-      final ips = _parseIPList(content);
+      final ips = _parseIPList(content, maxSamplesPerCIDR: maxSamplesPerCIDR);
       _logService.logOk('Loaded ${ips.length} IPv6 addresses');
       return ips;
     } catch (e, stackTrace) {
@@ -35,11 +35,11 @@ class IPLoader {
   }
 
   /// Load both IPv4 and IPv6 addresses
-  Future<List<String>> loadAllAddresses() async {
+  Future<List<String>> loadAllAddresses({int maxSamplesPerCIDR = 200}) async {
     try {
-      _logService.logInfo('Loading all IP addresses');
-      final ipv4 = await loadIPv4Addresses();
-      final ipv6 = await loadIPv6Addresses();
+      _logService.logInfo('Loading all IP addresses (max $maxSamplesPerCIDR per CIDR)');
+      final ipv4 = await loadIPv4Addresses(maxSamplesPerCIDR: maxSamplesPerCIDR);
+      final ipv6 = await loadIPv6Addresses(maxSamplesPerCIDR: maxSamplesPerCIDR);
       final all = [...ipv4, ...ipv6];
       _logService.logOk('Loaded ${all.length} total IP addresses (${ipv4.length} IPv4, ${ipv6.length} IPv6)');
       return all;
@@ -52,8 +52,8 @@ class IPLoader {
   /// Parse IP list from text content
   ///
   /// Supports both individual IPs and CIDR ranges.
-  /// CIDR ranges are randomly sampled (max 200 IPs per range).
-  List<String> _parseIPList(String content) {
+  /// CIDR ranges are randomly sampled.
+  List<String> _parseIPList(String content, {int maxSamplesPerCIDR = 200}) {
     final lines = content.split('\n');
     final ips = <String>[];
 
@@ -67,7 +67,7 @@ class IPLoader {
 
       // Check if CIDR range
       if (trimmed.contains('/')) {
-        final rangeIPs = _expandCIDR(trimmed, maxSamples: 200);
+        final rangeIPs = _expandCIDR(trimmed, maxSamples: maxSamplesPerCIDR);
         if (rangeIPs.isNotEmpty) {
           ips.addAll(rangeIPs);
           _logService.logInfo('Expanded CIDR $trimmed to ${rangeIPs.length} IPs');

@@ -356,6 +356,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       Icons.assignment_outlined,
                       () => Navigator.pushNamed(context, '/logs'),
                     ),
+                    _buildActionButton(
+                      context,
+                      'About',
+                      Icons.info_outline,
+                      () => Navigator.pushNamed(context, '/about'),
+                    ),
+                    _buildActionButton(
+                      context,
+                      'Debug',
+                      Icons.bug_report,
+                      () => Navigator.pushNamed(context, '/debug'),
+                    ),
                   ],
                 ),
               ],

@@ -7,9 +7,9 @@ void main() {
       test('creates instance with default values', () {
         const config = ScannerConfig();
 
-        expect(config.threads, equals(200));
-        expect(config.testCount, equals(4));
-        expect(config.downloadCount, equals(20));
+        expect(config.threads, equals(50));
+        expect(config.testCount, equals(3));
+        expect(config.downloadCount, equals(10));
         expect(config.latencyLimit, equals(200));
         expect(config.latencyLowerLimit, equals(40));
         expect(config.speedLimit, equals(5));
@@ -17,6 +17,7 @@ void main() {
         expect(config.disableDownload, isFalse);
         expect(config.httpingMode, isFalse);
         expect(config.downloadTestTime, equals(10));
+        expect(config.maxIPsToTest, equals(100));
       });
 
       test('creates instance with custom values', () {
@@ -71,9 +72,9 @@ void main() {
         final json = <String, dynamic>{};
         final config = ScannerConfig.fromJson(json);
 
-        expect(config.threads, equals(200));
-        expect(config.testCount, equals(4));
-        expect(config.downloadCount, equals(20));
+        expect(config.threads, equals(50));
+        expect(config.testCount, equals(3));
+        expect(config.downloadCount, equals(10));
       });
     });
 
@@ -194,6 +195,18 @@ void main() {
         expect(config.testCount, equals(10));
         expect(config.downloadCount, equals(20));
         expect(config.downloadTestTime, equals(20));
+      });
+
+      test('emulator() creates emulator-safe config', () {
+        final config = ScannerConfig.emulator();
+
+        expect(config.threads, equals(10));
+        expect(config.testCount, equals(2));
+        expect(config.downloadCount, equals(3));
+        expect(config.latencyLimit, equals(500));
+        expect(config.speedLimit, equals(1));
+        expect(config.downloadTestTime, equals(5));
+        expect(config.maxIPsToTest, equals(50));
       });
     });
 

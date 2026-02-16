@@ -231,6 +231,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Settings'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.bug_report),
+            tooltip: 'Debug & Diagnostics',
+            onPressed: () => Navigator.pushNamed(context, '/debug'),
+          ),
+          IconButton(
             icon: const Icon(Icons.help_outline),
             tooltip: 'About & Help',
             onPressed: _showAboutDialog,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:bpb_automation/models/scan_progress.dart';
 import 'package:bpb_automation/models/scan_result.dart';
 import 'package:bpb_automation/models/latency_result.dart';
@@ -63,16 +64,27 @@ class DartScannerService {
         message: 'Loading IP addresses',
       ));
 
-      final allIPs = await _ipLoader.loadAllAddresses();
-      _logService.logInfo('Loaded ${allIPs.length} total IP addresses');
+      // Load IPs with platform-aware CIDR sampling
+      final cidrSamples = _getCIDRSamplesForPlatform();
+      _logService.logInfo('Platform: ${Platform.operatingSystem}, CIDR samples: $cidrSamples per range');
+
+      final allIPs = await _ipLoader.loadAllAddresses(maxSamplesPerCIDR: cidrSamples);
+      _logService.logInfo('Loaded ${allIPs.length} total IP addresses from CIDR ranges');
 
       // For now, only use IPv4 addresses
       final filteredIPs = _ipLoader.filterByType(allIPs, IPType.ipv4);
+      _logService.logInfo('Filtered to ${filteredIPs.length} IPv4 addresses');
 
-      // Select subset - use all filtered IPs for now
-      final selectedIPs = filteredIPs;
+      // Use config's maxIPsToTest to allow user control
+      final maxIPs = config.maxIPsToTest;
+      _logService.logInfo('Max IPs to test from config: $maxIPs');
 
-      _logService.logOk('Selected ${selectedIPs.length} IPs to test');
+      // Randomly select IPs (different selection each scan)
+      final selectedIPs = filteredIPs.length > maxIPs
+          ? _ipLoader.selectRandomIPs(filteredIPs, maxIPs)
+          : filteredIPs;
+
+      _logService.logOk('Selected ${selectedIPs.length} random IPs to test (from ${filteredIPs.length} available)');
 
       final totalIPs = selectedIPs.length;
       var processedIPs = 0;
@@ -308,5 +320,18 @@ class DartScannerService {
       _logService.logWarn('Failed to parse download bytes from URL: $e');
     }
     return null;
+  }
+
+  /// Get CIDR expansion samples per range based on platform
+  int _getCIDRSamplesForPlatform() {
+    if (Platform.isAndroid || Platform.isIOS) {
+      // Mobile: Sample only 10 IPs per CIDR range
+      return 10;
+    } else if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
+      // Desktop: Sample more IPs per range
+      return 50;
+    }
+    // Fallback
+    return 10;
   }
 }

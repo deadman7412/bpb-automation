@@ -4,6 +4,8 @@ import 'screens/settings_screen.dart';
 import 'screens/results_screen.dart';
 import 'screens/logs_screen.dart';
 import 'screens/config_screen.dart';
+import 'screens/about_screen.dart';
+import 'screens/debug_screen.dart';
 import 'services/storage_service.dart';
 
 void main() async {
@@ -80,6 +82,8 @@ class BPBAutomationApp extends StatelessWidget {
         '/results': (context) => const ResultsScreen(),
         '/logs': (context) => const LogsScreen(),
         '/config': (context) => const ConfigScreen(),
+        '/about': (context) => const AboutScreen(),
+        '/debug': (context) => const DebugScreen(),
       },
     );
   }
