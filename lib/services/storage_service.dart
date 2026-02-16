@@ -86,11 +86,12 @@ class StorageService {
       );
       _logService.logOk('Credentials written to secure storage successfully');
     } catch (e) {
-      _logService.logWarn('Failed to write to secure storage, using fallback: $e');
-      // Fallback to in-memory storage for testing
-      _secureStorageFallback[_keyApiToken] = credentials.apiToken;
-      _secureStorageFallback[_keyAccountId] = credentials.accountId;
-      _secureStorageFallback[_keyKvNamespaceId] = credentials.kvNamespaceId;
+      _logService.logWarn('Failed to write to secure storage, using SharedPreferences fallback: $e');
+      // Fallback to SharedPreferences (persists across restarts)
+      await _prefs.setString('${_keyApiToken}_fallback', credentials.apiToken);
+      await _prefs.setString('${_keyAccountId}_fallback', credentials.accountId);
+      await _prefs.setString('${_keyKvNamespaceId}_fallback', credentials.kvNamespaceId);
+      _logService.logOk('Credentials saved to SharedPreferences fallback');
     }
   }
 
@@ -113,14 +114,14 @@ class StorageService {
       _logService.logInfo('  Account ID: ${accountId ?? "null"}');
       _logService.logInfo('  KV Namespace ID: ${kvNamespaceId ?? "null"}');
     } catch (e) {
-      _logService.logWarn('Failed to read from secure storage, using fallback: $e');
-      // Fallback to in-memory storage for testing
-      apiToken = _secureStorageFallback[_keyApiToken];
-      accountId = _secureStorageFallback[_keyAccountId];
-      kvNamespaceId = _secureStorageFallback[_keyKvNamespaceId];
+      _logService.logWarn('Failed to read from secure storage, using SharedPreferences fallback: $e');
+      // Fallback to SharedPreferences (persists across restarts)
+      apiToken = _prefs.getString('${_keyApiToken}_fallback');
+      accountId = _prefs.getString('${_keyAccountId}_fallback');
+      kvNamespaceId = _prefs.getString('${_keyKvNamespaceId}_fallback');
 
-      _logService.logInfo('Fallback storage values:');
-      _logService.logInfo('  API Token: ${apiToken != null ? "present" : "null"}');
+      _logService.logInfo('SharedPreferences fallback values:');
+      _logService.logInfo('  API Token: ${apiToken != null ? "${apiToken.substring(0, 10)}... (${apiToken.length} chars)" : "null"}');
       _logService.logInfo('  Account ID: ${accountId ?? "null"}');
       _logService.logInfo('  KV Namespace ID: ${kvNamespaceId ?? "null"}');
     }
@@ -145,11 +146,12 @@ class StorageService {
       await _secureStorage.delete(key: _keyAccountId);
       await _secureStorage.delete(key: _keyKvNamespaceId);
     } catch (e) {
-      // Fallback to in-memory storage for testing
-      _secureStorageFallback.remove(_keyApiToken);
-      _secureStorageFallback.remove(_keyAccountId);
-      _secureStorageFallback.remove(_keyKvNamespaceId);
+      // Silent fail for secure storage
     }
+    // Also clear SharedPreferences fallback
+    await _prefs.remove('${_keyApiToken}_fallback');
+    await _prefs.remove('${_keyAccountId}_fallback');
+    await _prefs.remove('${_keyKvNamespaceId}_fallback');
   }
 
   /// Returns true if credentials are stored.
