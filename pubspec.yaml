@@ -67,6 +67,9 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # Icon generator
+  flutter_launcher_icons: ^0.14.1
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -110,3 +113,32 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# App icon configuration
+# Currently commented out to focus on functionality first.
+# See docs/app-icon-setup.md for icon creation guide.
+# Uncomment when ready to generate app icons.
+#
+# flutter_launcher_icons:
+#   android: true
+#   ios: true
+#   image_path: "assets/icon/app_icon.png"
+#   # Optional: Use adaptive icon for Android (API 26+)
+#   adaptive_icon_background: "#2196F3"  # Blue background
+#   adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+#   # macOS
+#   macos:
+#     generate: true
+#     image_path: "assets/icon/app_icon.png"
+#   # Windows
+#   windows:
+#     generate: true
+#     image_path: "assets/icon/app_icon.png"
+#   # Linux
+#   linux:
+#     generate: true
+#     image_path: "assets/icon/app_icon.png"
+#   # Web
+#   web:
+#     generate: true
+#     image_path: "assets/icon/app_icon.png"
