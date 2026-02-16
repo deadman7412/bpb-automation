@@ -1,0 +1,171 @@
+# Changelog
+
+All notable changes to BPB Automation will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.0] - 2026-02-16
+
+### Initial Release
+
+#### Added
+- **Pure Dart IP Scanner** - Native implementation without binary dependencies
+  - TCP-based latency testing (TCPing)
+  - HTTP/HTTPS download speed testing with raw sockets
+  - CIDR range expansion for Cloudflare IP lists
+  - Concurrent testing with configurable parallelism
+  - Real-time progress streaming
+  - Quality-based result scoring
+- Automatic BPB Panel configuration update via Cloudflare API
+- Secure credential storage (platform-specific encryption)
+- Real-time scan progress tracking with detailed statistics
+- Clean IP results display with sorting options
+- Comprehensive logging system with export functionality
+- Advanced scanner configuration options
+- Support for multiple platforms:
+  - Android (tested on API 36)
+  - macOS (tested on Apple Silicon) - **No sandboxing issues**
+  - Linux (build-ready)
+  - Windows (build-ready)
+
+#### Features
+
+**Core Functionality:**
+- Scan network for clean Cloudflare IPs
+- Parse and rank IPs by latency and speed
+- Update BPB Panel Workers KV settings
+- No credentials required for scanning (only for BPB updates)
+- Configurable number of IPs to use
+
+**User Interface:**
+- Material 3 design with light/dark theme support
+- Home screen with scan status and last scan info
+- Results screen with IP list and statistics
+- Settings screen for Cloudflare credentials
+- Configuration screen for scanner parameters
+- Logs screen with filtering and export
+
+**Scanner Configuration:**
+- Threads: 1-16 (default: 4)
+- Test count: 1-20 (default: 10)
+- IP limit: 1-100 (default: 10)
+- Download timeout: 1-10 seconds (default: 2)
+
+**Security:**
+- Credentials encrypted using platform keychain
+  - Android: Android Keystore
+  - iOS: iOS Keychain
+  - macOS: macOS Keychain
+- No telemetry or analytics
+- All data stored locally
+- Only connects to Cloudflare API
+
+**Logging:**
+- Four log levels: OK, INFO, WARN, ERROR
+- Real-time log streaming
+- Filter by log level
+- Export logs to clipboard
+- Persistent log storage
+- Auto-scroll to latest entries
+
+#### Technical Details
+- Built with Flutter 3.38.5
+- **Pure Dart scanner implementation** - no external binaries required
+- TCP socket-based latency measurement
+- Raw Socket + SecureSocket for HTTPS speed testing
+- Manual HTTP protocol handling for accurate speed measurement
+- CIDR to IP expansion with random sampling (max 200 IPs per range)
+- Singleton service architecture for state management
+- Broadcast stream for real-time progress updates
+- Retry logic with exponential backoff for API calls
+- Quality scoring algorithm (60% latency, 40% speed)
+
+#### Platform-Specific
+
+**Android:**
+- Debug APK: 186 MB
+- Release APK: 64.5 MB
+- Minimum SDK: API 21
+- Target SDK: API 36
+
+**macOS:**
+- Release build: 78.7 MB
+- Native Apple Silicon support
+- Universal binary ready
+
+#### Known Limitations
+- Linux and Windows builds require respective host platforms
+- Web platform not yet implemented
+- iOS support pending TestFlight setup
+- No scheduled auto-scan functionality
+- Single account support only
+
+#### Fixed Issues During Development
+- **macOS sandboxing blocking binary execution** - Replaced with pure Dart implementation
+- CIDR range handling in IP lists
+- ScannerConfig compatibility with DartScannerService
+- SecureSocket.secure() timeout parameter handling
+- StorageService initialization before app start
+- Slider crash on Results page when no IPs available
+- Removed mandatory credentials for scanning
+- Improved logs screen visibility in dark mode
+- BuildContext usage across async gaps
+
+### Dependencies
+- flutter: >=3.0.0
+- flutter_secure_storage: ^9.2.2
+- shared_preferences: ^2.3.3
+- path_provider: ^2.1.5
+- http: ^1.2.2
+- csv: ^6.0.0
+
+---
+
+## Release Notes
+
+### What's New in 1.0.0
+
+This is the initial release of BPB Automation, a cross-platform tool for finding and updating clean Cloudflare IPs in your BPB Panel.
+
+**Key Highlights:**
+- Scan from your actual device (mobile/desktop) - no VPS needed
+- Find IPs optimized for your network and location
+- One-tap update to BPB Panel configuration
+- Beautiful Material 3 interface with dark mode
+- Comprehensive logging for troubleshooting
+- Secure credential storage
+- Works offline (after credentials configured)
+
+**Getting Started:**
+1. Download the app for your platform
+2. (Optional) Configure Cloudflare credentials for auto-updates
+3. Run a scan to find clean IPs
+4. View results and optionally update BPB Panel
+
+For detailed instructions, see the [User Guide](docs/user-guide.md).
+
+### Upgrade Notes
+
+This is the initial release - no upgrades applicable.
+
+### Breaking Changes
+
+None - initial release.
+
+---
+
+## Future Roadmap
+
+Planned for future releases:
+- Scheduled automatic scans
+- Multi-account support
+- Custom IP range configuration
+- Cloud backup (optional)
+- In-app update mechanism
+- iOS App Store distribution
+- Web version with cronjob support
+
+---
+
+[1.0.0]: https://github.com/your-repo/bpb-automation/releases/tag/v1.0.0
