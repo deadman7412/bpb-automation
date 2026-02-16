@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/credentials.dart';
 import '../models/scanner_config.dart';
+import 'log_service.dart';
 
 /// Service for managing persistent storage of credentials and preferences.
 ///
@@ -16,6 +17,7 @@ class StorageService {
   static StorageService get instance => _instance;
 
   final FlutterSecureStorage _secureStorage;
+  final LogService _logService = LogService.instance;
   SharedPreferences? _preferences;
 
   // In-memory fallback for secure storage (used when platform not available)
@@ -64,6 +66,11 @@ class StorageService {
   ///
   /// Credentials are encrypted using platform-specific secure storage.
   Future<void> saveCredentials(Credentials credentials) async {
+    _logService.logInfo('Saving credentials to secure storage');
+    _logService.logInfo('API Token length: ${credentials.apiToken.length}');
+    _logService.logInfo('Account ID: ${credentials.accountId}');
+    _logService.logInfo('KV Namespace ID: ${credentials.kvNamespaceId}');
+
     try {
       await _secureStorage.write(
         key: _keyApiToken,
@@ -77,7 +84,9 @@ class StorageService {
         key: _keyKvNamespaceId,
         value: credentials.kvNamespaceId,
       );
+      _logService.logOk('Credentials written to secure storage successfully');
     } catch (e) {
+      _logService.logWarn('Failed to write to secure storage, using fallback: $e');
       // Fallback to in-memory storage for testing
       _secureStorageFallback[_keyApiToken] = credentials.apiToken;
       _secureStorageFallback[_keyAccountId] = credentials.accountId;
@@ -89,6 +98,7 @@ class StorageService {
   ///
   /// Returns null if no credentials are saved.
   Future<Credentials?> getCredentials() async {
+    _logService.logInfo('Attempting to load credentials from secure storage');
     String? apiToken;
     String? accountId;
     String? kvNamespaceId;
@@ -97,17 +107,30 @@ class StorageService {
       apiToken = await _secureStorage.read(key: _keyApiToken);
       accountId = await _secureStorage.read(key: _keyAccountId);
       kvNamespaceId = await _secureStorage.read(key: _keyKvNamespaceId);
+
+      _logService.logInfo('Read from secure storage:');
+      _logService.logInfo('  API Token: ${apiToken != null ? "${apiToken.substring(0, 10)}... (${apiToken.length} chars)" : "null"}');
+      _logService.logInfo('  Account ID: ${accountId ?? "null"}');
+      _logService.logInfo('  KV Namespace ID: ${kvNamespaceId ?? "null"}');
     } catch (e) {
+      _logService.logWarn('Failed to read from secure storage, using fallback: $e');
       // Fallback to in-memory storage for testing
       apiToken = _secureStorageFallback[_keyApiToken];
       accountId = _secureStorageFallback[_keyAccountId];
       kvNamespaceId = _secureStorageFallback[_keyKvNamespaceId];
+
+      _logService.logInfo('Fallback storage values:');
+      _logService.logInfo('  API Token: ${apiToken != null ? "present" : "null"}');
+      _logService.logInfo('  Account ID: ${accountId ?? "null"}');
+      _logService.logInfo('  KV Namespace ID: ${kvNamespaceId ?? "null"}');
     }
 
     if (apiToken == null || accountId == null || kvNamespaceId == null) {
+      _logService.logWarn('Credentials incomplete - returning null');
       return null;
     }
 
+    _logService.logOk('Credentials loaded successfully');
     return Credentials(
       apiToken: apiToken,
       accountId: accountId,

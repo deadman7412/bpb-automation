@@ -41,22 +41,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadCredentials() async {
+    _log.logInfo('SettingsScreen: Loading credentials on startup');
     setState(() => _isLoading = true);
 
     final credentials = await _storage.getCredentials();
 
     if (credentials != null) {
+      _log.logOk('SettingsScreen: Credentials found, populating fields');
+      _log.logInfo('  API Token length: ${credentials.apiToken.length}');
+      _log.logInfo('  Account ID: ${credentials.accountId}');
+      _log.logInfo('  KV Namespace ID: ${credentials.kvNamespaceId}');
+
       _apiTokenController.text = credentials.apiToken;
       _accountIdController.text = credentials.accountId;
       _kvNamespaceIdController.text = credentials.kvNamespaceId;
       setState(() => _hasCredentials = true);
+    } else {
+      _log.logWarn('SettingsScreen: No credentials found in storage');
     }
 
     setState(() => _isLoading = false);
+    _log.logInfo('SettingsScreen: Finished loading credentials');
   }
 
   Future<void> _saveCredentials() async {
+    _log.logInfo('SettingsScreen: Save button pressed');
+
     if (!_formKey.currentState!.validate()) {
+      _log.logWarn('SettingsScreen: Form validation failed');
       return;
     }
 
@@ -68,8 +80,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       kvNamespaceId: _kvNamespaceIdController.text.trim(),
     );
 
+    _log.logInfo('SettingsScreen: Calling storage.saveCredentials()');
     await _storage.saveCredentials(credentials);
-    _log.logOk('Credentials saved successfully');
+    _log.logOk('SettingsScreen: Credentials saved successfully');
 
     setState(() {
       _isLoading = false;
@@ -86,7 +99,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _validateCredentials() async {
+    _log.logInfo('SettingsScreen: Validate button pressed');
+
     if (!_formKey.currentState!.validate()) {
+      _log.logWarn('SettingsScreen: Form validation failed');
       return;
     }
 
@@ -98,13 +114,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       kvNamespaceId: _kvNamespaceIdController.text.trim(),
     );
 
+    _log.logInfo('SettingsScreen: Calling API to validate credentials');
     final isValid = await _api.validateCredentials(credentials);
+    _log.logInfo('SettingsScreen: Validation result: $isValid');
 
     setState(() => _isValidating = false);
 
     if (!mounted) return;
 
     if (isValid) {
+      _log.logOk('SettingsScreen: Credentials validated successfully');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Credentials validated successfully'),
