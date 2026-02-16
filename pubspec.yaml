@@ -14,7 +14,7 @@ publish_to: 'none'
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.1.2+5
+version: 1.2.0+6
 
 environment:
   sdk: ^3.10.4
@@ -115,30 +115,26 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
 # App icon configuration
-# Currently commented out to focus on functionality first.
-# See docs/app-icon-setup.md for icon creation guide.
-# Uncomment when ready to generate app icons.
-#
-# flutter_launcher_icons:
-#   android: true
-#   ios: true
-#   image_path: "assets/icon/app_icon.png"
-#   # Optional: Use adaptive icon for Android (API 26+)
-#   adaptive_icon_background: "#2196F3"  # Blue background
-#   adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
-#   # macOS
-#   macos:
-#     generate: true
-#     image_path: "assets/icon/app_icon.png"
-#   # Windows
-#   windows:
-#     generate: true
-#     image_path: "assets/icon/app_icon.png"
-#   # Linux
-#   linux:
-#     generate: true
-#     image_path: "assets/icon/app_icon.png"
-#   # Web
-#   web:
-#     generate: true
-#     image_path: "assets/icon/app_icon.png"
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  # Adaptive icon for Android (API 26+)
+  adaptive_icon_background: "#0180af"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+  # macOS
+  macos:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+  # Windows
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+  # Linux
+  linux:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+  # Web
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
