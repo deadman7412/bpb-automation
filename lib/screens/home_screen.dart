@@ -106,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await _storage.saveLastScanResults(resultsJson);
       _log.logInfo('Saved ${cleanIPs.length} results to storage');
 
+      if (!mounted) return;
       Navigator.pushNamed(context, '/results', arguments: cleanIPs);
 
     } catch (e, stackTrace) {
