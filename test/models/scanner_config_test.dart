@@ -9,7 +9,7 @@ void main() {
 
         expect(config.threads, equals(200));
         expect(config.testCount, equals(4));
-        expect(config.downloadCount, equals(10));
+        expect(config.downloadCount, equals(20));
         expect(config.latencyLimit, equals(200));
         expect(config.latencyLowerLimit, equals(40));
         expect(config.speedLimit, equals(5));
@@ -73,7 +73,7 @@ void main() {
 
         expect(config.threads, equals(200));
         expect(config.testCount, equals(4));
-        expect(config.downloadCount, equals(10));
+        expect(config.downloadCount, equals(20));
       });
     });
 
