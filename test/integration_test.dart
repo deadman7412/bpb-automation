@@ -58,6 +58,7 @@ void main() {
     final credsRestored = Credentials.fromJson(credsJson);
     expect(credsRestored, equals(credentials));
 
+    // ignore: avoid_print
     print('[OK] All models verified successfully!');
   });
 }

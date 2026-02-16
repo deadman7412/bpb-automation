@@ -28,10 +28,10 @@ class SpeedTester {
   }) async {
     // Construct URL with bytes parameter
     final fullUrl = testUrl.endsWith('=')
-        ? testUrl + downloadBytes.toString()
+        ? '$testUrl$downloadBytes'
         : testUrl.contains('?bytes=')
             ? testUrl.replaceAll(RegExp(r'\?bytes=\d*'), '?bytes=$downloadBytes')
-            : testUrl + '?bytes=$downloadBytes';
+            : '$testUrl?bytes=$downloadBytes';
 
     _logService.logInfo(
       'Testing download speed for $ip (${downloadBytes ~/ 1000000} MB)',

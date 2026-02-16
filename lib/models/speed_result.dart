@@ -71,7 +71,7 @@ class SpeedResult {
       return 'SpeedResult($ip - FAILED: $error)';
     }
     return 'SpeedResult($ip - ${speedMbps.toStringAsFixed(2)} Mbps, '
-        '${bytesDownloaded} bytes in ${durationSeconds.toStringAsFixed(2)}s)';
+        '$bytesDownloaded bytes in ${durationSeconds.toStringAsFixed(2)}s)';
   }
 
   /// Convert to JSON

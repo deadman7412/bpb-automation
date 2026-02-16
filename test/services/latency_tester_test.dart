@@ -121,9 +121,6 @@ void main() {
       // would require more sophisticated testing
       final ips = List.generate(10, (i) => '1.1.1.$i');
 
-      var maxConcurrentSeen = 0;
-      var currentConcurrent = 0;
-
       // We can't easily measure actual concurrency without instrumenting the code,
       // but we can verify all IPs are tested
       final results = await tester.testBatch(

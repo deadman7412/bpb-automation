@@ -109,6 +109,7 @@ class LogService {
       logInfo('Log service initialized');
     } catch (e) {
       // If initialization fails, continue without file logging
+      // ignore: avoid_print
       print('[WARN] Failed to initialize log service: $e');
     }
   }
@@ -161,6 +162,7 @@ class LogService {
     _logStreamController.add(entry);
 
     // Console output
+    // ignore: avoid_print
     print(entry.format());
 
     // File output
@@ -187,6 +189,7 @@ class LogService {
       );
     } catch (e) {
       // Silent failure - don't want logging failures to crash app
+      // ignore: avoid_print
       print('[WARN] Failed to write to log file: $e');
     }
   }
@@ -208,6 +211,7 @@ class LogService {
 
       logInfo('Log file rotated: ${archiveFile.path}');
     } catch (e) {
+      // ignore: avoid_print
       print('[WARN] Failed to rotate log file: $e');
     }
   }
