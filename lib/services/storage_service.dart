@@ -187,6 +187,38 @@ class StorageService {
     }
   }
 
+  // ==================== Scan Results ====================
+
+  static const String _keyLastScanResults = 'last_scan_results';
+
+  /// Saves the last scan results.
+  Future<void> saveLastScanResults(List<Map<String, dynamic>> results) async {
+    final json = jsonEncode(results);
+    await _prefs.setString(_keyLastScanResults, json);
+    _logService.logInfo('Saved ${results.length} scan results to storage');
+  }
+
+  /// Retrieves the last scan results.
+  ///
+  /// Returns null if no results are saved.
+  Future<List<Map<String, dynamic>>?> getLastScanResults() async {
+    final json = _prefs.getString(_keyLastScanResults);
+    if (json == null) return null;
+
+    try {
+      final list = jsonDecode(json) as List<dynamic>;
+      return list.cast<Map<String, dynamic>>();
+    } catch (e) {
+      _logService.logWarn('Failed to parse last scan results: $e');
+      return null;
+    }
+  }
+
+  /// Clears the last scan results.
+  Future<void> clearLastScanResults() async {
+    await _prefs.remove(_keyLastScanResults);
+  }
+
   // ==================== App Preferences ====================
 
   /// Saves the timestamp of the last scan.

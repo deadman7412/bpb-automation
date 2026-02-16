@@ -101,6 +101,11 @@ class _HomeScreenState extends State<HomeScreen> {
         return _convertToCleanIP(r);
       }).toList();
 
+      // Save results to storage for later access
+      final resultsJson = cleanIPs.map((ip) => ip.toJson()).toList();
+      await _storage.saveLastScanResults(resultsJson);
+      _log.logInfo('Saved ${cleanIPs.length} results to storage');
+
       Navigator.pushNamed(context, '/results', arguments: cleanIPs);
 
     } catch (e, stackTrace) {

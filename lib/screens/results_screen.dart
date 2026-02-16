@@ -22,6 +22,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   int _numIPsToUse = 5;
   bool _isLoaded = false;
   bool _isUpdating = false;
+  DateTime? _scanTime;
 
   @override
   void didChangeDependencies() {
@@ -40,7 +41,26 @@ class _ResultsScreenState extends State<ResultsScreen> {
       setState(() {
         _results = args;
       });
+      _log.logInfo('Loaded ${_results.length} results from navigation arguments');
+    } else {
+      // If no arguments, try to load last saved results
+      _log.logInfo('No route arguments, loading last saved results');
+      final savedResults = await _storage.getLastScanResults();
+      if (savedResults != null && savedResults.isNotEmpty) {
+        setState(() {
+          _results = savedResults.map((json) => CleanIP.fromJson(json)).toList();
+        });
+        _log.logOk('Loaded ${_results.length} results from storage');
+      } else {
+        _log.logInfo('No saved results found');
+      }
     }
+
+    // Load scan timestamp
+    final scanTime = await _storage.getLastScanTime();
+    setState(() {
+      _scanTime = scanTime;
+    });
 
     // Load num IPs to use from storage
     final numIps = await _storage.getNumIpsToUse();
@@ -202,7 +222,21 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scan Results'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Scan Results'),
+            if (_scanTime != null)
+              Text(
+                'Last scan: ${_formatTimeAgo(_scanTime!)}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.normal,
+                ),
+              ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.home),
@@ -452,5 +486,26 @@ class _ResultsScreenState extends State<ResultsScreen> {
         ),
       ],
     );
+  }
+
+  String _formatTimeAgo(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inSeconds < 60) {
+      return 'just now';
+    } else if (difference.inMinutes < 60) {
+      final minutes = difference.inMinutes;
+      return '$minutes ${minutes == 1 ? 'minute' : 'minutes'} ago';
+    } else if (difference.inHours < 24) {
+      final hours = difference.inHours;
+      return '$hours ${hours == 1 ? 'hour' : 'hours'} ago';
+    } else if (difference.inDays < 7) {
+      final days = difference.inDays;
+      return '$days ${days == 1 ? 'day' : 'days'} ago';
+    } else {
+      // Show date for older scans
+      return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')}';
+    }
   }
 }
