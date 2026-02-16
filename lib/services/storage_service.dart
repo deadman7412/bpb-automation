@@ -20,9 +20,6 @@ class StorageService {
   final LogService _logService = LogService.instance;
   SharedPreferences? _preferences;
 
-  // In-memory fallback for secure storage (used when platform not available)
-  final Map<String, String> _secureStorageFallback = {};
-
   // Storage keys
   static const String _keyApiToken = 'cf_api_token';
   static const String _keyAccountId = 'cf_account_id';

@@ -201,7 +201,8 @@ jobs:
             artifacts/macos-app/BPB-Automation-macOS.dmg
             artifacts/linux-x64/BPB-Automation-Linux-x64.tar.gz
             artifacts/windows-x64/BPB-Automation-Windows-x64.zip
-          draft: true
+          draft: false
           generate_release_notes: true
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
