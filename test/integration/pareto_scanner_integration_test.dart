@@ -1,3 +1,6 @@
+@Tags(['integration'])
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bpb_automation/services/dart_scanner_service.dart';
 import 'package:bpb_automation/models/scanner_config.dart';
@@ -17,7 +20,6 @@ import 'package:bpb_automation/models/scan_progress.dart';
 /// in CI environments due to rate limiting, network restrictions, or timeouts.
 /// To run integration tests: flutter test --tags=integration
 /// To exclude integration tests: flutter test --exclude-tags=integration
-@Tags(['integration'])
 void main() {
   group('Pareto Scanner Integration Tests', () {
     late DartScannerService scanner;
