@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../services/log_service.dart';
 
 class LogsScreen extends StatefulWidget {
@@ -14,11 +16,22 @@ class _LogsScreenState extends State<LogsScreen> {
   LogLevel? _filterLevel;
   bool _autoScroll = true;
   final ScrollController _scrollController = ScrollController();
+  int _previousLogCount = 0;
 
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scrollToBottom() {
+    if (_autoScroll && _scrollController.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        }
+      });
+    }
   }
 
   Color _getLogColor(LogLevel level) {
@@ -72,15 +85,72 @@ class _LogsScreenState extends State<LogsScreen> {
       setState(() {});
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Logs cleared')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Logs cleared')));
     }
   }
 
   Future<void> _exportLogs() async {
-    final exported = _log.exportLogs();
+    try {
+      final exported = _log.exportLogs();
 
+      // Get the appropriate directory based on platform
+      final Directory directory;
+      if (Platform.isAndroid) {
+        // On Android, use external storage directory
+        directory = (await getExternalStorageDirectory())!;
+      } else if (Platform.isIOS) {
+        // On iOS, use documents directory
+        directory = await getApplicationDocumentsDirectory();
+      } else {
+        // On desktop (macOS, Windows, Linux), use downloads directory
+        directory =
+            await getDownloadsDirectory() ??
+            await getApplicationDocumentsDirectory();
+      }
+
+      // Create filename with timestamp
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .split('.')[0];
+      final filename = 'bpb_automation_logs_$timestamp.txt';
+      final file = File('${directory.path}/$filename');
+
+      // Write logs to file
+      await file.writeAsString(exported);
+
+      if (!mounted) return;
+
+      // Show success message with file path
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Logs exported to:\n${file.path}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Copy Path',
+            textColor: Colors.white,
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: file.path));
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to export logs: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _copyLogsToClipboard() async {
+    final exported = _log.exportLogs();
     await Clipboard.setData(ClipboardData(text: exported));
 
     if (!mounted) return;
@@ -99,16 +169,9 @@ class _LogsScreenState extends State<LogsScreen> {
         : _log.getLogs();
 
     // Auto-scroll to bottom when new logs arrive
-    if (_autoScroll && _scrollController.hasClients) {
-      Future.microtask(() {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
+    if (logs.length != _previousLogCount) {
+      _previousLogCount = logs.length;
+      _scrollToBottom();
     }
 
     return Scaffold(
@@ -121,21 +184,64 @@ class _LogsScreenState extends State<LogsScreen> {
             onPressed: () => _showFilterDialog(),
           ),
           IconButton(
-            icon: Icon(_autoScroll ? Icons.arrow_downward : Icons.arrow_downward_outlined),
+            icon: Icon(
+              _autoScroll
+                  ? Icons.arrow_downward
+                  : Icons.arrow_downward_outlined,
+            ),
             tooltip: 'Auto-scroll',
             onPressed: () {
               setState(() => _autoScroll = !_autoScroll);
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.copy),
-            tooltip: 'Export',
-            onPressed: _exportLogs,
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: 'Clear',
-            onPressed: _clearLogs,
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More options',
+            onSelected: (value) {
+              switch (value) {
+                case 'export':
+                  _exportLogs();
+                  break;
+                case 'copy':
+                  _copyLogsToClipboard();
+                  break;
+                case 'clear':
+                  _clearLogs();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'export',
+                child: Row(
+                  children: [
+                    Icon(Icons.save_alt),
+                    SizedBox(width: 12),
+                    Text('Export to File'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'copy',
+                child: Row(
+                  children: [
+                    Icon(Icons.copy),
+                    SizedBox(width: 12),
+                    Text('Copy to Clipboard'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'clear',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline),
+                    SizedBox(width: 12),
+                    Text('Clear Logs'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -152,7 +258,9 @@ class _LogsScreenState extends State<LogsScreen> {
                   const SizedBox(width: 8),
                   Chip(
                     label: Text(_filterLevel!.tag),
-                    backgroundColor: _getLogColor(_filterLevel!).withValues(alpha: 0.2),
+                    backgroundColor: _getLogColor(
+                      _filterLevel!,
+                    ).withValues(alpha: 0.2),
                     deleteIcon: const Icon(Icons.close, size: 18),
                     onDeleted: () => setState(() => _filterLevel = null),
                   ),
@@ -177,21 +285,25 @@ class _LogsScreenState extends State<LogsScreen> {
               children: [
                 Text(
                   '${logs.length} log entries',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 if (_autoScroll)
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.autorenew, size: 16, color: Theme.of(context).colorScheme.primary),
+                      Icon(
+                        Icons.autorenew,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         'Auto-scroll',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       ),
                     ],
                   ),
@@ -206,7 +318,11 @@ class _LogsScreenState extends State<LogsScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.article_outlined, size: 64, color: Colors.grey.shade400),
+                        Icon(
+                          Icons.article_outlined,
+                          size: 64,
+                          color: Colors.grey.shade400,
+                        ),
                         const SizedBox(height: 16),
                         const Text(
                           'No logs yet',
@@ -223,7 +339,10 @@ class _LogsScreenState extends State<LogsScreen> {
                       final log = logs[index];
 
                       return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        margin: const EdgeInsets.symmetric(
+                          vertical: 4,
+                          horizontal: 8,
+                        ),
                         child: ListTile(
                           dense: true,
                           leading: Icon(
@@ -233,7 +352,10 @@ class _LogsScreenState extends State<LogsScreen> {
                           ),
                           title: Text(
                             log.message,
-                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                            ),
                           ),
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -261,7 +383,9 @@ class _LogsScreenState extends State<LogsScreen> {
                           trailing: IconButton(
                             icon: const Icon(Icons.copy, size: 16),
                             onPressed: () {
-                              Clipboard.setData(ClipboardData(text: log.format()));
+                              Clipboard.setData(
+                                ClipboardData(text: log.format()),
+                              );
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('Log entry copied'),

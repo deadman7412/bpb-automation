@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:bpb_automation/models/scan_progress.dart';
 import 'package:bpb_automation/models/scan_result.dart';
 import 'package:bpb_automation/models/latency_result.dart';
-import 'package:bpb_automation/models/speed_result.dart';
 import 'package:bpb_automation/models/scanner_config.dart';
 import 'package:bpb_automation/services/ip_loader.dart';
 import 'package:bpb_automation/services/latency_tester.dart';
@@ -86,22 +84,200 @@ class DartScannerService {
 
   /// Execute a complete scan with the given configuration
   ///
-  /// Implements the 5-phase Go scanner algorithm:
-  /// Phase 1: Load IPs
-  /// Phase 2: Latency test ALL IPs concurrently
-  /// Phase 3: Sort and filter by latency/loss criteria
-  /// Phase 4: Download test serially with early exit
-  /// Phase 5: Sort final results by download speed
+  /// Implements multi-round sampling strategy:
+  /// - Each round tests ~696 random IPs (or all 5956 if testAllIPs=true)
+  /// - Accumulates clean IPs across rounds
+  /// - Stops when target is reached (early exit mid-round)
+  /// - Maximum 5 rounds before suggesting deep scan
+  /// - Skips duplicate IPs across rounds using Set tracker
+  ///
+  /// Per-round phases:
+  /// 1. Load IPs (filter duplicates from previous rounds)
+  /// 2. Latency test ALL IPs concurrently
+  /// 3. Sort and filter by latency/loss criteria
+  /// 4. Download test serially with early exit when round target met
+  ///
+  /// After all rounds:
+  /// 5. Final sort by download speed (fastest first)
   Future<DartScanResult> executeScan(ScannerConfig config) async {
-    _logService.logInfo('[INFO] ===== STARTING NEW SCAN =====');
+    _logService.logInfo('[INFO] ===== STARTING MULTI-ROUND SCAN =====');
     _logService.logInfo(
       '[INFO] Goal: Find ${config.targetCleanIPs} clean IPs '
       '(max latency: ${config.maxLatency}ms, max loss: ${(config.maxLossRate * 100).toStringAsFixed(0)}%, '
       'min speed: ${config.minDownloadSpeed} MB/s)',
     );
+    _logService.logInfo(
+      '[INFO] Strategy: Multi-round sampling (max 5 rounds, ~696 IPs per round)',
+    );
 
     _isCancelled = false;
     final scanStartTime = DateTime.now();
+
+    // Track results across all rounds
+    final allCleanResults = <ScanResult>[];
+    final testedIPs = <String>{};
+    var totalIPsTested = 0;
+    const maxRounds = 5;
+
+    // Multi-round sampling loop
+    for (var round = 1; round <= maxRounds; round++) {
+      _logService.logInfo('[INFO] ===== ROUND $round/$maxRounds =====');
+      _logService.logInfo(
+        '[INFO] Progress: ${allCleanResults.length}/${config.targetCleanIPs} clean IPs found so far',
+      );
+
+      if (allCleanResults.length >= config.targetCleanIPs) {
+        _logService.logOk(
+          '[OK] Target reached! Found ${allCleanResults.length}/${config.targetCleanIPs} clean IPs',
+        );
+        break;
+      }
+
+      final needed = config.targetCleanIPs - allCleanResults.length;
+      _logService.logInfo('[INFO] Need $needed more clean IPs to reach target');
+
+      // Execute single round
+      final roundResult = await _executeSingleRound(
+        config: config,
+        roundNumber: round,
+        maxRounds: maxRounds,
+        testedIPs: testedIPs,
+        existingCleanResults: allCleanResults,
+      );
+
+      // Check if cancelled
+      if (roundResult.status == ScanStatus.cancelled) {
+        return roundResult;
+      }
+
+      // Accumulate results
+      allCleanResults.addAll(roundResult.results);
+      totalIPsTested += roundResult.totalTested;
+
+      _logService.logInfo(
+        '[INFO] Round $round complete: +${roundResult.successful} clean IPs found, '
+        '${allCleanResults.length}/${config.targetCleanIPs} total',
+      );
+
+      // Early exit if target reached
+      if (allCleanResults.length >= config.targetCleanIPs) {
+        _logService.logOk(
+          '[OK] TARGET REACHED! Found ${allCleanResults.length}/${config.targetCleanIPs} clean IPs in $round rounds',
+        );
+        break;
+      }
+
+      // Check cancellation between rounds
+      if (_isCancelled) {
+        return _cancelledResult(totalIPsTested, scanStartTime, allCleanResults);
+      }
+    }
+
+    // ===== FINAL SORT =====
+    _logService.logInfo('[INFO] ===== FINAL SORT (ALL ROUNDS) =====');
+    _logService.logInfo(
+      '[INFO] Sorting ${allCleanResults.length} clean IPs by download speed',
+    );
+
+    // Sort all accumulated results by download speed DESC
+    allCleanResults.sort((a, b) {
+      final aSpeed = a.speedResult?.speedMBps ?? 0.0;
+      final bSpeed = b.speedResult?.speedMBps ?? 0.0;
+      return bSpeed.compareTo(aSpeed); // Descending
+    });
+
+    // Log top 5 results
+    final topResults = allCleanResults.take(5);
+    for (var i = 0; i < topResults.length; i++) {
+      final result = topResults.elementAt(i);
+      _logService.logInfo(
+        '[INFO] Top ${i + 1}: ${result.ip} - '
+        'speed: ${result.speedResult?.speedMBps.toStringAsFixed(2)} MB/s, '
+        'latency: ${result.latencyResult.averageLatencyMs.toStringAsFixed(2)}ms',
+      );
+    }
+
+    // ===== COMPLETE =====
+    final elapsedTime = DateTime.now().difference(scanStartTime);
+    final (status, message) = _determineStatus(
+      allCleanResults.length,
+      config.targetCleanIPs,
+      totalIPsTested,
+      config.maxIPsToTest,
+    );
+
+    _logService.logInfo('[INFO] ===== SCAN COMPLETE =====');
+    _logService.logInfo(
+      '[INFO] Found ${allCleanResults.length} clean IPs in ${elapsedTime.inSeconds}s '
+      '(tested $totalIPsTested total IPs across all rounds)',
+    );
+
+    switch (status) {
+      case ScanStatus.success:
+        _logService.logOk('[OK] $message');
+        break;
+      case ScanStatus.partial:
+        _logService.logWarn('[WARN] $message');
+        break;
+      case ScanStatus.insufficient:
+        _logService.logWarn('[WARN] $message');
+        _logService.logInfo(
+          '[INFO] After $maxRounds rounds, only ${allCleanResults.length}/${config.targetCleanIPs} clean IPs found. '
+          'Consider: (1) Run deep scan (test all 5,956 IPs), (2) Lower quality filters, or (3) Accept current results',
+        );
+        break;
+      case ScanStatus.failed:
+        _logService.logError('[ERROR] $message', null, null);
+        break;
+      case ScanStatus.cancelled:
+        _logService.logWarn('[WARN] $message');
+        break;
+    }
+
+    _emitProgress(
+      ScanProgress(
+        totalIPs: totalIPsTested,
+        processedIPs: totalIPsTested,
+        successfulIPs: allCleanResults.length,
+        failedIPs: totalIPsTested - allCleanResults.length,
+        targetCleanIPs: config.targetCleanIPs,
+        cleanIPsFound: allCleanResults.length,
+        totalIPsTested: totalIPsTested,
+        elapsedTime: elapsedTime,
+        stage: ScanStage.completed,
+        message: message,
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    return DartScanResult(
+      results: allCleanResults,
+      timestamp: DateTime.now(),
+      totalTested: totalIPsTested,
+      successful: allCleanResults.length,
+      failed: totalIPsTested - allCleanResults.length,
+      status: status,
+      message: message,
+    );
+  }
+
+  /// Execute a single round of IP testing
+  ///
+  /// Core 4-phase algorithm per round:
+  /// Phase 1: Load IPs (filter duplicates from previous rounds)
+  /// Phase 2: Latency test ALL IPs concurrently
+  /// Phase 3: Sort and filter by latency/loss criteria
+  /// Phase 4: Download test serially with early exit when round target met
+  ///
+  /// Results are NOT sorted here - final sorting happens once after all rounds.
+  Future<DartScanResult> _executeSingleRound({
+    required ScannerConfig config,
+    required int roundNumber,
+    required int maxRounds,
+    required Set<String> testedIPs,
+    required List<ScanResult> existingCleanResults,
+  }) async {
+    final roundStartTime = DateTime.now();
 
     try {
       // ===== PHASE 1: LOAD IPS =====
@@ -111,7 +287,8 @@ class DartScannerService {
           targetCleanIPs: config.targetCleanIPs,
         ).copyWith(
           stage: ScanStage.loadingIPs,
-          message: 'Phase 1/5: Loading IP addresses',
+          message:
+              'Round $roundNumber/$maxRounds - Phase 1/5: Loading IP addresses',
         ),
       );
 
@@ -137,16 +314,33 @@ class DartScannerService {
         '[INFO] Filtered to ${availableIPs.length} IPv4 addresses',
       );
 
-      // Apply maxIPsToTest limit
-      final ipsToTest = availableIPs.length > config.maxIPsToTest
-          ? _ipLoader.selectRandomIPs(availableIPs, config.maxIPsToTest)
-          : availableIPs;
+      // Remove already-tested IPs from previous rounds (deduplication)
+      final newIPs = availableIPs
+          .where((ip) => !testedIPs.contains(ip))
+          .toList();
+      final duplicatesSkipped = availableIPs.length - newIPs.length;
 
-      if (ipsToTest.length < availableIPs.length) {
+      if (duplicatesSkipped > 0) {
+        _logService.logInfo(
+          '[INFO] Skipped $duplicatesSkipped duplicate IPs (already tested in previous rounds)',
+        );
+      }
+
+      _logService.logInfo('[INFO] ${newIPs.length} new IPs to test this round');
+
+      // Apply maxIPsToTest limit
+      final ipsToTest = newIPs.length > config.maxIPsToTest
+          ? _ipLoader.selectRandomIPs(newIPs, config.maxIPsToTest)
+          : newIPs;
+
+      if (ipsToTest.length < newIPs.length) {
         _logService.logInfo(
           '[INFO] Limited to ${ipsToTest.length} IPs (max allowed: ${config.maxIPsToTest})',
         );
       }
+
+      // Add to tested IPs set
+      testedIPs.addAll(ipsToTest);
 
       if (ipsToTest.isEmpty) {
         _logService.logError(
@@ -171,7 +365,7 @@ class DartScannerService {
 
       // Check cancellation
       if (_isCancelled) {
-        return _cancelledResult(0, scanStartTime);
+        return _cancelledResult(0, roundStartTime);
       }
 
       // ===== PHASE 2: LATENCY TESTING (ALL IPS CONCURRENTLY) =====
@@ -185,7 +379,8 @@ class DartScannerService {
           cleanIPsFound: 0,
           totalIPsTested: 0,
           stage: ScanStage.latencyTesting,
-          message: 'Phase 2/5: Testing latency for ${ipsToTest.length} IPs',
+          message:
+              'Round $roundNumber/$maxRounds - Phase 2/5: Testing latency for ${ipsToTest.length} IPs',
           timestamp: DateTime.now(),
         ),
       );
@@ -247,7 +442,7 @@ class DartScannerService {
 
       // Check cancellation
       if (_isCancelled) {
-        return _cancelledResult(processedCount, scanStartTime);
+        return _cancelledResult(processedCount, roundStartTime);
       }
 
       // ===== PHASE 3: SORT & FILTER =====
@@ -261,7 +456,8 @@ class DartScannerService {
           cleanIPsFound: 0,
           totalIPsTested: processedCount,
           stage: ScanStage.sorting,
-          message: 'Phase 3/5: Filtering and sorting results',
+          message:
+              'Round $roundNumber/$maxRounds - Phase 3/5: Filtering and sorting results',
           timestamp: DateTime.now(),
         ),
       );
@@ -340,13 +536,13 @@ class DartScannerService {
 
       // Check cancellation
       if (_isCancelled) {
-        return _cancelledResult(processedCount, scanStartTime);
+        return _cancelledResult(processedCount, roundStartTime);
       }
 
       // ===== PHASE 4: DOWNLOAD TESTING (SERIAL WITH EARLY EXIT) =====
       _logService.logInfo('[INFO] ===== PHASE 4: DOWNLOAD TESTING =====');
       _logService.logInfo(
-        '[INFO] Testing downloads serially (1 at a time) until ${config.targetCleanIPs} clean IPs found',
+        '[INFO] Testing downloads serially (1 at a time), need ${config.targetCleanIPs - existingCleanResults.length} more clean IPs',
       );
       _logService.logInfo(
         '[INFO] Download config: ${(config.downloadBytes / 1000000).toStringAsFixed(1)} MB, '
@@ -357,19 +553,23 @@ class DartScannerService {
       var downloadTestCount = 0;
       var downloadSuccessCount = 0;
 
+      // Calculate target for THIS round (overall target - already found)
+      final roundTarget = config.targetCleanIPs - existingCleanResults.length;
+      final totalSoFar = existingCleanResults.length;
+
       for (var i = 0; i < filteredResults.length; i++) {
-        // Check if we've met our target (EARLY EXIT)
-        if (cleanResults.length >= config.targetCleanIPs) {
+        // Check if we've met our target for THIS ROUND (EARLY EXIT)
+        if (cleanResults.length >= roundTarget) {
           _logService.logOk(
-            '[OK] Target reached! Found ${cleanResults.length}/${config.targetCleanIPs} clean IPs '
-            'after testing $downloadTestCount/${filteredResults.length} IPs (${((downloadTestCount / filteredResults.length) * 100).toStringAsFixed(1)}%)',
+            '[OK] Round target reached! Found ${cleanResults.length} new clean IPs this round '
+            '(${totalSoFar + cleanResults.length}/${config.targetCleanIPs} total)',
           );
           break;
         }
 
         // Check cancellation
         if (_isCancelled) {
-          return _cancelledResult(processedCount, scanStartTime, cleanResults);
+          return _cancelledResult(processedCount, roundStartTime, cleanResults);
         }
 
         final entry = filteredResults[i];
@@ -386,13 +586,13 @@ class DartScannerService {
             failedIPs: downloadTestCount - downloadSuccessCount,
             currentIP: ip,
             targetCleanIPs: config.targetCleanIPs,
-            cleanIPsFound: cleanResults.length,
+            cleanIPsFound: totalSoFar + cleanResults.length,
             totalIPsTested: processedCount,
             stage: ScanStage.speedTesting,
             subStage:
-                'Testing ${cleanResults.length}/${config.targetCleanIPs} found',
+                'Found ${totalSoFar + cleanResults.length}/${config.targetCleanIPs} total (${cleanResults.length} this round)',
             message:
-                'Phase 4/5: Download testing $downloadTestCount/${filteredResults.length}',
+                'Round $roundNumber/$maxRounds - Phase 4/5: Download testing $downloadTestCount/${filteredResults.length}',
             timestamp: DateTime.now(),
           ),
         );
@@ -448,109 +648,28 @@ class DartScannerService {
 
       // Check cancellation
       if (_isCancelled) {
-        return _cancelledResult(processedCount, scanStartTime, cleanResults);
-      }
-
-      // ===== PHASE 5: FINAL SORT =====
-      _emitProgress(
-        ScanProgress(
-          totalIPs: processedCount,
-          processedIPs: processedCount,
-          successfulIPs: cleanResults.length,
-          failedIPs: processedCount - cleanResults.length,
-          targetCleanIPs: config.targetCleanIPs,
-          cleanIPsFound: cleanResults.length,
-          totalIPsTested: processedCount,
-          stage: ScanStage.sorting,
-          message: 'Phase 5/5: Sorting final results',
-          timestamp: DateTime.now(),
-        ),
-      );
-
-      _logService.logInfo('[INFO] ===== PHASE 5: FINAL SORT =====');
-      _logService.logInfo(
-        '[INFO] Sorting ${cleanResults.length} clean IPs by download speed',
-      );
-
-      // Sort by download speed DESC (fastest first)
-      cleanResults.sort((a, b) {
-        final aSpeed = a.speedResult?.speedMBps ?? 0.0;
-        final bSpeed = b.speedResult?.speedMBps ?? 0.0;
-        return bSpeed.compareTo(aSpeed); // Descending
-      });
-
-      _logService.logOk(
-        '[OK] Phase 5 complete: Results sorted by download speed',
-      );
-
-      // Log top 5 results
-      final topResults = cleanResults.take(5);
-      for (var i = 0; i < topResults.length; i++) {
-        final result = topResults.elementAt(i);
-        _logService.logInfo(
-          '[INFO] Top ${i + 1}: ${result.ip} - '
-          'speed: ${result.speedResult?.speedMBps.toStringAsFixed(2)} MB/s, '
-          'latency: ${result.latencyResult.averageLatencyMs.toStringAsFixed(2)}ms',
-        );
+        return _cancelledResult(processedCount, roundStartTime, cleanResults);
       }
 
       // ===== COMPLETE =====
-      final elapsedTime = DateTime.now().difference(scanStartTime);
-      final (status, message) = _determineStatus(
-        cleanResults.length,
-        config.targetCleanIPs,
-        processedCount,
-        config.maxIPsToTest,
-      );
+      final elapsedTime = DateTime.now().difference(roundStartTime);
 
-      _logService.logInfo('[INFO] ===== SCAN COMPLETE =====');
+      _logService.logInfo('[INFO] ===== ROUND $roundNumber COMPLETE =====');
       _logService.logInfo(
-        '[INFO] Found ${cleanResults.length} clean IPs in ${elapsedTime.inSeconds}s '
-        '(tested $processedCount total IPs)',
+        '[INFO] Round stats: +${cleanResults.length} clean IPs found this round, tested $processedCount IPs in ${elapsedTime.inSeconds}s',
       );
 
-      switch (status) {
-        case ScanStatus.success:
-          _logService.logOk('[OK] $message');
-          break;
-        case ScanStatus.partial:
-          _logService.logWarn('[WARN] $message');
-          break;
-        case ScanStatus.insufficient:
-          _logService.logWarn('[WARN] $message');
-          break;
-        case ScanStatus.failed:
-          _logService.logError('[ERROR] $message', null, null);
-          break;
-        case ScanStatus.cancelled:
-          _logService.logWarn('[WARN] $message');
-          break;
-      }
-
-      _emitProgress(
-        ScanProgress(
-          totalIPs: processedCount,
-          processedIPs: processedCount,
-          successfulIPs: cleanResults.length,
-          failedIPs: processedCount - cleanResults.length,
-          targetCleanIPs: config.targetCleanIPs,
-          cleanIPsFound: cleanResults.length,
-          totalIPsTested: processedCount,
-          elapsedTime: elapsedTime,
-          stage: ScanStage.completed,
-          message: message,
-          timestamp: DateTime.now(),
-        ),
-      );
-
+      // Return results for this round (will be accumulated and sorted later)
       return DartScanResult(
         results: cleanResults,
         timestamp: DateTime.now(),
         totalTested: processedCount,
         successful: cleanResults.length,
         failed: processedCount - cleanResults.length,
-        status: status,
-        message: message,
+        status: ScanStatus
+            .success, // Individual round status (final status determined in main method)
+        message:
+            'Round $roundNumber complete: found ${cleanResults.length} clean IPs',
       );
     } catch (e, stackTrace) {
       _logService.logError('[ERROR] Scan failed with exception', e, stackTrace);

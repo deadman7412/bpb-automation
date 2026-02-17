@@ -9,9 +9,9 @@ void main() {
 
         expect(config.targetCleanIPs, equals(10));
         expect(config.threads, equals(200));
-        expect(config.maxLatency, equals(200));
-        expect(config.maxLossRate, equals(0.1));
-        expect(config.minDownloadSpeed, equals(5.0));
+        expect(config.maxLatency, equals(9999));
+        expect(config.maxLossRate, equals(1.0));
+        expect(config.minDownloadSpeed, equals(0.0));
         expect(config.testCount, equals(4));
         expect(config.testPort, equals(443));
         expect(config.downloadTestTime, equals(10));
@@ -82,9 +82,9 @@ void main() {
 
         expect(config.targetCleanIPs, equals(10));
         expect(config.threads, equals(200));
-        expect(config.maxLatency, equals(200));
-        expect(config.maxLossRate, equals(0.1));
-        expect(config.minDownloadSpeed, equals(5.0));
+        expect(config.maxLatency, equals(9999));
+        expect(config.maxLossRate, equals(1.0));
+        expect(config.minDownloadSpeed, equals(0.0));
       });
     });
 
@@ -137,9 +137,9 @@ void main() {
 
         expect(config.targetCleanIPs, equals(5));
         expect(config.threads, equals(100));
-        expect(config.maxLatency, equals(200));
-        expect(config.maxLossRate, equals(0.15));
-        expect(config.minDownloadSpeed, equals(3.0));
+        expect(config.maxLatency, equals(300));
+        expect(config.maxLossRate, equals(0.2));
+        expect(config.minDownloadSpeed, equals(2.0));
         expect(config.maxIPsToTest, equals(5000));
       });
 
@@ -148,49 +148,10 @@ void main() {
 
         expect(config.targetCleanIPs, equals(10));
         expect(config.threads, equals(200));
-        expect(config.maxLatency, equals(200));
-        expect(config.maxLossRate, equals(0.1));
-        expect(config.minDownloadSpeed, equals(5.0));
+        expect(config.maxLatency, equals(9999));
+        expect(config.maxLossRate, equals(1.0));
+        expect(config.minDownloadSpeed, equals(0.0));
         expect(config.maxIPsToTest, equals(10000));
-      });
-
-      test('fast creates fast config', () {
-        const config = ScannerConfig.fast;
-
-        expect(config.targetCleanIPs, equals(5));
-        expect(config.threads, equals(300));
-        expect(config.maxLatency, equals(300));
-        expect(config.maxLossRate, equals(0.2));
-        expect(config.minDownloadSpeed, equals(2.0));
-        expect(config.testCount, equals(3));
-        expect(config.downloadTestTime, equals(8));
-        expect(config.maxIPsToTest, equals(3000));
-      });
-
-      test('balanced creates balanced config', () {
-        const config = ScannerConfig.balanced;
-
-        expect(config.targetCleanIPs, equals(10));
-        expect(config.threads, equals(200));
-        expect(config.maxLatency, equals(200));
-        expect(config.maxLossRate, equals(0.1));
-        expect(config.minDownloadSpeed, equals(5.0));
-        expect(config.testCount, equals(4));
-        expect(config.downloadTestTime, equals(10));
-        expect(config.maxIPsToTest, equals(10000));
-      });
-
-      test('quality creates quality config', () {
-        const config = ScannerConfig.quality;
-
-        expect(config.targetCleanIPs, equals(20));
-        expect(config.threads, equals(150));
-        expect(config.maxLatency, equals(150));
-        expect(config.maxLossRate, equals(0.05));
-        expect(config.minDownloadSpeed, equals(10.0));
-        expect(config.testCount, equals(5));
-        expect(config.downloadTestTime, equals(12));
-        expect(config.maxIPsToTest, equals(15000));
       });
     });
 
@@ -243,16 +204,16 @@ void main() {
         expect(config1.validate(), isNotNull);
         expect(
           config1.validate(),
-          contains('Max latency must be between 50 and 500 ms'),
+          contains('Max latency must be between 50 and 9999 ms'),
         );
 
-        const config2 = ScannerConfig(maxLatency: 501);
+        const config2 = ScannerConfig(maxLatency: 10000);
         expect(config2.validate(), isNotNull);
 
         const config3 = ScannerConfig(maxLatency: 50);
         expect(config3.validate(), isNull);
 
-        const config4 = ScannerConfig(maxLatency: 500);
+        const config4 = ScannerConfig(maxLatency: 9999);
         expect(config4.validate(), isNull);
       });
 

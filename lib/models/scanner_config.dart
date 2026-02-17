@@ -152,45 +152,6 @@ class ScannerConfig {
     testAllIPs: false,
   );
 
-  /// Fast configuration (quick results, lower quality)
-  static const fast = ScannerConfig(
-    targetCleanIPs: 5,
-    threads: 300,
-    maxLatency: 400,
-    maxLossRate: 0.3,
-    minDownloadSpeed: 1.0,
-    testCount: 3,
-    downloadTestTime: 8,
-    maxIPsToTest: 3000,
-    testAllIPs: false,
-  );
-
-  /// Balanced configuration (recommended for most users)
-  static const balanced = ScannerConfig(
-    targetCleanIPs: 10,
-    threads: 200,
-    maxLatency: 9999,
-    maxLossRate: 1.0,
-    minDownloadSpeed: 0.0,
-    testCount: 4,
-    downloadTestTime: 10,
-    maxIPsToTest: 10000,
-    testAllIPs: false,
-  );
-
-  /// Quality configuration (slower, higher quality results)
-  static const quality = ScannerConfig(
-    targetCleanIPs: 20,
-    threads: 150,
-    maxLatency: 200,
-    maxLossRate: 0.1,
-    minDownloadSpeed: 5.0,
-    testCount: 5,
-    downloadTestTime: 12,
-    maxIPsToTest: 15000,
-    testAllIPs: false,
-  );
-
   /// Validates the configuration.
   ///
   /// Returns an error message if invalid, null if valid.

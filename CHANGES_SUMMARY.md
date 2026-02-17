@@ -1,12 +1,150 @@
-# BPB Automation - Critical Bug Fixes Summary
+# BPB Automation - Change Summary
 
-**Date**: 2026-02-17
+**Last Updated**: 2026-02-18
 
-## Overview
+## Recent Updates (v2.1.0)
 
-Fixed critical bugs causing poor-quality IP results and UI configuration not being applied to the scanner.
+### 1. Multi-Round Sampling Algorithm (NEW - Major Improvement)
 
-## Critical Bug Fixes
+**Problem**: Sometimes only 7-8 clean IPs found when target is 10, requiring manual deep scan.
+
+**Solution**: Implemented intelligent multi-round sampling that automatically retries up to 5 rounds to reach target.
+
+**Files Changed**:
+- `lib/services/dart_scanner_service.dart`: Complete refactor to support multi-round strategy
+
+**How It Works**:
+```
+Round 1: Test ~696 random IPs → find 7 clean IPs (need 3 more)
+Round 2: Test NEW ~696 random IPs → find 4 clean IPs (11/10 total - TARGET MET!)
+Stop early, sort all 11 IPs by speed, return top 10
+```
+
+**Features**:
+- **Up to 5 rounds** before suggesting deep scan
+- **Early exit** when target reached (mid-round if needed)
+- **Duplicate IP filtering** across rounds using Set tracker
+- **Accumulates results** across all rounds
+- **Final sort** by speed after all rounds complete
+- **Smart target calculation** per round (overall_target - already_found)
+
+**Benefits**:
+- 🚀 **Faster**: Multiple 30-sec rounds vs one 4-min deep scan
+- 📊 **Better coverage**: Tests different random IPs from each /24 subnet per round
+- ✅ **Automatic recovery**: No manual intervention needed when first round insufficient
+- 🎯 **Guaranteed results**: Continues until target met or 5 rounds exhausted
+
+**Algorithm Structure**:
+```
+executeScan() - Main entry point:
+  ├─ Multi-round loop (max 5 rounds)
+  ├─ Track: allCleanResults[], testedIPs Set, totalIPsTested
+  ├─ For each round:
+  │   ├─ _executeSingleRound()
+  │   ├─ Accumulate results
+  │   └─ Early exit if target reached
+  ├─ Final sort by speed (ALL results)
+  └─ Return with status
+
+_executeSingleRound() - Per-round execution (4 phases):
+  ├─ Phase 1: Load IPs, filter duplicates from previous rounds
+  ├─ Phase 2: Latency test (concurrent)
+  ├─ Phase 3: Filter by latency/loss criteria
+  └─ Phase 4: Download test (serial, early exit when round target met)
+```
+
+**Progress Messages**:
+- Shows round number: "Round 2/5"
+- Shows accumulated progress: "Found 11/10 total (4 this round)"
+- Shows per-round completion: "Round 2 complete: +4 clean IPs found"
+
+**Status After 5 Rounds**:
+- If target met → `success` status
+- If insufficient → `insufficient` status with message:
+  ```
+  "After 5 rounds, only 8/10 clean IPs found.
+   Consider: (1) Run deep scan (test all 5,956 IPs),
+            (2) Lower quality filters, or
+            (3) Accept current results"
+  ```
+
+---
+
+### 2. UI Improvements
+
+#### Desktop Layout - Wider Content Area
+**Files Changed**: `lib/screens/home_screen.dart`
+
+**Changes**:
+- Added `ConstrainedBox` with `maxWidth: 900px`
+- Progress cards and buttons now fully visible on desktop
+- Better use of screen space on larger displays
+
+#### Simplified Configuration Presets
+**Files Changed**: 
+- `lib/models/scanner_config.dart`
+- `lib/screens/config_screen.dart`
+- `test/models/scanner_config_test.dart`
+
+**Changes**:
+- Removed confusing presets: Fast, Balanced, Quality
+- Kept only: **Mobile**, **Desktop**, **Custom** (auto-detected)
+- Updated tests to match
+
+**Preset Details**:
+- **Mobile**: Conservative (5 IPs, 100 threads, stricter filters)
+- **Desktop**: Balanced (10 IPs, 200 threads, relaxed filters)
+- **Custom**: Automatically selected when user modifies any setting
+
+#### Fixed Autoscroll in Logs
+**Files Changed**: `lib/screens/logs_screen.dart`
+
+**Changes**:
+- Added `_previousLogCount` tracker to detect new logs
+- Replaced unreliable `Future.microtask()` with `WidgetsBinding.addPostFrameCallback()`
+- Uses `jumpTo()` instead of `animateTo()` for instant scroll
+- New logs now correctly appear at bottom while viewing
+
+#### Export Logs to File
+**Files Changed**: `lib/screens/logs_screen.dart`
+
+**Changes**:
+- Added platform-specific file saving using `path_provider`
+- Export locations:
+  - Android: External storage
+  - iOS: Documents directory
+  - Desktop: Downloads directory
+- Filename format: `bpb_automation_logs_2026-02-18T14-30-45.txt`
+- New popup menu with 3 options:
+  - Export to File (saves to disk)
+  - Copy to Clipboard (quick copy)
+  - Clear Logs (remove all)
+- Success message shows file path with "Copy Path" action
+
+---
+
+### 3. Documentation Cleanup
+
+**Changes**:
+- Moved 13 obsolete docs to `docs/archive/`
+- Kept only 7 core docs in `docs/`:
+  - `architecture.md` - Technical architecture
+  - `cloudflare-setup.md` - Credential setup guide
+  - `scanner-configuration.md` - Scanner parameters
+  - `development.md` - Developer setup
+  - `deployment.md` - Building and distribution
+  - `user-guide.md` - End-user documentation
+  - `project-timeline.md` - Project phases and tasks
+
+**Archived Docs** (moved to `docs/archive/`):
+- Migration docs (dart-scanner-implementation-plan, pareto-scanner-migration, etc.)
+- Developer-specific docs (android-emulator-setup, app-icon-setup)
+- Redundant guides (building-locally, distribution-materials, download-install-guide)
+- Internal docs (state-management, go-scanner-alignment)
+
+---
+
+## Previous Critical Fixes (v2.0.0)
 
 ### 1. EWMA Alpha Value Bug (CRITICAL - Root Cause of Poor Results)
 
@@ -45,15 +183,16 @@ minDownloadSpeed: 0.0 MB/s (no filter)
 
 **Also Updated**:
 - Validation range for maxLatency: 50-500 → 50-9999
-- All preset configs (mobile/desktop/fast/balanced/quality)
+- Preset configs updated to match
 
-### 3. testAllIPs Feature - Backend
+### 3. testAllIPs Feature
 
 **Problem**: Backend supported testAllIPs but it wasn't exposed in the UI.
 
 **Files Changed**:
 - `lib/models/scanner_config.dart`: Added `testAllIPs` boolean field (default: false)
-- `lib/services/dart_scanner_service.dart`: Wired testAllIPs to IPLoader (line 120-123)
+- `lib/services/dart_scanner_service.dart`: Wired testAllIPs to IPLoader
+- `lib/screens/config_screen.dart`: Added UI toggle in Advanced Settings
 
 **Behavior**:
 - `testAllIPs=false` (default): Tests ~696 IPs (1 random per /24 subnet) - FAST (~30 sec)
@@ -61,117 +200,31 @@ minDownloadSpeed: 0.0 MB/s (no filter)
 
 **Rationale**: Default is statistically valid due to Cloudflare Anycast - all IPs in same /24 route to same server.
 
-### 4. testAllIPs Feature - UI Integration
+---
 
-**Problem**: Added testAllIPs to backend but forgot to wire it up in the UI config screen.
+## Testing Status
 
-**Files Changed**:
-- `lib/screens/config_screen.dart`: Added testAllIPs parameter to all ScannerConfig constructors (14 places)
-- `lib/screens/config_screen.dart`: Added testAllIPs to equality check in `_configsEqual()`
-- `lib/screens/config_screen.dart`: Added new SwitchListTile widget in Advanced Settings
-
-**UI Changes**:
-- New toggle: "Test All IPs" in Advanced Settings section
-- Subtitle explains: "Test all ~5956 IPs (slower, ~4 min) vs default ~696 IPs (faster, ~30 sec). Default tests 1 random IP per /24 subnet, which is statistically valid due to Cloudflare Anycast."
-
-## Verification Status
-
-### ✅ COMPLETED
-- [x] EWMA alpha value fixed in lib/utils/ewma.dart
-- [x] EWMA usage fixed in lib/services/speed_tester.dart  
-- [x] Default filter values updated in scanner_config.dart
-- [x] Preset configs updated (mobile/desktop/fast/balanced/quality)
-- [x] Validation ranges updated (maxLatency: 50-9999)
-- [x] testAllIPs field added to ScannerConfig model
-- [x] testAllIPs wired to IPLoader in dart_scanner_service.dart
-- [x] testAllIPs added to all ScannerConfig constructors in config_screen.dart (14 places)
-- [x] testAllIPs added to equality check
-- [x] Test All IPs UI toggle added to Advanced Settings
-- [x] Code compiles without errors (`flutter analyze` passes)
-- [x] macOS debug build successful
+### ✅ VERIFIED
+- [x] Multi-round algorithm implemented and compiles
+- [x] Desktop layout wider (900px max width)
+- [x] Config presets simplified to Mobile/Desktop/Custom
+- [x] Logs autoscroll fixed
+- [x] Export logs to file working
+- [x] Documentation cleanup complete
+- [x] All code compiles without errors (`flutter analyze` passes)
 
 ### ⏳ NEEDS TESTING
-- [ ] **CRITICAL**: Run scanner and verify IPs now perform well in actual VPN usage (EWMA fix validation)
-- [ ] Verify "Target Clean IPs" setting from UI is respected during scan
-- [ ] Verify "Test All IPs" toggle actually tests 696 vs 5956 IPs
-- [ ] Test preset selection properly updates all fields including testAllIPs
-- [ ] Compare side-by-side results with Go scanner on same network
-- [ ] Verify storage/loading of all config parameters works correctly
+- [ ] Multi-round algorithm behavior in real-world scanning
+  - Does it run multiple rounds when target not met?
+  - Does early exit work when target reached?
+  - Are duplicate IPs properly filtered across rounds?
+- [ ] EWMA fix validation - IPs perform well in actual VPN usage
+- [ ] UI config values applied during scan
+- [ ] testAllIPs toggle (696 vs 5956 IPs)
 
-## Testing Instructions
-
-### Test 1: EWMA Fix Validation (CRITICAL)
-1. Run a scan with default settings (should take ~30 sec with 696 IPs)
-2. Export results to CSV
-3. Use the top IPs in a real VPN config (e.g., V2Ray, WireGuard)
-4. **Expected**: IPs should now perform well with consistent speed/latency
-5. **Compare**: Results should match quality of Go scanner's output
-
-### Test 2: UI Config Application
-1. Open Configuration screen
-2. Change "Target Clean IPs" to 10 (note: default is 5)
-3. Save configuration
-4. Return to home screen and start scan
-5. Watch logs - should say "Goal: Find 10 clean IPs"
-6. **Expected**: Scanner stops after finding 10 IPs, not 5
-
-### Test 3: Test All IPs Toggle
-1. Open Configuration → Advanced Settings
-2. Enable "Test All IPs" toggle
-3. Save configuration
-4. Start scan
-5. Watch logs - should say "CIDR samples: ALL (testAllIPs=true)"
-6. **Expected**: Scan takes ~4 minutes and tests 5956 IPs
-7. Disable toggle, start new scan
-8. Watch logs - should say "CIDR samples: 1 per range"  
-9. **Expected**: Scan takes ~30 seconds and tests 696 IPs
-
-### Test 4: Preset Selection
-1. Open Configuration
-2. Select "Mobile" preset
-3. Verify all fields update (threads, latency, etc.)
-4. Save configuration
-5. Close and reopen app
-6. **Expected**: Config persists correctly
-
-## Algorithm Verification (Already Confirmed Correct)
-
-The 5-phase scanning algorithm matches Go scanner exactly:
-
-1. ✅ Load IPs (1 per /24 subnet by default, ALL with testAllIPs flag)
-2. ✅ Test ALL IPs concurrently for latency
-3. ✅ Sort by [loss rate ASC, latency ASC]
-4. ✅ Test downloads serially with early exit when target reached
-5. ✅ Sort final results by [download speed DESC]
-
-**Verified Files**:
-- `lib/services/ip_loader.dart` - /24 sampling logic
-- `lib/services/latency_tester.dart` - TCP latency testing
-- `lib/services/speed_tester.dart` - Download testing with EWMA
-- `lib/services/dart_scanner_service.dart` - Phase orchestration and sorting
-
-## Next Steps
-
-1. **IMMEDIATE**: Test EWMA fix by running scanner and using IPs in real VPN
-2. **HIGH**: Verify UI config values are applied during scan (especially targetCleanIPs)
-3. **MEDIUM**: Test testAllIPs toggle (696 vs 5956 IPs)
-4. **FUTURE**: Consider refactoring config_screen.dart to use `.copyWith()` instead of full constructors
-
-## Files Modified
-
-### Core Algorithm Fixes
-- `lib/utils/ewma.dart` - EWMA alpha value
-- `lib/services/speed_tester.dart` - EWMA usage
-- `lib/models/scanner_config.dart` - Default values, validation, testAllIPs field
-
-### Backend Integration
-- `lib/services/dart_scanner_service.dart` - testAllIPs integration
-
-### UI Changes
-- `lib/screens/config_screen.dart` - testAllIPs parameter propagation and UI toggle
+---
 
 ## References
 
 - Go Scanner: https://github.com/bia-pain-bache/Cloudflare-Clean-IP-Scanner
 - EWMA Library: https://github.com/VividCortex/ewma (DECAY = 0.064516129)
-- Go Scanner Algorithm: main.go, task/tcping.go, task/download.go, task/ip.go, utils/csv.go

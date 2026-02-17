@@ -16,16 +16,12 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
   ScannerConfig _config = const ScannerConfig();
   bool _isLoading = false;
-  String _selectedPreset = 'Default';
+  String _selectedPreset = 'Desktop';
 
-  // Define all preset configurations
+  // Define preset configurations (Mobile, Desktop, Custom)
   final Map<String, ScannerConfig> _presets = {
     'Mobile': ScannerConfig.mobile,
     'Desktop': ScannerConfig.desktop,
-    'Fast': ScannerConfig.fast,
-    'Balanced': ScannerConfig.balanced,
-    'Quality': ScannerConfig.quality,
-    'Default': const ScannerConfig(),
   };
 
   @override
