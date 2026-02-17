@@ -1,18 +1,10 @@
-import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
-import 'package:bpb_automation/services/ip_loader.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('IPLoader Subnet-Aware Selection Integration Tests', () {
-    late IPLoader ipLoader;
-
-    setUp(() {
-      ipLoader = IPLoader();
-    });
-
     test(
       'IPv4 subnet diversity validation with test file',
       () async {
@@ -73,7 +65,6 @@ void main() {
       // With random sampling of 200 IPs from 2^96 space,
       // chance of collision is negligible
       final samples = 200;
-      final addressSpace = hostBits; // Can't calculate 2^96, but symbolically
 
       expect(
         samples,
@@ -84,12 +75,6 @@ void main() {
   });
 
   group('IP Parsing and Validation', () {
-    late IPLoader ipLoader;
-
-    setUp(() {
-      ipLoader = IPLoader();
-    });
-
     test('Validate IPv4 address format detection', () {
       final ipv4Examples = [
         '192.168.1.1',

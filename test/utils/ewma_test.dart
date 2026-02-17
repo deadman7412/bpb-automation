@@ -135,7 +135,6 @@ void main() {
     test('Matching Go scanner behavior - sustained throughput detection', () {
       // Simulate Go scanner's use case:
       // Sample download speed 100 times during a test
-      final ewma = EWMA(0.2);
 
       // Scenario 1: Steady fast speed
       final steady = EWMA(0.2);

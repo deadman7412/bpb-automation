@@ -113,7 +113,8 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev \
+            file desktop-file-utils libfuse2 rpm
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -131,18 +132,154 @@ jobs:
       - name: Build Linux (Release)
         run: flutter build linux --release
 
+      - name: Create .desktop file
+        run: |
+          mkdir -p packaging/linux
+          cat > packaging/linux/bpb-automation.desktop << 'EOF'
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=BPB Automation
+          Comment=Cloudflare Clean IP Scanner for BPB Panel
+          Exec=bpb_automation
+          Icon=bpb_automation
+          Terminal=false
+          Categories=Network;Utility;
+          Keywords=cloudflare;scanner;bpb;
+          EOF
+
       - name: Package as tar.gz
         run: |
           cd build/linux/x64/release/bundle
           tar -czf ../../../../../BPB-Automation-Linux-x64.tar.gz *
+
+      - name: Create AppImage
+        run: |
+          # Download appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/lib
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          
+          # Copy application
+          cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
+          
+          # Copy desktop file
+          cp packaging/linux/bpb-automation.desktop AppDir/usr/share/applications/
+          cp packaging/linux/bpb-automation.desktop AppDir/
+          
+          # Create a simple icon (placeholder)
+          echo "Icon placeholder" > AppDir/usr/share/icons/hicolor/256x256/apps/bpb_automation.png
+          
+          # Create AppRun
+          cat > AppDir/AppRun << 'EOF'
+          #!/bin/bash
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          exec "${HERE}/usr/bin/bpb_automation" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          
+          # Build AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir BPB-Automation-Linux-x64.AppImage || echo "AppImage creation failed, continuing..."
+
+      - name: Create .deb package
+        run: |
+          mkdir -p debian-pkg/DEBIAN
+          mkdir -p debian-pkg/opt/bpb-automation
+          mkdir -p debian-pkg/usr/share/applications
+          mkdir -p debian-pkg/usr/bin
+          
+          # Copy files
+          cp -r build/linux/x64/release/bundle/* debian-pkg/opt/bpb-automation/
+          cp packaging/linux/bpb-automation.desktop debian-pkg/usr/share/applications/
+          
+          # Create symlink
+          ln -s /opt/bpb-automation/bpb_automation debian-pkg/usr/bin/bpb-automation
+          
+          # Create control file
+          cat > debian-pkg/DEBIAN/control << EOF
+          Package: bpb-automation
+          Version: 1.0.0
+          Section: net
+          Priority: optional
+          Architecture: amd64
+          Maintainer: BPB Automation <noreply@example.com>
+          Description: Cloudflare Clean IP Scanner for BPB Panel
+           Cross-platform automation tool for BPB Panel to automatically
+           scan and update clean Cloudflare IPs.
+          EOF
+          
+          # Build .deb
+          dpkg-deb --build debian-pkg BPB-Automation-Linux-x64.deb
+
+      - name: Create .rpm package
+        run: |
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          mkdir -p rpm-pkg/opt/bpb-automation
+          mkdir -p rpm-pkg/usr/share/applications
+          mkdir -p rpm-pkg/usr/bin
+          
+          # Copy files
+          cp -r build/linux/x64/release/bundle/* rpm-pkg/opt/bpb-automation/
+          cp packaging/linux/bpb-automation.desktop rpm-pkg/usr/share/applications/
+          
+          # Create tarball for rpmbuild
+          tar -czf ~/rpmbuild/SOURCES/bpb-automation-1.0.0.tar.gz -C rpm-pkg .
+          
+          # Create spec file
+          cat > ~/rpmbuild/SPECS/bpb-automation.spec << 'EOF'
+          Name:           bpb-automation
+          Version:        1.0.0
+          Release:        1%{?dist}
+          Summary:        Cloudflare Clean IP Scanner for BPB Panel
+          License:        Proprietary
+          Source0:        %{name}-%{version}.tar.gz
+          BuildArch:      x86_64
+          
+          %description
+          Cross-platform automation tool for BPB Panel to automatically
+          scan and update clean Cloudflare IPs.
+          
+          %prep
+          %setup -q -c
+          
+          %install
+          mkdir -p %{buildroot}
+          cp -r * %{buildroot}/
+          
+          %files
+          /opt/bpb-automation/*
+          /usr/share/applications/bpb-automation.desktop
+          
+          %changelog
+          * $(date "+%a %b %d %Y") BPB Automation <noreply@example.com> - 1.0.0-1
+          - Initial RPM release
+          EOF
+          
+          # Build RPM
+          rpmbuild -bb ~/rpmbuild/SPECS/bpb-automation.spec || echo "RPM build failed, continuing..."
+          
+          # Copy RPM to working directory if it was created
+          if [ -f ~/rpmbuild/RPMS/x86_64/bpb-automation-1.0.0-1.*.rpm ]; then
+            cp ~/rpmbuild/RPMS/x86_64/bpb-automation-1.0.0-1.*.rpm BPB-Automation-Linux-x64.rpm
+          fi
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-x64
           path: |
-            build/linux/x64/release/bundle
             BPB-Automation-Linux-x64.tar.gz
+            BPB-Automation-Linux-x64.AppImage
+            BPB-Automation-Linux-x64.deb
+            BPB-Automation-Linux-x64.rpm
           retention-days: 30
 
   # Windows Build
@@ -203,6 +340,9 @@ jobs:
             artifacts/android-apk/BPB-Automation-Android-Universal.apk
             artifacts/macos-app/BPB-Automation-macOS.dmg
             artifacts/linux-x64/BPB-Automation-Linux-x64.tar.gz
+            artifacts/linux-x64/BPB-Automation-Linux-x64.AppImage
+            artifacts/linux-x64/BPB-Automation-Linux-x64.deb
+            artifacts/linux-x64/BPB-Automation-Linux-x64.rpm
             artifacts/windows-x64/BPB-Automation-Windows-x64.zip
           draft: false
           generate_release_notes: true

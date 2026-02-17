@@ -1,7 +1,9 @@
 #!/usr/bin/env dart
+// ignore_for_file: avoid_print
 
-/// Manual validation script for subnet-aware IP selection
-/// Run with: dart run scripts/validate_ip_selection.dart
+// Manual validation script for subnet-aware IP selection.
+//
+// Run with: dart run scripts/validate_ip_selection.dart
 
 import 'dart:math';
 
