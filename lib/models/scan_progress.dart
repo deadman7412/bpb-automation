@@ -56,23 +56,32 @@ class ScanProgress {
   });
 
   /// Progress as percentage (0.0 to 1.0)
-  double get progress => totalIPs > 0 ? processedIPs / totalIPs : 0.0;
+  double get progress {
+    if (totalIPs <= 0) return 0.0;
+    final value = processedIPs / totalIPs;
+    return value.clamp(0.0, 1.0);
+  }
 
   /// Progress as percentage (0 to 100)
   double get progressPercent => progress * 100;
 
   /// Success rate (0.0 to 1.0)
-  double get successRate =>
-      processedIPs > 0 ? successfulIPs / processedIPs : 0.0;
+  double get successRate {
+    if (processedIPs <= 0) return 0.0;
+    final value = successfulIPs / processedIPs;
+    return value.clamp(0.0, 1.0);
+  }
 
   /// Success rate as percentage (0 to 100)
   double get successRatePercent => successRate * 100;
 
-  /// NEW: Goal progress as percentage (0.0 to 1.0)
-  double get goalProgress =>
-      targetCleanIPs > 0 ? cleanIPsFound / targetCleanIPs : 0.0;
+  /// NEW: Goal progress as ratio (can exceed 1.0 if goal is exceeded)
+  double get goalProgress {
+    if (targetCleanIPs <= 0) return 0.0;
+    return cleanIPsFound / targetCleanIPs;
+  }
 
-  /// NEW: Goal progress as percentage (0 to 100)
+  /// NEW: Goal progress as percentage (can exceed 100)
   double get goalProgressPercent => goalProgress * 100;
 
   /// NEW: Is goal met?
@@ -84,16 +93,21 @@ class ScanProgress {
   /// NEW: Calculated test efficiency (clean IPs / total IPs tested)
   /// Returns testEfficiency if set, otherwise calculates from totalIPsTested
   double get efficiency {
-    if (testEfficiency != null) return testEfficiency!;
-    return totalIPsTested > 0 ? cleanIPsFound / totalIPsTested : 0.0;
+    if (testEfficiency != null) return testEfficiency!.clamp(0.0, 1.0);
+    if (totalIPsTested <= 0) return 0.0;
+    final value = cleanIPsFound / totalIPsTested;
+    return value.clamp(0.0, 1.0);
   }
 
   /// NEW: Efficiency as percentage
   double get efficiencyPercent => efficiency * 100;
 
   /// NEW: Batch progress as percentage (0.0 to 1.0)
-  double get batchProgress =>
-      totalBatchesPlanned > 0 ? batchesCompleted / totalBatchesPlanned : 0.0;
+  double get batchProgress {
+    if (totalBatchesPlanned <= 0) return 0.0;
+    final value = batchesCompleted / totalBatchesPlanned;
+    return value.clamp(0.0, 1.0);
+  }
 
   /// NEW: Batch progress as percentage (0 to 100)
   double get batchProgressPercent => batchProgress * 100;

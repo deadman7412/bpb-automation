@@ -41,14 +41,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
       setState(() {
         _results = args;
       });
-      _log.logInfo('Loaded ${_results.length} results from navigation arguments');
+      _log.logInfo(
+        'Loaded ${_results.length} results from navigation arguments',
+      );
     } else {
       // If no arguments, try to load last saved results
       _log.logInfo('No route arguments, loading last saved results');
       final savedResults = await _storage.getLastScanResults();
       if (savedResults != null && savedResults.isNotEmpty) {
         setState(() {
-          _results = savedResults.map((json) => CleanIP.fromJson(json)).toList();
+          _results = savedResults
+              .map((json) => CleanIP.fromJson(json))
+              .toList();
         });
         _log.logOk('Loaded ${_results.length} results from storage');
       } else {
@@ -65,7 +69,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
     // Load num IPs to use from storage
     final numIps = await _storage.getNumIpsToUse();
     setState(() {
-      _numIPsToUse = numIps.clamp(1, _results.isNotEmpty ? _results.length : 20);
+      _numIPsToUse = numIps.clamp(
+        1,
+        _results.isNotEmpty ? _results.length : 20,
+      );
     });
 
     _sortResults();
@@ -154,7 +161,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
       if (!mounted) return;
 
       if (success) {
-        _log.logOk('BPB Panel updated successfully with ${selectedIPs.length} clean IPs');
+        _log.logOk(
+          'BPB Panel updated successfully with ${selectedIPs.length} clean IPs',
+        );
 
         // Save num IPs to use for next time
         await _storage.saveNumIpsToUse(_numIPsToUse);
@@ -163,7 +172,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('BPB Panel updated successfully with ${selectedIPs.length} clean IPs'),
+            content: Text(
+              'BPB Panel updated successfully with ${selectedIPs.length} clean IPs',
+            ),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 3),
           ),
@@ -172,7 +183,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
         _log.logError('Failed to update BPB Panel');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Failed to update BPB Panel. Check logs for details.'),
+            content: Text(
+              'Failed to update BPB Panel. Check logs for details.',
+            ),
             backgroundColor: Colors.red,
             duration: Duration(seconds: 5),
           ),
@@ -218,7 +231,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final acceptableResults = _results.where((ip) => ip.isAcceptable()).toList();
+    final acceptableResults = _results
+        .where((ip) => ip.isAcceptable())
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -292,13 +307,20 @@ class _ResultsScreenState extends State<ResultsScreen> {
                           child: acceptableResults.isEmpty
                               ? const SizedBox.shrink()
                               : Slider(
-                                  value: _numIPsToUse.toDouble().clamp(1.0, acceptableResults.length.toDouble()),
+                                  value: _numIPsToUse.toDouble().clamp(
+                                    1.0,
+                                    acceptableResults.length.toDouble(),
+                                  ),
                                   min: 1,
                                   max: acceptableResults.length.toDouble(),
-                                  divisions: acceptableResults.length - 1,
+                                  divisions: acceptableResults.length > 1
+                                      ? acceptableResults.length - 1
+                                      : null,
                                   label: _numIPsToUse.toString(),
                                   onChanged: (value) {
-                                    setState(() => _numIPsToUse = value.toInt());
+                                    setState(
+                                      () => _numIPsToUse = value.toInt(),
+                                    );
                                   },
                                 ),
                         ),
@@ -349,13 +371,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.cloud_off, size: 64, color: Colors.grey.shade400),
+                          Icon(
+                            Icons.cloud_off,
+                            size: 64,
+                            color: Colors.grey.shade400,
+                          ),
                           const SizedBox(height: 16),
                           Text(
                             'No scan results yet',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  color: Colors.grey,
-                                ),
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(color: Colors.grey),
                           ),
                           const SizedBox(height: 8),
                           const Text(
@@ -377,16 +402,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
                           color: isSelected
                               ? Colors.blue.shade100
                               : isAcceptable
-                                  ? null
-                                  : Colors.grey.shade100,
+                              ? null
+                              : Colors.grey.shade100,
                           elevation: isSelected ? 2 : 1,
                           child: ListTile(
                             leading: CircleAvatar(
                               backgroundColor: isSelected
                                   ? Colors.blue.shade700
                                   : isAcceptable
-                                      ? Colors.green
-                                      : Colors.grey,
+                                  ? Colors.green
+                                  : Colors.grey,
                               child: Text(
                                 '${index + 1}',
                                 style: const TextStyle(
@@ -412,10 +437,17 @@ class _ResultsScreenState extends State<ResultsScreen> {
                               ),
                             ),
                             trailing: isSelected
-                                ? const Icon(Icons.check_circle, color: Colors.green, size: 28)
+                                ? const Icon(
+                                    Icons.check_circle,
+                                    color: Colors.green,
+                                    size: 28,
+                                  )
                                 : isAcceptable
-                                    ? null
-                                    : const Icon(Icons.warning, color: Colors.orange),
+                                ? null
+                                : const Icon(
+                                    Icons.warning,
+                                    color: Colors.orange,
+                                  ),
                           ),
                         );
                       },
@@ -437,7 +469,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: (_results.isEmpty || _isUpdating) ? null : _updateBPB,
+                      onPressed: (_results.isEmpty || _isUpdating)
+                          ? null
+                          : _updateBPB,
                       icon: _isUpdating
                           ? const SizedBox(
                               width: 16,
@@ -476,14 +510,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
         const SizedBox(height: 4),
         Text(
           value,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }

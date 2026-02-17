@@ -31,7 +31,7 @@ void main() {
 
     // ScannerConfig
     const scannerConfig = ScannerConfig();
-    expect(scannerConfig.isValid(), isTrue);
+    expect(scannerConfig.validate(), isNull);
 
     // Credentials
     const credentials = Credentials(

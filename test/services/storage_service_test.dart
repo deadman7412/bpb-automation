@@ -65,13 +65,15 @@ void main() {
         expect(retrieved, isNull);
       });
 
-      test('hasCredentials returns true when valid credentials exist',
-          () async {
-        await storage.saveCredentials(testCreds);
-        final hasCredsResult = await storage.hasCredentials();
+      test(
+        'hasCredentials returns true when valid credentials exist',
+        () async {
+          await storage.saveCredentials(testCreds);
+          final hasCredsResult = await storage.hasCredentials();
 
-        expect(hasCredsResult, isTrue);
-      });
+          expect(hasCredsResult, isTrue);
+        },
+      );
 
       test('hasCredentials returns false when no credentials exist', () async {
         final hasCredsResult = await storage.hasCredentials();
@@ -93,8 +95,8 @@ void main() {
       const testConfig = ScannerConfig(
         threads: 300,
         testCount: 5,
-        downloadCount: 15,
-        speedLimit: 10,
+        maxLatency: 200,
+        minDownloadSpeed: 10.0,
       );
 
       test('saveScannerConfig and getScannerConfig work', () async {
@@ -139,10 +141,7 @@ void main() {
         final retrieved = await storage.getLastScanTime();
 
         expect(retrieved, isNotNull);
-        expect(
-          retrieved!.difference(now).inSeconds,
-          lessThan(1),
-        );
+        expect(retrieved!.difference(now).inSeconds, lessThan(1));
       });
 
       test('getLastScanTime returns null when not set', () async {

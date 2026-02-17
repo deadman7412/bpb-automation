@@ -281,135 +281,296 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Progress Indicator
                 if (_isScanning && _currentProgress != null)
                   Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Goal Progress (primary)
-                          if (_currentProgress!.targetCleanIPs > 0) ...[
-                            Text(
-                              'Goal: ${_currentProgress!.cleanIPsFound}/${_currentProgress!.targetCleanIPs} clean IPs',
-                              style: Theme.of(context).textTheme.titleMedium,
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 8),
-                            LinearProgressIndicator(
-                              value: _currentProgress!.goalProgress,
-                              minHeight: 8,
-                              backgroundColor: Colors.grey[300],
-                              color: _currentProgress!.isGoalMet
-                                  ? Colors.green
-                                  : Colors.blue,
-                            ),
-                            const SizedBox(height: 16),
+                    elevation: 4,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Theme.of(context).brightness == Brightness.dark
+                                ? Colors.grey[850]!
+                                : Colors.grey[50]!,
+                            Theme.of(context).brightness == Brightness.dark
+                                ? Colors.grey[900]!
+                                : Colors.grey[100]!,
                           ],
-
-                          // Batch/Stage Progress (secondary)
-                          if (_currentProgress!.currentBatch > 0) ...[
-                            // Show current stage/substage message
-                            if (_currentProgress!.subStage != null &&
-                                _currentProgress!.subStage!.isNotEmpty) ...[
-                              // During substage (e.g., Pareto download testing), show message only
-                              Text(
-                                'Batch ${_currentProgress!.currentBatch}: ${_currentProgress!.subStage}',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 12),
-                            ] else ...[
-                              // During main stage (latency testing), show progress bar
-                              Text(
-                                'Batch ${_currentProgress!.currentBatch}: ${_currentProgress!.processedIPs}/${_currentProgress!.totalIPs} IPs',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 8),
-                              LinearProgressIndicator(
-                                value: _currentProgress!.progress,
-                                minHeight: 6,
-                                backgroundColor: Colors.grey[200],
-                              ),
-                              const SizedBox(height: 12),
-                            ],
-                          ] else ...[
-                            // Fallback for non-batch progress
-                            LinearProgressIndicator(
-                              value: _currentProgress!.progress,
-                              minHeight: 8,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              '${_currentProgress!.processedIPs}/${_currentProgress!.totalIPs} IPs processed',
-                              style: Theme.of(context).textTheme.bodyMedium,
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-
-                          // Success/Fail Stats
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              // During download testing, show preserved latency results
-                              if (_currentProgress!.stage ==
-                                      ScanStage.speedTesting &&
-                                  _currentProgress!.lastBatchLatencyPass !=
-                                      null)
-                                Column(
-                                  children: [
-                                    Text(
-                                      'Latency Results:',
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Goal Progress (primary)
+                            if (_currentProgress!.targetCleanIPs > 0) ...[
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Goal Progress',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _currentProgress!.isGoalMet
+                                          ? Colors.green[100]
+                                          : Colors.blue[100],
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '${_currentProgress!.cleanIPsFound}/${_currentProgress!.targetCleanIPs}',
                                       style: TextStyle(
-                                        color: Colors.grey[600],
-                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: _currentProgress!.isGoalMet
+                                            ? Colors.green[900]
+                                            : Colors.blue[900],
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        Text(
-                                          'Pass: ${_currentProgress!.lastBatchLatencyPass}',
-                                          style: const TextStyle(
-                                            color: Colors.green,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Text(
-                                          'Fail: ${_currentProgress!.lastBatchLatencyFail}',
-                                          style: const TextStyle(
-                                            color: Colors.red,
-                                          ),
-                                        ),
-                                      ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: SizedBox(
+                                  height: 16,
+                                  child: LinearProgressIndicator(
+                                    value: _currentProgress!.goalProgress,
+                                    backgroundColor:
+                                        Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.grey[800]
+                                        : Colors.grey[300],
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      _currentProgress!.isGoalMet
+                                          ? Colors.green
+                                          : Colors.blue,
                                     ),
-                                  ],
-                                )
-                              else
-                                // During other stages, show current pass/fail
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                            ],
+
+                            // Batch/Stage Progress (secondary)
+                            if (_currentProgress!.currentBatch > 0) ...[
+                              // Show current stage/substage message
+                              if (_currentProgress!.subStage != null &&
+                                  _currentProgress!.subStage!.isNotEmpty) ...[
+                                // During substage (e.g., Pareto download testing), show message only
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.blue[900]!.withOpacity(0.3)
+                                        : Colors.blue[50],
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color:
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.blue[700]!
+                                          : Colors.blue[200]!,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.info_outline,
+                                        color: Colors.blue[400],
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Batch ${_currentProgress!.currentBatch}: ${_currentProgress!.subStage}',
+                                          style: TextStyle(
+                                            color:
+                                                Theme.of(context).brightness ==
+                                                    Brightness.dark
+                                                ? Colors.blue[100]
+                                                : Colors.blue[900],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                              ] else ...[
+                                // During main stage (latency testing), show progress bar
                                 Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      'Pass: ${_currentProgress!.successfulIPs}',
-                                      style: const TextStyle(
-                                        color: Colors.green,
-                                      ),
+                                      'Batch ${_currentProgress!.currentBatch}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                     ),
-                                    const SizedBox(width: 16),
                                     Text(
-                                      'Fail: ${_currentProgress!.failedIPs}',
-                                      style: const TextStyle(color: Colors.red),
+                                      '${_currentProgress!.processedIPs}/${_currentProgress!.totalIPs} IPs',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                     ),
                                   ],
                                 ),
-                              if (_currentProgress!.totalIPsTested > 0)
-                                Text(
-                                  'Total: ${_currentProgress!.totalIPsTested}',
-                                  style: TextStyle(color: Colors.grey[700]),
+                                const SizedBox(height: 8),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: SizedBox(
+                                    height: 10,
+                                    child: LinearProgressIndicator(
+                                      value: _currentProgress!.progress,
+                                      backgroundColor:
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.grey[800]
+                                          : Colors.grey[200],
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.lightBlue,
+                                      ),
+                                    ),
+                                  ),
                                 ),
+                                const SizedBox(height: 16),
+                              ],
+                            ] else ...[
+                              // Fallback for non-batch progress
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: SizedBox(
+                                  height: 12,
+                                  child: LinearProgressIndicator(
+                                    value: _currentProgress!.progress,
+                                    backgroundColor:
+                                        Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.grey[800]
+                                        : Colors.grey[200],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                '${_currentProgress!.processedIPs}/${_currentProgress!.totalIPs} IPs processed',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 12),
                             ],
-                          ),
-                        ],
+
+                            // Success/Fail Stats with modern design
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color:
+                                    Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? Colors.grey[800]
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color:
+                                        Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.black.withOpacity(0.3)
+                                        : Colors.grey.withOpacity(0.1),
+                                    spreadRadius: 1,
+                                    blurRadius: 3,
+                                    offset: const Offset(0, 1),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceAround,
+                                children: [
+                                  // During download testing, show preserved latency results
+                                  if (_currentProgress!.stage ==
+                                          ScanStage.speedTesting &&
+                                      _currentProgress!.lastBatchLatencyPass !=
+                                          null) ...[
+                                    Expanded(
+                                      child: Column(
+                                        children: [
+                                          Text(
+                                            'Latency Results',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              _buildStatBadge(
+                                                'Pass',
+                                                '${_currentProgress!.lastBatchLatencyPass}',
+                                                Colors.green,
+                                              ),
+                                              const SizedBox(width: 12),
+                                              _buildStatBadge(
+                                                'Fail',
+                                                '${_currentProgress!.lastBatchLatencyFail}',
+                                                Colors.red,
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ] else ...[
+                                    // During other stages, show current pass/fail
+                                    _buildStatBadge(
+                                      'Pass',
+                                      '${_currentProgress!.successfulIPs}',
+                                      Colors.green,
+                                    ),
+                                    _buildStatBadge(
+                                      'Fail',
+                                      '${_currentProgress!.failedIPs}',
+                                      Colors.red,
+                                    ),
+                                  ],
+                                  if (_currentProgress!.totalIPsTested > 0)
+                                    _buildStatBadge(
+                                      'Total',
+                                      '${_currentProgress!.totalIPsTested}',
+                                      Colors.grey[700]!,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -568,6 +729,46 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
+    );
+  }
+
+  Widget _buildStatBadge(String label, String value, Color color) {
+    // For grey/Total badge, use theme-aware colors for better contrast
+    final Color finalColor = color == Colors.grey[700]
+        ? (Theme.of(context).brightness == Brightness.dark
+              ? Colors.grey[300]!
+              : Colors.grey[700]!)
+        : color;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: finalColor.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: finalColor.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: finalColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            value,
+            style: TextStyle(
+              color: finalColor,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
