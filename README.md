@@ -36,11 +36,65 @@ BPB Automation helps you find the fastest Cloudflare IPs for your network and au
 
 ### Installation
 
-Download the appropriate version for your platform:
-- Android: `bpb-automation.apk`
-- macOS: `bpb-automation.dmg`
-- Linux: `bpb-automation.AppImage` or `.deb`
-- Windows: `bpb-automation-setup.exe`
+Download the appropriate version for your platform from the [latest release](https://github.com/YOUR_USERNAME/bpb-automation/releases/latest):
+
+#### Android
+```bash
+# Download and install APK
+# BPB-Automation-Android-Universal.apk
+```
+
+#### macOS
+```bash
+# Download and mount DMG
+# BPB-Automation-macOS.dmg
+```
+
+#### Linux
+
+**Ubuntu/Debian (.deb package)**
+```bash
+# Download BPB-Automation-Linux-x64.deb
+sudo dpkg -i BPB-Automation-Linux-x64.deb
+
+# If you encounter dependency issues:
+sudo apt-get install -f
+```
+
+**Fedora/RHEL/CentOS (.rpm package)**
+```bash
+# Download BPB-Automation-Linux-x64.rpm
+sudo rpm -i BPB-Automation-Linux-x64.rpm
+
+# Or with dnf:
+sudo dnf install BPB-Automation-Linux-x64.rpm
+```
+
+**Universal Linux (AppImage)**
+```bash
+# Download BPB-Automation-Linux-x64.AppImage
+chmod +x BPB-Automation-Linux-x64.AppImage
+./BPB-Automation-Linux-x64.AppImage
+
+# Optional: Move to /usr/local/bin for system-wide access
+sudo mv BPB-Automation-Linux-x64.AppImage /usr/local/bin/bpb-automation
+```
+
+**Manual Installation (tar.gz)**
+```bash
+# Download BPB-Automation-Linux-x64.tar.gz
+tar -xzf BPB-Automation-Linux-x64.tar.gz
+cd bundle
+./bpb_automation
+```
+
+**Note:** For .deb and .rpm packages, a desktop entry is automatically created. For AppImage or manual installation, you can launch from terminal or create a desktop shortcut manually.
+
+#### Windows
+```bash
+# Download and extract
+# BPB-Automation-Windows-x64.zip
+```
 
 ### Setup
 
