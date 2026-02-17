@@ -93,7 +93,8 @@ class SpeedTester {
       final buffer = BytesBuilder();
 
       // EWMA for tracking sustained throughput quality
-      final ewma = EWMA(0.2); // Match Go scanner's default
+      // CRITICAL: Use default alpha (0.0645) to match Go scanner's SimpleEWMA
+      final ewma = EWMA(); // Matches Go scanner's ewma.NewMovingAverage()
       int lastBytesRead = 0;
       final sampleInterval = Duration(
         milliseconds: timeout.inMilliseconds ~/ 100,
@@ -101,62 +102,73 @@ class SpeedTester {
       Duration lastSampleTime = Duration.zero;
 
       _logService.logInfo('[INFO] Waiting for response from $ip...');
-      await for (final chunk in activeSocket.timeout(timeout)) {
-        // Check for cancellation
-        if (isCancelled?.call() == true) {
-          _logService.logWarn('[WARN] Download test CANCELLED: $ip');
-          await activeSocket.close();
-          return SpeedResult.failed(
-            ip: ip,
-            testUrl: fullUrl,
-            error: 'Cancelled by user',
-          );
-        }
 
-        buffer.add(chunk);
-
-        if (!headersParsed) {
-          // Try to parse headers
-          final data = buffer.toBytes();
-          final headerEnd = _findHeaderEnd(data);
-
-          if (headerEnd != -1) {
-            // Parse status code
-            final headersStr = utf8.decode(data.sublist(0, headerEnd));
-            final lines = headersStr.split('\r\n');
-            if (lines.isNotEmpty) {
-              final statusLine = lines[0];
-              final parts = statusLine.split(' ');
-              if (parts.length >= 2) {
-                statusCode = int.tryParse(parts[1]) ?? 0;
-              }
+      // Wrap the entire stream processing in a timeout
+      await activeSocket
+          .timeout(timeout)
+          .forEach((chunk) {
+            // Check for cancellation
+            if (isCancelled?.call() == true) {
+              throw Exception('Cancelled by user');
             }
 
-            _logService.logInfo(
-              '[INFO] HTTP response from $ip: Status $statusCode',
-            );
+            buffer.add(chunk);
 
-            // Start counting bytes after headers
-            totalBytes = data.length - headerEnd - 4; // -4 for \r\n\r\n
-            headersParsed = true;
-            lastBytesRead = totalBytes;
-            lastSampleTime = stopwatch.elapsed;
-          }
-        } else {
-          totalBytes += chunk.length;
+            if (!headersParsed) {
+              // Try to parse headers
+              final data = buffer.toBytes();
+              final headerEnd = _findHeaderEnd(data);
 
-          // Sample speed periodically using EWMA
-          final currentTime = stopwatch.elapsed;
-          final elapsed = currentTime - lastSampleTime;
+              if (headerEnd != -1) {
+                // Parse status code
+                final headersStr = utf8.decode(data.sublist(0, headerEnd));
+                final lines = headersStr.split('\r\n');
+                if (lines.isNotEmpty) {
+                  final statusLine = lines[0];
+                  final parts = statusLine.split(' ');
+                  if (parts.length >= 2) {
+                    statusCode = int.tryParse(parts[1]) ?? 0;
+                  }
+                }
 
-          if (elapsed >= sampleInterval) {
-            final bytesInInterval = totalBytes - lastBytesRead;
-            ewma.add(bytesInInterval.toDouble());
-            lastBytesRead = totalBytes;
-            lastSampleTime = currentTime;
-          }
-        }
-      }
+                _logService.logInfo(
+                  '[INFO] HTTP response from $ip: Status $statusCode',
+                );
+
+                // Start counting bytes after headers
+                totalBytes = data.length - headerEnd - 4; // -4 for \r\n\r\n
+                headersParsed = true;
+                lastBytesRead = totalBytes;
+                lastSampleTime = stopwatch.elapsed;
+              }
+            } else {
+              totalBytes += chunk.length;
+
+              // Sample speed periodically using EWMA
+              final currentTime = stopwatch.elapsed;
+              final elapsed = currentTime - lastSampleTime;
+
+              if (elapsed >= sampleInterval) {
+                final bytesInInterval = totalBytes - lastBytesRead;
+                ewma.add(bytesInInterval.toDouble());
+                lastBytesRead = totalBytes;
+                lastSampleTime = currentTime;
+              }
+            }
+          })
+          .timeout(
+            timeout,
+            onTimeout: () {
+              // If we got some data, that's acceptable
+              if (totalBytes > 0) {
+                _logService.logInfo(
+                  '[INFO] Download from $ip timed out but got $totalBytes bytes',
+                );
+              } else {
+                throw TimeoutException('No data received within timeout');
+              }
+            },
+          );
 
       stopwatch.stop();
 
@@ -220,11 +232,24 @@ class SpeedTester {
         error: 'Timeout after ${timeout.inSeconds}s',
       );
     } catch (e) {
+      // Check if it's a cancellation
+      if (e.toString().contains('Cancelled by user')) {
+        _logService.logWarn('[WARN] Download test CANCELLED: $ip');
+        return SpeedResult.failed(
+          ip: ip,
+          testUrl: fullUrl,
+          error: 'Cancelled by user',
+        );
+      }
       _logService.logWarn('Speed test error for $ip: $e');
       return SpeedResult.failed(ip: ip, testUrl: fullUrl, error: e.toString());
     } finally {
-      secureSocket?.destroy();
-      socket?.destroy();
+      try {
+        await secureSocket?.close();
+        await socket?.close();
+      } catch (_) {
+        // Ignore close errors
+      }
     }
   }
 

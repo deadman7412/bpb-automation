@@ -1,417 +1,291 @@
-// ignore_for_file: deprecated_member_use_from_same_package
-
 /// Configuration for the Cloudflare IP Scanner.
 ///
-/// This model contains all parameters that can be passed to the scanner binary,
-/// with sensible defaults for each option.
+/// Simplified configuration matching the Go scanner's proven algorithm.
+/// Based on: https://github.com/bia-pain-bache/Cloudflare-Clean-IP-Scanner
 class ScannerConfig {
-  /// Number of threads for latency testing (1-1000)
-  /// Higher values = faster scanning, but may overload low-performance devices
-  final int threads;
+  // ===== ESSENTIAL PARAMETERS (User-facing) =====
 
-  /// Number of latency test iterations per IP (1-10)
-  /// More iterations = more accurate latency measurement
-  final int testCount;
-
-  /// DEPRECATED: Number of IPs to test for download speed (1-100)
-  ///
-  /// This setting is NO LONGER USED after Pareto migration.
-  /// The new algorithm uses Pareto principle (20% incremental testing)
-  /// and continues until targetCleanIPs is met.
-  ///
-  /// Kept for backward compatibility with saved configurations.
-  @Deprecated('Use targetCleanIPs and downloadTestPercentage instead')
-  final int downloadCount;
-
-  /// Maximum acceptable latency in milliseconds (1-1000)
-  /// IPs with latency above this will be filtered out
-  final int latencyLimit;
-
-  /// Minimum acceptable latency in milliseconds (0-1000)
-  /// IPs with latency below this will be filtered out (anti-fraud)
-  final int latencyLowerLimit;
-
-  /// Minimum acceptable download speed in MB/s (1-100)
-  /// IPs with speed below this will be filtered out
-  final int speedLimit;
-
-  /// Test port to use (1-65535)
-  /// Default is 443 (HTTPS)
-  final int testPort;
-
-  /// URL to use for download speed test
-  /// Should be a large file (50MB+) for accurate speed measurement
-  final String testUrl;
-
-  /// Disable download speed test
-  /// If true, only latency testing is performed
-  final bool disableDownload;
-
-  /// Enable HTTPing mode for latency testing
-  /// Uses HTTP requests instead of ICMP ping
-  final bool httpingMode;
-
-  /// Maximum download test time per IP in seconds (1-60)
-  /// Prevents tests from running too long
-  final int downloadTestTime;
-
-  /// TARGET: Number of clean IPs with working downloads to find (1-50)
-  /// This is the primary goal - scanner will continue until this many valid IPs are found
-  /// A "clean IP" must have good latency AND successful download test
+  /// TARGET: Number of clean IPs to find (1-50)
+  /// Scanner continues until this many IPs pass both latency and download tests
   final int targetCleanIPs;
 
-  /// SAFETY NET: Minimum acceptable number of clean IPs (1-targetCleanIPs)
-  /// If target cannot be met, this is the minimum to accept partial success
-  final int minAcceptableIPs;
+  /// CONCURRENCY: Number of concurrent threads for latency testing (50-500)
+  /// Higher = faster but more resource intensive
+  /// Default: 200 (Go scanner default)
+  final int threads;
 
-  /// BATCH SIZE: Number of IPs to test per batch (50-500)
-  /// Platform-adaptive: Mobile default 150, Desktop default 300
-  /// Higher values = faster but may crash on low-end mobile devices
-  final int batchSize;
+  /// LATENCY FILTER: Maximum acceptable latency in milliseconds (50-9999)
+  /// IPs with latency above this are filtered out before download testing
+  /// Default: 9999ms (no filter) matching Go scanner
+  final int maxLatency;
 
-  /// SAFETY LIMIT: Maximum total IPs to test across all batches (100-2000)
-  /// Prevents infinite scanning if clean IPs cannot be found
-  final int maxTotalIPsToTest;
+  /// LOSS FILTER: Maximum acceptable packet loss rate (0.0-1.0)
+  /// 0.0 = no loss allowed, 1.0 = any loss acceptable
+  /// Default: 1.0 (no filter) matching Go scanner
+  final double maxLossRate;
 
-  /// PARETO RULE: Percentage of passing IPs to test for downloads (0.0-1.0)
-  /// Default 0.2 (20%) - tests top 20% by latency first, then next 20%, etc.
-  /// This is the Pareto principle: 80% of results from 20% of effort
-  final double downloadTestPercentage;
+  /// SPEED FILTER: Minimum download speed in MB/s (0-100)
+  /// IPs slower than this are filtered from results
+  /// Default: 0.0 (no filter) matching Go scanner
+  final double minDownloadSpeed;
+
+  // ===== ADVANCED PARAMETERS (Technical) =====
+
+  /// Number of latency tests per IP (1-10)
+  /// More tests = more accurate but slower
+  /// Default: 4 (Go scanner default)
+  final int testCount;
+
+  /// Test port (1-65535)
+  /// Default: 443 (HTTPS)
+  final int testPort;
+
+  /// Download test timeout per IP in seconds (5-60)
+  /// Prevents hanging on slow IPs
+  final int downloadTestTime;
+
+  /// Download test file size in bytes
+  /// Default: 52428800 (50MB) matching Go scanner
+  final int downloadBytes;
+
+  /// Test URL for download speed testing
+  /// Should point to a large file on Cloudflare CDN
+  final String testUrl;
+
+  /// Use HTTP protocol for latency testing instead of TCP
+  /// HTTPing is more accurate but slower and may trigger rate limits
+  final bool httpingMode;
+
+  /// SAFETY LIMIT: Maximum total IPs to test (1000-20000)
+  /// Prevents infinite scanning if target cannot be met
+  /// Default: 10000
+  final int maxIPsToTest;
+
+  /// TEST ALL IPs: Test all 256 IPs in each /24 subnet instead of 1 random
+  /// Matches Go scanner's -allip flag
+  /// Default: false (test 1 random IP per /24 for speed)
+  /// When enabled: ~5956 IPs tested, when disabled: ~696 IPs tested
+  /// Note: Enabling this makes scans MUCH slower (4+ min vs 30 sec for latency phase)
+  final bool testAllIPs;
 
   /// Creates a ScannerConfig with the specified values.
   ///
   /// All parameters are optional and will use defaults if not specified.
   const ScannerConfig({
-    this.threads = 50,
-    this.testCount = 3,
-    this.downloadCount = 10,
-    this.latencyLimit = 200,
-    this.latencyLowerLimit = 40,
-    this.speedLimit = 5,
-    this.testPort = 443,
-    this.testUrl = 'https://speed.cloudflare.com/__down?bytes=',
-    this.disableDownload = false,
-    this.httpingMode = false,
-    this.downloadTestTime = 10,
+    // Essential
     this.targetCleanIPs = 10,
-    this.minAcceptableIPs = 5,
-    this.batchSize = 150,
-    this.maxTotalIPsToTest = 1000,
-    this.downloadTestPercentage = 0.2,
+    this.threads = 200,
+    this.maxLatency = 9999,
+    this.maxLossRate = 1.0,
+    this.minDownloadSpeed = 0.0,
+
+    // Advanced
+    this.testCount = 4,
+    this.testPort = 443,
+    this.downloadTestTime = 10,
+    this.downloadBytes = 52428800, // 50MB
+    this.testUrl = 'https://speed.cloudflare.com/__down?bytes=52428800',
+    this.httpingMode = false,
+    this.maxIPsToTest = 10000,
+    this.testAllIPs = false,
   });
 
   /// Creates a ScannerConfig from JSON.
   factory ScannerConfig.fromJson(Map<String, dynamic> json) {
     return ScannerConfig(
-      threads: json['threads'] as int? ?? 50,
-      testCount: json['test_count'] as int? ?? 3,
-      downloadCount: json['download_count'] as int? ?? 10,
-      latencyLimit: json['latency_limit'] as int? ?? 200,
-      latencyLowerLimit: json['latency_lower_limit'] as int? ?? 40,
-      speedLimit: json['speed_limit'] as int? ?? 5,
+      targetCleanIPs: json['target_clean_ips'] as int? ?? 10,
+      threads: json['threads'] as int? ?? 200,
+      maxLatency: json['max_latency'] as int? ?? 9999,
+      maxLossRate: (json['max_loss_rate'] as num?)?.toDouble() ?? 1.0,
+      minDownloadSpeed: (json['min_download_speed'] as num?)?.toDouble() ?? 0.0,
+      testCount: json['test_count'] as int? ?? 4,
       testPort: json['test_port'] as int? ?? 443,
+      downloadTestTime: json['download_test_time'] as int? ?? 10,
+      downloadBytes: json['download_bytes'] as int? ?? 52428800,
       testUrl:
           json['test_url'] as String? ??
-          'https://speed.cloudflare.com/__down?bytes=',
-      disableDownload: json['disable_download'] as bool? ?? false,
+          'https://speed.cloudflare.com/__down?bytes=52428800',
       httpingMode: json['httping_mode'] as bool? ?? false,
-      downloadTestTime: json['download_test_time'] as int? ?? 10,
-      targetCleanIPs: json['target_clean_ips'] as int? ?? 10,
-      minAcceptableIPs: json['min_acceptable_ips'] as int? ?? 5,
-      batchSize: json['batch_size'] as int? ?? 150,
-      maxTotalIPsToTest: json['max_total_ips_to_test'] as int? ?? 1000,
-      downloadTestPercentage:
-          json['download_test_percentage'] as double? ?? 0.2,
+      maxIPsToTest: json['max_ips_to_test'] as int? ?? 10000,
+      testAllIPs: json['test_all_ips'] as bool? ?? false,
     );
   }
 
   /// Converts this ScannerConfig to JSON.
   Map<String, dynamic> toJson() {
     return {
-      'threads': threads,
-      'test_count': testCount,
-      'download_count': downloadCount,
-      'latency_limit': latencyLimit,
-      'latency_lower_limit': latencyLowerLimit,
-      'speed_limit': speedLimit,
-      'test_port': testPort,
-      'test_url': testUrl,
-      'disable_download': disableDownload,
-      'httping_mode': httpingMode,
-      'download_test_time': downloadTestTime,
       'target_clean_ips': targetCleanIPs,
-      'min_acceptable_ips': minAcceptableIPs,
-      'batch_size': batchSize,
-      'max_total_ips_to_test': maxTotalIPsToTest,
-      'download_test_percentage': downloadTestPercentage,
+      'threads': threads,
+      'max_latency': maxLatency,
+      'max_loss_rate': maxLossRate,
+      'min_download_speed': minDownloadSpeed,
+      'test_count': testCount,
+      'test_port': testPort,
+      'download_test_time': downloadTestTime,
+      'download_bytes': downloadBytes,
+      'test_url': testUrl,
+      'httping_mode': httpingMode,
+      'max_ips_to_test': maxIPsToTest,
+      'test_all_ips': testAllIPs,
     };
   }
 
-  /// Converts this config to command-line arguments for the scanner binary.
-  ///
-  /// Returns a list of arguments to pass to the scanner executable.
-  /// Example: ['-n', '200', '-t', '4', '-dn', '10']
-  List<String> toCommandLineArgs() {
-    final args = <String>[];
+  /// Default configuration for mobile devices (conservative)
+  static const mobile = ScannerConfig(
+    targetCleanIPs: 5,
+    threads: 100,
+    maxLatency: 300,
+    maxLossRate: 0.2,
+    minDownloadSpeed: 2.0,
+    maxIPsToTest: 5000,
+    testAllIPs: false,
+  );
 
-    // Threads
-    args.addAll(['-n', threads.toString()]);
+  /// Default configuration for desktop devices (balanced)
+  static const desktop = ScannerConfig(
+    targetCleanIPs: 10,
+    threads: 200,
+    maxLatency: 9999,
+    maxLossRate: 1.0,
+    minDownloadSpeed: 0.0,
+    maxIPsToTest: 10000,
+    testAllIPs: false,
+  );
 
-    // Test count
-    args.addAll(['-t', testCount.toString()]);
+  /// Fast configuration (quick results, lower quality)
+  static const fast = ScannerConfig(
+    targetCleanIPs: 5,
+    threads: 300,
+    maxLatency: 400,
+    maxLossRate: 0.3,
+    minDownloadSpeed: 1.0,
+    testCount: 3,
+    downloadTestTime: 8,
+    maxIPsToTest: 3000,
+    testAllIPs: false,
+  );
 
-    // Download count
-    args.addAll(['-dn', downloadCount.toString()]);
+  /// Balanced configuration (recommended for most users)
+  static const balanced = ScannerConfig(
+    targetCleanIPs: 10,
+    threads: 200,
+    maxLatency: 9999,
+    maxLossRate: 1.0,
+    minDownloadSpeed: 0.0,
+    testCount: 4,
+    downloadTestTime: 10,
+    maxIPsToTest: 10000,
+    testAllIPs: false,
+  );
 
-    // Download test time
-    args.addAll(['-dt', downloadTestTime.toString()]);
-
-    // Test port
-    args.addAll(['-tp', testPort.toString()]);
-
-    // Test URL
-    args.addAll(['-url', testUrl]);
-
-    // HTTPing mode
-    if (httpingMode) {
-      args.add('-httping');
-    }
-
-    // Disable download
-    if (disableDownload) {
-      args.add('-disable-download');
-    }
-
-    return args;
-  }
-
-  /// Creates a default configuration optimized for mobile devices.
-  ///
-  /// Uses fewer threads and shorter test times to reduce battery usage.
-  factory ScannerConfig.mobile() {
-    return const ScannerConfig(
-      threads: 100,
-      testCount: 3,
-      downloadCount: 5,
-      downloadTestTime: 5,
-      targetCleanIPs: 10,
-      minAcceptableIPs: 5,
-      batchSize: 150,
-      maxTotalIPsToTest: 800,
-    );
-  }
-
-  /// Creates a default configuration optimized for desktop devices.
-  ///
-  /// Uses more threads for faster scanning.
-  factory ScannerConfig.desktop() {
-    return const ScannerConfig(
-      threads: 300,
-      testCount: 5,
-      downloadCount: 15,
-      downloadTestTime: 15,
-      targetCleanIPs: 10,
-      minAcceptableIPs: 5,
-      batchSize: 300,
-      maxTotalIPsToTest: 1500,
-    );
-  }
-
-  /// Creates a fast configuration with minimal testing.
-  ///
-  /// Good for quick scans when you want results fast.
-  factory ScannerConfig.fast() {
-    return const ScannerConfig(
-      threads: 400,
-      testCount: 2,
-      downloadCount: 5,
-      downloadTestTime: 5,
-      targetCleanIPs: 5,
-      minAcceptableIPs: 3,
-      batchSize: 200,
-      maxTotalIPsToTest: 600,
-    );
-  }
-
-  /// Creates a thorough configuration with extensive testing.
-  ///
-  /// Good for finding the absolute best IPs.
-  factory ScannerConfig.thorough() {
-    return const ScannerConfig(
-      threads: 200,
-      testCount: 10,
-      downloadCount: 20,
-      downloadTestTime: 20,
-      targetCleanIPs: 20,
-      minAcceptableIPs: 10,
-      batchSize: 300,
-      maxTotalIPsToTest: 2000,
-    );
-  }
-
-  /// Creates a minimal configuration for testing in emulators.
-  ///
-  /// Uses very conservative settings to avoid crashes on emulated devices.
-  factory ScannerConfig.emulator() {
-    return const ScannerConfig(
-      threads: 10,
-      testCount: 2,
-      downloadCount: 3,
-      latencyLimit: 500,
-      speedLimit: 1,
-      downloadTestTime: 5,
-      targetCleanIPs: 5,
-      minAcceptableIPs: 3,
-      batchSize: 50,
-      maxTotalIPsToTest: 200,
-    );
-  }
-
-  /// Creates a platform-aware default configuration.
-  ///
-  /// Automatically uses mobile or desktop settings based on the platform.
-  factory ScannerConfig.platformDefault() {
-    // Check if running on mobile
-    try {
-      final isMobile = const bool.fromEnvironment('dart.library.io')
-          ? true // Assume mobile if dart:io is available (simplified)
-          : false;
-
-      return isMobile ? ScannerConfig.mobile() : ScannerConfig.desktop();
-    } catch (e) {
-      // Fallback to mobile settings if detection fails
-      return ScannerConfig.mobile();
-    }
-  }
+  /// Quality configuration (slower, higher quality results)
+  static const quality = ScannerConfig(
+    targetCleanIPs: 20,
+    threads: 150,
+    maxLatency: 200,
+    maxLossRate: 0.1,
+    minDownloadSpeed: 5.0,
+    testCount: 5,
+    downloadTestTime: 12,
+    maxIPsToTest: 15000,
+    testAllIPs: false,
+  );
 
   /// Validates the configuration.
   ///
-  /// Returns a list of validation errors, or empty list if valid.
-  List<String> validate() {
-    final errors = <String>[];
+  /// Returns an error message if invalid, null if valid.
+  String? validate() {
+    if (targetCleanIPs < 1 || targetCleanIPs > 50) {
+      return 'Target clean IPs must be between 1 and 50';
+    }
 
-    if (threads < 1 || threads > 1000) {
-      errors.add('Threads must be between 1 and 1000');
+    if (threads < 50 || threads > 500) {
+      return 'Threads must be between 50 and 500';
+    }
+
+    if (maxLatency < 50 || maxLatency > 9999) {
+      return 'Max latency must be between 50 and 9999 ms';
+    }
+
+    if (maxLossRate < 0.0 || maxLossRate > 1.0) {
+      return 'Max loss rate must be between 0.0 and 1.0';
+    }
+
+    if (minDownloadSpeed < 0.0 || minDownloadSpeed > 100.0) {
+      return 'Min download speed must be between 0 and 100 MB/s';
     }
 
     if (testCount < 1 || testCount > 10) {
-      errors.add('Test count must be between 1 and 10');
-    }
-
-    if (downloadCount < 1 || downloadCount > 100) {
-      errors.add('Download count must be between 1 and 100');
-    }
-
-    if (latencyLimit < 1 || latencyLimit > 1000) {
-      errors.add('Latency limit must be between 1 and 1000');
-    }
-
-    if (latencyLowerLimit < 0 || latencyLowerLimit > 1000) {
-      errors.add('Latency lower limit must be between 0 and 1000');
-    }
-
-    if (latencyLowerLimit >= latencyLimit) {
-      errors.add('Latency lower limit must be less than latency limit');
-    }
-
-    if (speedLimit < 1 || speedLimit > 100) {
-      errors.add('Speed limit must be between 1 and 100');
+      return 'Test count must be between 1 and 10';
     }
 
     if (testPort < 1 || testPort > 65535) {
-      errors.add('Test port must be between 1 and 65535');
+      return 'Test port must be between 1 and 65535';
+    }
+
+    if (downloadTestTime < 5 || downloadTestTime > 60) {
+      return 'Download test time must be between 5 and 60 seconds';
+    }
+
+    if (maxIPsToTest < 1000 || maxIPsToTest > 20000) {
+      return 'Max IPs to test must be between 1000 and 20000';
     }
 
     if (testUrl.isEmpty) {
-      errors.add('Test URL cannot be empty');
+      return 'Test URL cannot be empty';
     }
 
-    if (downloadTestTime < 1 || downloadTestTime > 60) {
-      errors.add('Download test time must be between 1 and 60 seconds');
-    }
-
-    // NEW: Validate Pareto-based scanning fields
-    if (targetCleanIPs < 1 || targetCleanIPs > 50) {
-      errors.add('Target clean IPs must be between 1 and 50');
-    }
-
-    if (minAcceptableIPs < 1 || minAcceptableIPs > targetCleanIPs) {
-      errors.add(
-        'Minimum acceptable IPs must be between 1 and target clean IPs',
-      );
-    }
-
-    if (batchSize < 50 || batchSize > 500) {
-      errors.add('Batch size must be between 50 and 500');
-    }
-
-    if (maxTotalIPsToTest < 100 || maxTotalIPsToTest > 2000) {
-      errors.add('Max total IPs to test must be between 100 and 2000');
-    }
-
-    if (downloadTestPercentage < 0.1 || downloadTestPercentage > 1.0) {
-      errors.add('Download test percentage must be between 0.1 and 1.0');
-    }
-
-    return errors;
+    return null; // Valid
   }
 
-  /// Returns true if this configuration is valid.
-  bool isValid() {
-    return validate().isEmpty;
-  }
-
-  /// Creates a copy of this config with modified values.
+  /// Creates a copy with the specified fields replaced.
   ScannerConfig copyWith({
-    int? threads,
-    int? testCount,
-    int? downloadCount,
-    int? latencyLimit,
-    int? latencyLowerLimit,
-    int? speedLimit,
-    int? testPort,
-    String? testUrl,
-    bool? disableDownload,
-    bool? httpingMode,
-    int? downloadTestTime,
     int? targetCleanIPs,
-    int? minAcceptableIPs,
-    int? batchSize,
-    int? maxTotalIPsToTest,
-    double? downloadTestPercentage,
+    int? threads,
+    int? maxLatency,
+    double? maxLossRate,
+    double? minDownloadSpeed,
+    int? testCount,
+    int? testPort,
+    int? downloadTestTime,
+    int? downloadBytes,
+    String? testUrl,
+    bool? httpingMode,
+    int? maxIPsToTest,
+    bool? testAllIPs,
   }) {
     return ScannerConfig(
-      threads: threads ?? this.threads,
-      testCount: testCount ?? this.testCount,
-      downloadCount: downloadCount ?? this.downloadCount,
-      latencyLimit: latencyLimit ?? this.latencyLimit,
-      latencyLowerLimit: latencyLowerLimit ?? this.latencyLowerLimit,
-      speedLimit: speedLimit ?? this.speedLimit,
-      testPort: testPort ?? this.testPort,
-      testUrl: testUrl ?? this.testUrl,
-      disableDownload: disableDownload ?? this.disableDownload,
-      httpingMode: httpingMode ?? this.httpingMode,
-      downloadTestTime: downloadTestTime ?? this.downloadTestTime,
       targetCleanIPs: targetCleanIPs ?? this.targetCleanIPs,
-      minAcceptableIPs: minAcceptableIPs ?? this.minAcceptableIPs,
-      batchSize: batchSize ?? this.batchSize,
-      maxTotalIPsToTest: maxTotalIPsToTest ?? this.maxTotalIPsToTest,
-      downloadTestPercentage:
-          downloadTestPercentage ?? this.downloadTestPercentage,
+      threads: threads ?? this.threads,
+      maxLatency: maxLatency ?? this.maxLatency,
+      maxLossRate: maxLossRate ?? this.maxLossRate,
+      minDownloadSpeed: minDownloadSpeed ?? this.minDownloadSpeed,
+      testCount: testCount ?? this.testCount,
+      testPort: testPort ?? this.testPort,
+      downloadTestTime: downloadTestTime ?? this.downloadTestTime,
+      downloadBytes: downloadBytes ?? this.downloadBytes,
+      testUrl: testUrl ?? this.testUrl,
+      httpingMode: httpingMode ?? this.httpingMode,
+      maxIPsToTest: maxIPsToTest ?? this.maxIPsToTest,
+      testAllIPs: testAllIPs ?? this.testAllIPs,
     );
   }
 
   @override
   String toString() {
     return 'ScannerConfig('
-        'threads: $threads, '
-        'testCount: $testCount, '
-        'downloadCount: $downloadCount, '
-        'latencyLimit: ${latencyLimit}ms, '
-        'speedLimit: ${speedLimit}MB/s, '
         'targetCleanIPs: $targetCleanIPs, '
-        'batchSize: $batchSize, '
-        'maxTotalIPsToTest: $maxTotalIPsToTest)';
+        'threads: $threads, '
+        'maxLatency: $maxLatency, '
+        'maxLossRate: $maxLossRate, '
+        'minDownloadSpeed: $minDownloadSpeed, '
+        'testCount: $testCount, '
+        'testPort: $testPort, '
+        'downloadTestTime: $downloadTestTime, '
+        'httpingMode: $httpingMode, '
+        'maxIPsToTest: $maxIPsToTest, '
+        'testAllIPs: $testAllIPs'
+        ')';
   }
 
   @override
@@ -419,43 +293,37 @@ class ScannerConfig {
     if (identical(this, other)) return true;
 
     return other is ScannerConfig &&
-        other.threads == threads &&
-        other.testCount == testCount &&
-        other.downloadCount == downloadCount &&
-        other.latencyLimit == latencyLimit &&
-        other.latencyLowerLimit == latencyLowerLimit &&
-        other.speedLimit == speedLimit &&
-        other.testPort == testPort &&
-        other.testUrl == testUrl &&
-        other.disableDownload == disableDownload &&
-        other.httpingMode == httpingMode &&
-        other.downloadTestTime == downloadTestTime &&
         other.targetCleanIPs == targetCleanIPs &&
-        other.minAcceptableIPs == minAcceptableIPs &&
-        other.batchSize == batchSize &&
-        other.maxTotalIPsToTest == maxTotalIPsToTest &&
-        other.downloadTestPercentage == downloadTestPercentage;
+        other.threads == threads &&
+        other.maxLatency == maxLatency &&
+        other.maxLossRate == maxLossRate &&
+        other.minDownloadSpeed == minDownloadSpeed &&
+        other.testCount == testCount &&
+        other.testPort == testPort &&
+        other.downloadTestTime == downloadTestTime &&
+        other.downloadBytes == downloadBytes &&
+        other.testUrl == testUrl &&
+        other.httpingMode == httpingMode &&
+        other.maxIPsToTest == maxIPsToTest &&
+        other.testAllIPs == testAllIPs;
   }
 
   @override
   int get hashCode {
     return Object.hash(
-      threads,
-      testCount,
-      downloadCount,
-      latencyLimit,
-      latencyLowerLimit,
-      speedLimit,
-      testPort,
-      testUrl,
-      disableDownload,
-      httpingMode,
-      downloadTestTime,
       targetCleanIPs,
-      minAcceptableIPs,
-      batchSize,
-      maxTotalIPsToTest,
-      downloadTestPercentage,
+      threads,
+      maxLatency,
+      maxLossRate,
+      minDownloadSpeed,
+      testCount,
+      testPort,
+      downloadTestTime,
+      downloadBytes,
+      testUrl,
+      httpingMode,
+      maxIPsToTest,
+      testAllIPs,
     );
   }
 }

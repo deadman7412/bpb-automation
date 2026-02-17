@@ -6,6 +6,9 @@
 /// EWMA provides a smoothed average that weights recent values more heavily
 /// than older values, making it ideal for measuring sustained throughput
 /// quality rather than just raw speed.
+///
+/// CRITICAL: The Go scanner uses SimpleEWMA with DECAY = 2/(30+1) ≈ 0.0645
+/// which provides MUCH smoother averaging than the incorrect 0.2 we used before.
 class EWMA {
   /// The current EWMA value
   double _value = 0.0;
@@ -14,14 +17,16 @@ class EWMA {
   bool _initialized = false;
 
   /// Decay factor for the exponential weighting
-  /// Default matches the SimpleEWMA from the Go library
+  /// DEFAULT MATCHES Go scanner's SimpleEWMA: DECAY = 2 / (AVG_METRIC_AGE + 1)
+  /// where AVG_METRIC_AGE = 30.0
   final double _alpha;
 
   /// Create a new EWMA with optional custom decay factor
   ///
-  /// The default alpha of 0.2 means new values have 20% weight
-  /// and the existing average has 80% weight, providing smooth averaging.
-  EWMA([this._alpha = 0.2]) {
+  /// The default alpha of ~0.0645 matches the Go scanner's SimpleEWMA,
+  /// which averages over a one-minute period (avg age 30 seconds).
+  /// Formula: DECAY = 2 / (30 + 1) = 0.064516129...
+  EWMA([this._alpha = 0.064516129]) {
     if (_alpha <= 0 || _alpha > 1) {
       throw ArgumentError('Alpha must be between 0 and 1');
     }

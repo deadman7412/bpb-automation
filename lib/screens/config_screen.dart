@@ -14,18 +14,18 @@ class _ConfigScreenState extends State<ConfigScreen> {
   final StorageService _storage = StorageService.instance;
   final LogService _log = LogService.instance;
 
-  ScannerConfig _config = ScannerConfig();
+  ScannerConfig _config = const ScannerConfig();
   bool _isLoading = false;
   String _selectedPreset = 'Default';
 
   // Define all preset configurations
   final Map<String, ScannerConfig> _presets = {
-    'Mobile': ScannerConfig.mobile(),
-    'Desktop': ScannerConfig.desktop(),
-    'Fast': ScannerConfig.fast(),
-    'Thorough': ScannerConfig.thorough(),
-    'Emulator': ScannerConfig.emulator(),
-    'Default': ScannerConfig(),
+    'Mobile': ScannerConfig.mobile,
+    'Desktop': ScannerConfig.desktop,
+    'Fast': ScannerConfig.fast,
+    'Balanced': ScannerConfig.balanced,
+    'Quality': ScannerConfig.quality,
+    'Default': const ScannerConfig(),
   };
 
   @override
@@ -58,31 +58,30 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
   /// Compare two configs for equality
   bool _configsEqual(ScannerConfig a, ScannerConfig b) {
-    return a.threads == b.threads &&
+    return a.targetCleanIPs == b.targetCleanIPs &&
+        a.threads == b.threads &&
+        a.maxLatency == b.maxLatency &&
+        a.maxLossRate == b.maxLossRate &&
+        a.minDownloadSpeed == b.minDownloadSpeed &&
         a.testCount == b.testCount &&
-        // Removed downloadCount comparison - deprecated setting
-        a.latencyLimit == b.latencyLimit &&
-        a.speedLimit == b.speedLimit &&
-        a.disableDownload == b.disableDownload &&
-        a.httpingMode == b.httpingMode &&
-        a.downloadTestTime == b.downloadTestTime &&
         a.testPort == b.testPort &&
-        a.batchSize == b.batchSize &&
-        a.targetCleanIPs == b.targetCleanIPs &&
-        a.minAcceptableIPs == b.minAcceptableIPs &&
-        a.maxTotalIPsToTest == b.maxTotalIPsToTest;
+        a.downloadTestTime == b.downloadTestTime &&
+        a.downloadBytes == b.downloadBytes &&
+        a.httpingMode == b.httpingMode &&
+        a.maxIPsToTest == b.maxIPsToTest &&
+        a.testAllIPs == b.testAllIPs;
   }
 
   Future<void> _saveConfig() async {
-    final errors = _config.validate();
+    final error = _config.validate();
 
-    if (errors.isNotEmpty) {
+    if (error != null) {
       if (!mounted) return;
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Invalid Configuration'),
-          content: Text(errors.join('\n')),
+          content: Text(error),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -95,7 +94,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     }
 
     await _storage.saveScannerConfig(_config);
-    _log.logOk('Scanner configuration saved');
+    _log.logOk('[OK] Scanner configuration saved');
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -114,7 +113,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _config = preset;
       _selectedPreset = presetName;
     });
-    _log.logInfo('Loaded $presetName preset configuration');
+    _log.logInfo('[INFO] Loaded $presetName preset configuration');
 
     ScaffoldMessenger.of(
       context,
@@ -200,7 +199,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Important Notice
+                    // Algorithm Notice
                     Card(
                       color: Colors.blue.shade50,
                       child: Padding(
@@ -218,7 +217,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Goal-Based Scanning',
+                                    'Go Scanner Algorithm',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       color: Colors.blue.shade900,
@@ -227,8 +226,10 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Scanner automatically tests batches of IPs until your target clean IP goal is met. '
-                                    'Set your goal (Target Clean IPs) and safety limits (Max Total IPs to Test), then let the scanner find the best IPs for you!',
+                                    'This scanner uses the proven algorithm from the Go scanner: '
+                                    '(1) Load IPs, (2) Test all for latency, (3) Filter by loss/latency, '
+                                    '(4) Test downloads serially with early exit, (5) Sort by speed. '
+                                    'Set your target clean IPs and quality filters, then let it find the best IPs for you!',
                                     style: TextStyle(
                                       color: Colors.blue.shade900,
                                       fontSize: 13,
@@ -243,9 +244,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Configuration Cards
+                    // Essential Settings
                     Text(
-                      'Performance',
+                      'Essential Settings',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 8),
@@ -254,28 +255,6 @@ class _ConfigScreenState extends State<ConfigScreen> {
                         padding: const EdgeInsets.all(16),
                         child: Column(
                           children: [
-                            _buildSlider(
-                              'Threads',
-                              _config.threads.toDouble(),
-                              10,
-                              500,
-                              (value) => _updateConfig(
-                                _config.copyWith(threads: value.toInt()),
-                              ),
-                              'Number of concurrent threads',
-                            ),
-                            _buildSlider(
-                              'Test Count',
-                              _config.testCount.toDouble(),
-                              1,
-                              20,
-                              (value) => _updateConfig(
-                                _config.copyWith(testCount: value.toInt()),
-                              ),
-                              'Number of tests per IP',
-                            ),
-                            // REMOVED: 'IPs to Scan for Speed' (downloadCount) - deprecated after Pareto migration
-                            // The new algorithm uses Pareto 20% rule and targetCleanIPs instead
                             _buildSlider(
                               'Target Clean IPs',
                               _config.targetCleanIPs.toDouble(),
@@ -284,42 +263,89 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               (value) => _updateConfig(
                                 _config.copyWith(targetCleanIPs: value.toInt()),
                               ),
-                              'Goal: Number of clean IPs to find (with good latency AND downloads)',
+                              'Number of clean IPs to find (scanner stops when reached)',
                             ),
                             _buildSlider(
-                              'Minimum Acceptable IPs',
-                              _config.minAcceptableIPs.toDouble(),
-                              1,
-                              _config.targetCleanIPs
-                                  .toDouble(), // Dynamic max: can't exceed target
-                              (value) => _updateConfig(
-                                _config.copyWith(
-                                  minAcceptableIPs: value.toInt(),
-                                ),
-                              ),
-                              'Safety net: Minimum clean IPs to accept partial success',
-                            ),
-                            _buildSlider(
-                              'Batch Size',
-                              _config.batchSize.toDouble(),
+                              'Threads',
+                              _config.threads.toDouble(),
                               50,
                               500,
                               (value) => _updateConfig(
-                                _config.copyWith(batchSize: value.toInt()),
+                                _config.copyWith(threads: value.toInt()),
                               ),
-                              'IPs per batch (WARNING: high values may crash mobile apps)',
+                              'Concurrent threads for latency testing (higher = faster)',
                             ),
                             _buildSlider(
-                              'Max Total IPs to Test',
-                              _config.maxTotalIPsToTest.toDouble(),
+                              'Max Latency (ms)',
+                              _config.maxLatency.toDouble(),
+                              50,
+                              9999,
+                              (value) => _updateConfig(
+                                ScannerConfig(
+                                  targetCleanIPs: _config.targetCleanIPs,
+                                  threads: _config.threads,
+                                  maxLatency: value.toInt(),
+                                  maxLossRate: _config.maxLossRate,
+                                  minDownloadSpeed: _config.minDownloadSpeed,
+                                  testCount: _config.testCount,
+                                  testPort: _config.testPort,
+                                  downloadTestTime: _config.downloadTestTime,
+                                  downloadBytes: _config.downloadBytes,
+                                  testUrl: _config.testUrl,
+                                  httpingMode: _config.httpingMode,
+                                  maxIPsToTest: _config.maxIPsToTest,
+                                  testAllIPs: _config.testAllIPs,
+                                ),
+                              ),
+                              'Maximum acceptable latency (IPs above this are filtered out)',
+                            ),
+                            _buildSlider(
+                              'Max Loss Rate (%)',
+                              (_config.maxLossRate * 100).toDouble(),
+                              0,
                               100,
-                              2000,
                               (value) => _updateConfig(
-                                _config.copyWith(
-                                  maxTotalIPsToTest: value.toInt(),
+                                ScannerConfig(
+                                  targetCleanIPs: _config.targetCleanIPs,
+                                  threads: _config.threads,
+                                  maxLatency: _config.maxLatency,
+                                  maxLossRate: value / 100.0,
+                                  minDownloadSpeed: _config.minDownloadSpeed,
+                                  testCount: _config.testCount,
+                                  testPort: _config.testPort,
+                                  downloadTestTime: _config.downloadTestTime,
+                                  downloadBytes: _config.downloadBytes,
+                                  testUrl: _config.testUrl,
+                                  httpingMode: _config.httpingMode,
+                                  maxIPsToTest: _config.maxIPsToTest,
+                                  testAllIPs: _config.testAllIPs,
                                 ),
                               ),
-                              'Safety limit: Maximum total IPs across all batches',
+                              'Maximum acceptable packet loss (0% = no loss, 100% = any loss)',
+                            ),
+                            _buildSlider(
+                              'Min Download Speed (MB/s)',
+                              _config.minDownloadSpeed,
+                              0,
+                              100,
+                              (value) => _updateConfig(
+                                ScannerConfig(
+                                  targetCleanIPs: _config.targetCleanIPs,
+                                  threads: _config.threads,
+                                  maxLatency: _config.maxLatency,
+                                  maxLossRate: _config.maxLossRate,
+                                  minDownloadSpeed: value,
+                                  testCount: _config.testCount,
+                                  testPort: _config.testPort,
+                                  downloadTestTime: _config.downloadTestTime,
+                                  downloadBytes: _config.downloadBytes,
+                                  testUrl: _config.testUrl,
+                                  httpingMode: _config.httpingMode,
+                                  maxIPsToTest: _config.maxIPsToTest,
+                                  testAllIPs: _config.testAllIPs,
+                                ),
+                              ),
+                              'Minimum download speed required (0 = no minimum)',
                             ),
                           ],
                         ),
@@ -327,8 +353,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                     ),
                     const SizedBox(height: 16),
 
+                    // Advanced Settings
                     Text(
-                      'Thresholds',
+                      'Advanced Settings',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 8),
@@ -338,64 +365,76 @@ class _ConfigScreenState extends State<ConfigScreen> {
                         child: Column(
                           children: [
                             _buildSlider(
-                              'Latency Limit (ms)',
-                              _config.latencyLimit.toDouble(),
-                              50,
-                              500,
-                              (value) => _updateConfig(
-                                _config.copyWith(latencyLimit: value.toInt()),
-                              ),
-                              'Maximum acceptable latency',
-                            ),
-                            _buildSlider(
-                              'Latency Lower Limit (ms)',
-                              _config.latencyLowerLimit.toDouble(),
-                              10,
-                              200,
-                              (value) => _updateConfig(
-                                _config.copyWith(
-                                  latencyLowerLimit: value.toInt(),
-                                ),
-                              ),
-                              'Minimum latency threshold',
-                            ),
-                            _buildSlider(
-                              'Speed Limit (MB/s)',
-                              _config.speedLimit.toDouble(),
+                              'Test Count',
+                              _config.testCount.toDouble(),
                               1,
-                              50,
+                              10,
                               (value) => _updateConfig(
-                                _config.copyWith(speedLimit: value.toInt()),
+                                ScannerConfig(
+                                  targetCleanIPs: _config.targetCleanIPs,
+                                  threads: _config.threads,
+                                  maxLatency: _config.maxLatency,
+                                  maxLossRate: _config.maxLossRate,
+                                  minDownloadSpeed: _config.minDownloadSpeed,
+                                  testCount: value.toInt(),
+                                  testPort: _config.testPort,
+                                  downloadTestTime: _config.downloadTestTime,
+                                  downloadBytes: _config.downloadBytes,
+                                  testUrl: _config.testUrl,
+                                  httpingMode: _config.httpingMode,
+                                  maxIPsToTest: _config.maxIPsToTest,
+                                  testAllIPs: _config.testAllIPs,
+                                ),
                               ),
-                              'Minimum download speed',
+                              'Number of latency tests per IP (more = more accurate)',
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    Text(
-                      'Advanced',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
                             _buildSlider(
                               'Download Test Time (sec)',
                               _config.downloadTestTime.toDouble(),
-                              2,
-                              30,
+                              5,
+                              60,
                               (value) => _updateConfig(
-                                _config.copyWith(
+                                ScannerConfig(
+                                  targetCleanIPs: _config.targetCleanIPs,
+                                  threads: _config.threads,
+                                  maxLatency: _config.maxLatency,
+                                  maxLossRate: _config.maxLossRate,
+                                  minDownloadSpeed: _config.minDownloadSpeed,
+                                  testCount: _config.testCount,
+                                  testPort: _config.testPort,
                                   downloadTestTime: value.toInt(),
+                                  downloadBytes: _config.downloadBytes,
+                                  testUrl: _config.testUrl,
+                                  httpingMode: _config.httpingMode,
+                                  maxIPsToTest: _config.maxIPsToTest,
+                                  testAllIPs: _config.testAllIPs,
                                 ),
                               ),
-                              'Download test duration',
+                              'Timeout for each download test',
+                            ),
+                            _buildSlider(
+                              'Max IPs to Test',
+                              _config.maxIPsToTest.toDouble(),
+                              1000,
+                              20000,
+                              (value) => _updateConfig(
+                                ScannerConfig(
+                                  targetCleanIPs: _config.targetCleanIPs,
+                                  threads: _config.threads,
+                                  maxLatency: _config.maxLatency,
+                                  maxLossRate: _config.maxLossRate,
+                                  minDownloadSpeed: _config.minDownloadSpeed,
+                                  testCount: _config.testCount,
+                                  testPort: _config.testPort,
+                                  downloadTestTime: _config.downloadTestTime,
+                                  downloadBytes: _config.downloadBytes,
+                                  testUrl: _config.testUrl,
+                                  httpingMode: _config.httpingMode,
+                                  maxIPsToTest: value.toInt(),
+                                  testAllIPs: _config.testAllIPs,
+                                ),
+                              ),
+                              'Safety limit: Maximum total IPs to test (prevents infinite scanning)',
                             ),
                             _buildSlider(
                               'Test Port',
@@ -403,26 +442,71 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               80,
                               8443,
                               (value) => _updateConfig(
-                                _config.copyWith(testPort: value.toInt()),
+                                ScannerConfig(
+                                  targetCleanIPs: _config.targetCleanIPs,
+                                  threads: _config.threads,
+                                  maxLatency: _config.maxLatency,
+                                  maxLossRate: _config.maxLossRate,
+                                  minDownloadSpeed: _config.minDownloadSpeed,
+                                  testCount: _config.testCount,
+                                  testPort: value.toInt(),
+                                  downloadTestTime: _config.downloadTestTime,
+                                  downloadBytes: _config.downloadBytes,
+                                  testUrl: _config.testUrl,
+                                  httpingMode: _config.httpingMode,
+                                  maxIPsToTest: _config.maxIPsToTest,
+                                  testAllIPs: _config.testAllIPs,
+                                ),
                               ),
-                              'Port for connectivity tests',
-                            ),
-                            SwitchListTile(
-                              title: const Text('Disable Download Test'),
-                              subtitle: const Text('Skip download speed tests'),
-                              value: _config.disableDownload,
-                              onChanged: (value) => _updateConfig(
-                                _config.copyWith(disableDownload: value),
-                              ),
+                              'Port for connectivity tests (443 = HTTPS, 80 = HTTP)',
                             ),
                             SwitchListTile(
                               title: const Text('HTTPing Mode'),
                               subtitle: const Text(
-                                'Use HTTP ping instead of ICMP',
+                                'Use HTTP ping instead of TCP (slower but more accurate)',
                               ),
                               value: _config.httpingMode,
                               onChanged: (value) => _updateConfig(
-                                _config.copyWith(httpingMode: value),
+                                ScannerConfig(
+                                  targetCleanIPs: _config.targetCleanIPs,
+                                  threads: _config.threads,
+                                  maxLatency: _config.maxLatency,
+                                  maxLossRate: _config.maxLossRate,
+                                  minDownloadSpeed: _config.minDownloadSpeed,
+                                  testCount: _config.testCount,
+                                  testPort: _config.testPort,
+                                  downloadTestTime: _config.downloadTestTime,
+                                  downloadBytes: _config.downloadBytes,
+                                  testUrl: _config.testUrl,
+                                  httpingMode: value,
+                                  maxIPsToTest: _config.maxIPsToTest,
+                                  testAllIPs: _config.testAllIPs,
+                                ),
+                              ),
+                            ),
+                            SwitchListTile(
+                              title: const Text('Test All IPs'),
+                              subtitle: const Text(
+                                'Test all ~5956 IPs (slower, ~4 min) vs default ~696 IPs (faster, ~30 sec). '
+                                'Default tests 1 random IP per /24 subnet, which is statistically valid due to Cloudflare Anycast.',
+                              ),
+                              value: _config.testAllIPs,
+                              onChanged: (value) => _updateConfig(
+                                ScannerConfig(
+                                  targetCleanIPs: _config.targetCleanIPs,
+                                  threads: _config.threads,
+                                  maxLatency: _config.maxLatency,
+                                  maxLossRate: _config.maxLossRate,
+                                  minDownloadSpeed: _config.minDownloadSpeed,
+                                  testCount: _config.testCount,
+                                  testPort: _config.testPort,
+                                  downloadTestTime: _config.downloadTestTime,
+                                  downloadBytes: _config.downloadBytes,
+                                  testUrl: _config.testUrl,
+                                  httpingMode: _config.httpingMode,
+                                  maxIPsToTest: _config.maxIPsToTest,
+                                  testAllIPs: value,
+                                ),
                               ),
                             ),
                           ],
@@ -461,6 +545,16 @@ class _ConfigScreenState extends State<ConfigScreen> {
     final divisionCount = (max - min).toInt();
     final divisions = divisionCount > 0 ? divisionCount : null;
 
+    // Format value display based on type
+    String valueDisplay;
+    if (label.contains('%')) {
+      valueDisplay = '${value.toInt()}%';
+    } else if (label.contains('MB/s')) {
+      valueDisplay = '${value.toStringAsFixed(1)} MB/s';
+    } else {
+      valueDisplay = value.toInt().toString();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -469,13 +563,13 @@ class _ConfigScreenState extends State<ConfigScreen> {
           children: [
             Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
             Text(
-              value.toInt().toString(),
+              valueDisplay,
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ],
         ),
         Slider(
-          value: value,
+          value: value.clamp(min, max),
           min: min,
           max: max,
           divisions: divisions,

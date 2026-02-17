@@ -16,10 +16,10 @@ enum ScanStatus {
   /// Target number of clean IPs successfully found
   success,
 
-  /// Minimum acceptable IPs met, but target not reached
+  /// Partial success - some clean IPs found but below target
   partial,
 
-  /// Below minimum acceptable IPs
+  /// Insufficient results - very few clean IPs found
   insufficient,
 
   /// No results found or error occurred
@@ -52,8 +52,15 @@ class DartScanResult {
 
 /// Pure Dart implementation of the IP scanner
 ///
-/// This replaces the binary-based scanner with a native Dart implementation
-/// that works across all platforms without sandboxing issues.
+/// Implements the proven algorithm from the Go scanner:
+/// https://github.com/bia-pain-bache/Cloudflare-Clean-IP-Scanner
+///
+/// Algorithm:
+/// 1. Load all IPs (1 random per /24 subnet)
+/// 2. Test ALL IPs concurrently for latency (200+ threads, 4 pings each)
+/// 3. Sort by [loss rate ASC, latency ASC], filter by criteria
+/// 4. Test IPs one-by-one serially for download speed with early exit
+/// 5. Sort final results by download speed DESC
 class DartScannerService {
   static final DartScannerService _instance = DartScannerService._internal();
   static DartScannerService get instance => _instance;
@@ -68,711 +75,495 @@ class DartScannerService {
   /// Stream controller for progress updates
   StreamController<ScanProgress>? _progressController;
 
-  // Session state tracking for duplicate prevention
-  final Set<String> _testedIPsInSession = {};
-  final Set<String> _cleanIPAddresses = {};
-
   // Cancellation flag
   bool _isCancelled = false;
 
-  /// Reset session state before starting a new scan
-  void _resetSessionState() {
-    _testedIPsInSession.clear();
-    _cleanIPAddresses.clear();
-    _isCancelled = false; // Reset cancellation flag
-    _logService.logInfo('[INFO] Session state reset');
-  }
-
   /// Cancel the current scan
-  ///
-  /// Sets a flag that will be checked during the scan loop.
-  /// The scan will stop and return partial results.
   void cancelScan() {
     _isCancelled = true;
     _logService.logWarn('[WARN] Scan cancellation requested by user');
   }
 
-  /// Filter out IPs that have already been tested in this session
-  ///
-  /// Returns only IPs that haven't been tested yet
-  List<String> _filterDuplicates(List<String> ips) {
-    final uniqueIPs = ips
-        .where((ip) => !_testedIPsInSession.contains(ip))
-        .toList();
-    final duplicateCount = ips.length - uniqueIPs.length;
-
-    if (duplicateCount > 0) {
-      _logService.logInfo(
-        '[INFO] Filtered out $duplicateCount duplicate IPs (already tested)',
-      );
-    }
-
-    return uniqueIPs;
-  }
-
-  /// Add a clean IP to the results, checking for duplicates
-  ///
-  /// Returns true if IP was added, false if it was a duplicate
-  bool _addCleanIP(String ip, ScanResult result, List<ScanResult> cleanIPs) {
-    if (_cleanIPAddresses.contains(ip)) {
-      _logService.logWarn('[WARN] Duplicate clean IP detected: $ip (skipping)');
-      return false;
-    }
-
-    _cleanIPAddresses.add(ip);
-    cleanIPs.add(result);
-    return true;
-  }
-
-  /// Determine scan status and generate user-friendly message
-  ///
-  /// Returns a tuple of (ScanStatus, String message) based on results vs goals
-  @visibleForTesting
-  (ScanStatus, String) determineScanStatus(
-    int cleanIPsFound,
-    int targetCleanIPs,
-    int minAcceptableIPs,
-    int totalIPsTested,
-    int maxTotalIPsToTest,
-    int totalIPsAvailable,
-  ) {
-    // No results at all
-    if (cleanIPsFound == 0) {
-      return (
-        ScanStatus.failed,
-        'No clean IPs found after testing $totalIPsTested IPs. '
-            'Try: (1) Check network connection, (2) Lower latency/speed requirements, '
-            'or (3) Use different IP ranges.',
-      );
-    }
-
-    // Target met or exceeded
-    if (cleanIPsFound >= targetCleanIPs) {
-      return (
-        ScanStatus.success,
-        'Found $cleanIPsFound clean IPs (target: $targetCleanIPs). '
-            'Scan completed successfully.',
-      );
-    }
-
-    // Minimum acceptable met but not target
-    if (cleanIPsFound >= minAcceptableIPs) {
-      // Check if IP pool exhaustion was the limiting factor
-      if (totalIPsTested >= totalIPsAvailable * 0.9) {
-        // Tested 90%+ of available IPs - pool is exhausted
-        return (
-          ScanStatus.partial,
-          'Found $cleanIPsFound clean IPs (target: $targetCleanIPs). '
-              'Tested $totalIPsTested of $totalIPsAvailable available IPs. '
-              'Try: (1) Run on desktop for larger IP pool, '
-              '(2) Lower quality requirements, or (3) Accept $cleanIPsFound IPs.',
-        );
-      }
-
-      return (
-        ScanStatus.partial,
-        'Found $cleanIPsFound clean IPs (min: $minAcceptableIPs, target: $targetCleanIPs). '
-            'Try: (1) Lower target to $cleanIPsFound IPs, (2) Increase max IPs to test from '
-            '$maxTotalIPsToTest to ${maxTotalIPsToTest + 500}, or (3) Lower requirements.',
-      );
-    }
-
-    // Below minimum acceptable - differentiate between IP pool exhaustion vs quality issues
-    if (totalIPsTested >= totalIPsAvailable * 0.9) {
-      // Tested 90%+ of available IPs - pool is exhausted
-      return (
-        ScanStatus.insufficient,
-        'Found only $cleanIPsFound clean IPs (min: $minAcceptableIPs). '
-            'Tested $totalIPsTested of $totalIPsAvailable available IPs. '
-            'Try: (1) Run on desktop for larger IP pool, '
-            '(2) Lower latency threshold, (3) Lower speed requirements, '
-            'or (4) Disable download test.',
-      );
-    }
-
-    return (
-      ScanStatus.insufficient,
-      'Found only $cleanIPsFound clean IPs (min: $minAcceptableIPs, target: $targetCleanIPs). '
-          'Try: (1) Increase max IPs to test from $maxTotalIPsToTest to ${maxTotalIPsToTest + 1000}, '
-          '(2) Lower latency threshold, (3) Lower speed requirements, or (4) Use different IP ranges.',
-    );
-  }
-
-  /// Test downloads using Pareto principle (20% incremental batching)
-  ///
-  /// Tests top 20% of IPs first, then next 20%, etc. until target is met.
-  /// Returns Map of IP -> SpeedResult for tested IPs.
-  ///
-  /// Parameters:
-  /// - `successfulLatencies`: Map of IP to LatencyResult for IPs that passed latency test
-  /// - `config`: Scanner configuration
-  /// - `targetCleanIPs`: Number of clean IPs needed
-  /// - `currentCleanCount`: Number of clean IPs already found
-  /// - `currentBatch`: Current batch number for progress reporting
-  /// - `totalIPsTested`: Total IPs tested so far across all batches
-  ///
-  /// Returns: `Map<String, SpeedResult>` containing speed test results
-  Future<Map<String, SpeedResult>> _testDownloadsPareto({
-    required Map<String, LatencyResult> successfulLatencies,
-    required ScannerConfig config,
-    required int targetCleanIPs,
-    required int currentCleanCount,
-    required int currentBatch,
-    required int totalIPsTested,
-    required int latencyPass,
-    required int latencyFail,
-  }) async {
-    final speedResults = <String, SpeedResult>{};
-
-    // Sort IPs by latency quality (best first)
-    final sortedIPs = successfulLatencies.entries.toList()
-      ..sort((a, b) {
-        // Lower average latency is better
-        return a.value.averageLatencyMs.compareTo(b.value.averageLatencyMs);
-      });
-
-    final totalAvailable = sortedIPs.length;
-
-    // Calculate how many more clean IPs we need
-    var cleanIPsNeeded = targetCleanIPs - currentCleanCount;
-    if (cleanIPsNeeded <= 0) {
-      _logService.logOk('[OK] Target already met, skipping download tests');
-      return speedResults;
-    }
-
-    // Download test configuration
-    final downloadBytes = _extractDownloadBytes(config.testUrl) ?? 10000000;
-    final paretoPercentage = config.downloadTestPercentage / 100.0;
-
-    _logService.logInfo('[INFO] ===== PARETO DOWNLOAD TESTING START =====');
-    _logService.logInfo(
-      '[INFO] Available IPs for download testing: $totalAvailable (sorted by latency)',
-    );
-    _logService.logInfo(
-      '[INFO] Target: $targetCleanIPs clean IPs, currently have: $currentCleanCount, need: $cleanIPsNeeded more',
-    );
-    _logService.logInfo(
-      '[INFO] Download config: ${(downloadBytes / 1000000).toStringAsFixed(1)} MB, timeout: ${config.downloadTestTime}s, threads: ${config.threads}',
-    );
-
-    var totalTested = 0;
-    var currentIndex = 0;
-    var cleanIPsFoundInThisBatch =
-        0; // Track clean IPs found during this download test phase
-
-    // Process in Pareto batches (20% at a time by default)
-    while (currentIndex < totalAvailable && cleanIPsNeeded > 0) {
-      // Calculate batch size (20% of remaining IPs)
-      final remaining = totalAvailable - currentIndex;
-      final batchSize = (remaining * paretoPercentage).ceil();
-      final actualBatchSize = batchSize.clamp(1, remaining);
-
-      final batchStart = currentIndex;
-      final batchEnd = (currentIndex + actualBatchSize).clamp(
-        0,
-        totalAvailable,
-      );
-      final batch = sortedIPs.sublist(batchStart, batchEnd);
-
-      // Get IPs for this batch
-      final batchIPs = batch.map((e) => e.key).toList();
-
-      _logService.logInfo(
-        '[INFO] Pareto batch ${(currentIndex / totalAvailable * 100).toInt()}-${(batchEnd / totalAvailable * 100).toInt()}%: Testing downloads for ${batch.length} IPs',
-      );
-
-      // Log the IPs being tested
-      final ipsPreview = batchIPs.take(3).join(', ');
-      final moreCount = batchIPs.length > 3
-          ? ' and ${batchIPs.length - 3} more'
-          : '';
-      _logService.logInfo('[INFO] Testing IPs: $ipsPreview$moreCount');
-
-      _emitProgress(
-        ScanProgress(
-          totalIPs: batch.length,
-          processedIPs: 0,
-          successfulIPs: 0,
-          failedIPs: 0,
-          currentBatch: currentBatch,
-          targetCleanIPs: config.targetCleanIPs,
-          cleanIPsFound: currentCleanCount + cleanIPsFoundInThisBatch,
-          minAcceptableIPs: config.minAcceptableIPs,
-          totalIPsTested: totalIPsTested,
-          stage: ScanStage.speedTesting,
-          subStage:
-              'Testing downloads for ${batch.length}/$totalAvailable IPs (top ${(batchEnd / totalAvailable * 100).toInt()}%)',
-          message:
-              'Testing downloads for top ${(batchEnd / totalAvailable * 100).toInt()}% IPs',
-          timestamp: DateTime.now(),
-          lastBatchLatencyPass: latencyPass,
-          lastBatchLatencyFail: latencyFail,
-        ),
-      );
-
-      var processedInBatch = 0;
-      var successInBatch = 0;
-
-      // Test this batch
-      await for (final speedResult in _speedTester.testMultiple(
-        ips: batchIPs,
-        port: config.testPort,
-        testUrl: config.testUrl,
-        downloadBytes: downloadBytes,
-        timeout: Duration(seconds: config.downloadTestTime),
-        maxConcurrent: config.threads,
-        isCancelled: () => _isCancelled,
-      )) {
-        speedResults[speedResult.ip] = speedResult;
-        processedInBatch++;
-        totalTested++;
-
-        if (speedResult.isSuccessful) {
-          successInBatch++;
-          cleanIPsFoundInThisBatch++; // Increment real-time counter
-        }
-
-        _emitProgress(
-          ScanProgress(
-            totalIPs: batch.length,
-            processedIPs: processedInBatch,
-            successfulIPs: successInBatch,
-            failedIPs: processedInBatch - successInBatch,
-            currentIP: speedResult.ip,
-            currentBatch: currentBatch,
-            targetCleanIPs: config.targetCleanIPs,
-            cleanIPsFound: currentCleanCount + cleanIPsFoundInThisBatch,
-            minAcceptableIPs: config.minAcceptableIPs,
-            totalIPsTested: totalIPsTested,
-            stage: ScanStage.speedTesting,
-            subStage: 'Testing $totalTested/$totalAvailable IPs',
-            message:
-                'Testing downloads: $processedInBatch/${batch.length} tested',
-            timestamp: DateTime.now(),
-            lastBatchLatencyPass: latencyPass,
-            lastBatchLatencyFail: latencyFail,
-          ),
-        );
-      }
-
-      _logService.logOk(
-        '[OK] Pareto batch complete: $successInBatch/${batch.length} passed download test, $cleanIPsNeeded more needed',
-      );
-
-      // Update clean IPs needed (approximation - actual count done later)
-      cleanIPsNeeded -= successInBatch;
-      currentIndex = batchEnd;
-
-      // Stop if we've likely met our goal
-      if (cleanIPsNeeded <= 0) {
-        _logService.logOk(
-          'Target likely met after testing ${(batchEnd / totalAvailable * 100).toInt()}% of IPs',
-        );
-        break;
-      }
-    }
-
-    _logService.logOk(
-      'Pareto download testing complete: $totalTested/$totalAvailable IPs tested (${(totalTested / totalAvailable * 100).toStringAsFixed(1)}%)',
-    );
-
-    return speedResults;
-  }
-
   /// Execute a complete scan with the given configuration
   ///
-  /// Returns the scan results. Progress updates can be monitored via [progressStream].
+  /// Implements the 5-phase Go scanner algorithm:
+  /// Phase 1: Load IPs
+  /// Phase 2: Latency test ALL IPs concurrently
+  /// Phase 3: Sort and filter by latency/loss criteria
+  /// Phase 4: Download test serially with early exit
+  /// Phase 5: Sort final results by download speed
   Future<DartScanResult> executeScan(ScannerConfig config) async {
-    _logService.logInfo('Starting Dart scanner execution');
+    _logService.logInfo('[INFO] ===== STARTING NEW SCAN =====');
     _logService.logInfo(
-      'Goal: Find ${config.targetCleanIPs} clean IPs (min ${config.minAcceptableIPs})',
+      '[INFO] Goal: Find ${config.targetCleanIPs} clean IPs '
+      '(max latency: ${config.maxLatency}ms, max loss: ${(config.maxLossRate * 100).toStringAsFixed(0)}%, '
+      'min speed: ${config.minDownloadSpeed} MB/s)',
     );
 
-    // Reset session state at start of new scan
-    _resetSessionState();
-
+    _isCancelled = false;
     final scanStartTime = DateTime.now();
-    final allScanResults = <ScanResult>[]; // Accumulate results across batches
-    var totalIPsTested = 0;
-    var currentBatch = 0;
 
     try {
-      // Step 1: Initialize
+      // ===== PHASE 1: LOAD IPS =====
       _emitProgress(
         ScanProgress.initial(
           totalIPs: 0,
           targetCleanIPs: config.targetCleanIPs,
-          minAcceptableIPs: config.minAcceptableIPs,
-        ).copyWith(
-          stage: ScanStage.initializing,
-          message: 'Initializing scanner',
-        ),
-      );
-
-      // Step 2: Load all available IPs once
-      _emitProgress(
-        ScanProgress.initial(
-          totalIPs: 0,
-          targetCleanIPs: config.targetCleanIPs,
-          minAcceptableIPs: config.minAcceptableIPs,
         ).copyWith(
           stage: ScanStage.loadingIPs,
-          message: 'Loading IP addresses',
+          message: 'Phase 1/5: Loading IP addresses',
         ),
       );
 
-      // Load IPs with platform-aware CIDR sampling
-      final cidrSamples = _getCIDRSamplesForPlatform();
+      _logService.logInfo('[INFO] ===== PHASE 1: LOADING IPS =====');
+
+      final cidrSamples = config.testAllIPs
+          ? 999999
+          : _getCIDRSamplesForPlatform();
       _logService.logInfo(
-        'Platform: ${Platform.operatingSystem}, CIDR samples: $cidrSamples per range',
+        '[INFO] Platform: ${Platform.operatingSystem}, CIDR samples: ${config.testAllIPs ? "ALL (testAllIPs=true)" : "$cidrSamples per range"}',
       );
 
       final allIPs = await _ipLoader.loadAllAddresses(
         maxSamplesPerCIDR: cidrSamples,
       );
       _logService.logInfo(
-        'Loaded ${allIPs.length} total IP addresses from CIDR ranges',
+        '[INFO] Loaded ${allIPs.length} total IPs from CIDR ranges',
       );
 
-      // For now, only use IPv4 addresses
+      // Filter to IPv4 only
       final availableIPs = _ipLoader.filterByType(allIPs, IPType.ipv4);
-      _logService.logInfo('Filtered to ${availableIPs.length} IPv4 addresses');
-
-      // Calculate maximum batches based on config
-      final maxBatches = (config.maxTotalIPsToTest / config.batchSize).ceil();
       _logService.logInfo(
-        'Will test up to $maxBatches batches of ${config.batchSize} IPs each (max ${config.maxTotalIPsToTest} total IPs)',
+        '[INFO] Filtered to ${availableIPs.length} IPv4 addresses',
       );
 
-      // Multi-batch scanning loop
-      while (true) {
-        currentBatch++;
-        _logService.logInfo('=== Starting Batch $currentBatch ===');
+      // Apply maxIPsToTest limit
+      final ipsToTest = availableIPs.length > config.maxIPsToTest
+          ? _ipLoader.selectRandomIPs(availableIPs, config.maxIPsToTest)
+          : availableIPs;
 
-        // Check cancellation FIRST
-        if (_isCancelled) {
-          _logService.logWarn(
-            '[WARN] Scan cancelled by user after $currentBatch batches',
-          );
-          break;
-        }
-
-        // Check stopping conditions
-        if (allScanResults.length >= config.targetCleanIPs) {
-          _logService.logOk(
-            'Target reached: ${allScanResults.length}/${config.targetCleanIPs} clean IPs',
-          );
-          break;
-        }
-
-        if (totalIPsTested >= config.maxTotalIPsToTest) {
-          _logService.logWarn(
-            'Max IP limit reached: $totalIPsTested/${config.maxTotalIPsToTest}',
-          );
-          break;
-        }
-
-        if (currentBatch > maxBatches) {
-          _logService.logWarn('Max batch limit reached: $currentBatch');
-          break;
-        }
-
-        // Select batch of IPs
-        final remainingBudget = config.maxTotalIPsToTest - totalIPsTested;
-        final batchSize = config.batchSize.clamp(1, remainingBudget);
-
-        final selectedIPs = availableIPs.length > batchSize
-            ? _ipLoader.selectRandomIPs(availableIPs, batchSize)
-            : availableIPs;
-
-        // Filter out duplicates (IPs already tested in this session)
-        final uniqueIPs = _filterDuplicates(selectedIPs);
-
-        if (uniqueIPs.isEmpty) {
-          _logService.logWarn(
-            'Batch $currentBatch: No unique IPs to test (all already tested)',
-          );
-          break; // No more unique IPs available
-        }
-
+      if (ipsToTest.length < availableIPs.length) {
         _logService.logInfo(
-          'Batch $currentBatch: Testing ${uniqueIPs.length} unique IPs',
+          '[INFO] Limited to ${ipsToTest.length} IPs (max allowed: ${config.maxIPsToTest})',
         );
+      }
 
-        final batchTotalIPs = uniqueIPs.length;
-        var batchProcessedIPs = 0;
-        var batchSuccessfulIPs = 0;
-        var batchFailedIPs = 0;
-
-        // Step 3: Latency testing for this batch
-        _emitProgress(
-          ScanProgress(
-            totalIPs: batchTotalIPs,
-            processedIPs: 0,
-            successfulIPs: 0,
-            failedIPs: 0,
-            currentBatch: currentBatch,
-            totalBatchesPlanned: maxBatches,
-            targetCleanIPs: config.targetCleanIPs,
-            cleanIPsFound: allScanResults.length,
-            minAcceptableIPs: config.minAcceptableIPs,
-            totalIPsTested: totalIPsTested,
-            stage: ScanStage.latencyTesting,
-            message: 'Batch $currentBatch: Testing latency',
-            timestamp: DateTime.now(),
-          ),
+      if (ipsToTest.isEmpty) {
+        _logService.logError(
+          '[ERROR] No IPs available for testing',
+          null,
+          null,
         );
+        return DartScanResult(
+          results: [],
+          timestamp: DateTime.now(),
+          totalTested: 0,
+          successful: 0,
+          failed: 0,
+          status: ScanStatus.failed,
+          message: 'No IP addresses available for testing',
+        );
+      }
 
-        final latencyResults = <String, LatencyResult>{};
+      _logService.logOk(
+        '[OK] Phase 1 complete: ${ipsToTest.length} IPs ready for testing',
+      );
 
-        await for (final latencyResult in _latencyTester.testMultiple(
-          ips: uniqueIPs,
-          port: config.testPort,
-          count: config.testCount,
-          timeout: Duration(milliseconds: config.latencyLimit),
-          maxConcurrent: config.threads,
-          isCancelled: () => _isCancelled,
-        )) {
-          latencyResults[latencyResult.ip] = latencyResult;
+      // Check cancellation
+      if (_isCancelled) {
+        return _cancelledResult(0, scanStartTime);
+      }
 
-          // Track that this IP has been tested in this session
-          _testedIPsInSession.add(latencyResult.ip);
-          totalIPsTested++;
-          batchProcessedIPs++;
+      // ===== PHASE 2: LATENCY TESTING (ALL IPS CONCURRENTLY) =====
+      _emitProgress(
+        ScanProgress(
+          totalIPs: ipsToTest.length,
+          processedIPs: 0,
+          successfulIPs: 0,
+          failedIPs: 0,
+          targetCleanIPs: config.targetCleanIPs,
+          cleanIPsFound: 0,
+          totalIPsTested: 0,
+          stage: ScanStage.latencyTesting,
+          message: 'Phase 2/5: Testing latency for ${ipsToTest.length} IPs',
+          timestamp: DateTime.now(),
+        ),
+      );
 
-          if (latencyResult.isSuccessful) {
-            batchSuccessfulIPs++;
-          } else {
-            batchFailedIPs++;
-          }
+      _logService.logInfo('[INFO] ===== PHASE 2: LATENCY TESTING =====');
+      _logService.logInfo(
+        '[INFO] Testing ${ipsToTest.length} IPs concurrently '
+        '(threads: ${config.threads}, pings per IP: ${config.testCount})',
+      );
 
+      final latencyResults = <String, LatencyResult>{};
+      var processedCount = 0;
+      var successCount = 0;
+      var failCount = 0;
+
+      await for (final result in _latencyTester.testMultiple(
+        ips: ipsToTest,
+        port: config.testPort,
+        count: config.testCount,
+        timeout: Duration(
+          milliseconds: config.maxLatency * 2,
+        ), // 2x for timeout
+        maxConcurrent: config.threads,
+        isCancelled: () => _isCancelled,
+      )) {
+        latencyResults[result.ip] = result;
+        processedCount++;
+
+        if (result.isSuccessful) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+
+        // Emit progress every 10 IPs or at completion
+        if (processedCount % 10 == 0 || processedCount == ipsToTest.length) {
           _emitProgress(
             ScanProgress(
-              totalIPs: batchTotalIPs,
-              processedIPs: batchProcessedIPs,
-              successfulIPs: batchSuccessfulIPs,
-              failedIPs: batchFailedIPs,
-              currentIP: latencyResult.ip,
-              currentBatch: currentBatch,
-              totalBatchesPlanned: maxBatches,
+              totalIPs: ipsToTest.length,
+              processedIPs: processedCount,
+              successfulIPs: successCount,
+              failedIPs: failCount,
+              currentIP: result.ip,
               targetCleanIPs: config.targetCleanIPs,
-              cleanIPsFound: allScanResults.length,
-              minAcceptableIPs: config.minAcceptableIPs,
-              totalIPsTested: totalIPsTested,
+              cleanIPsFound: 0,
+              totalIPsTested: processedCount,
               stage: ScanStage.latencyTesting,
               message:
-                  'Batch $currentBatch: Latency $batchProcessedIPs/$batchTotalIPs',
+                  'Phase 2/5: Latency testing $processedCount/${ipsToTest.length}',
               timestamp: DateTime.now(),
             ),
           );
         }
+      }
 
-        _logService.logOk(
-          'Batch $currentBatch latency: $batchSuccessfulIPs passed, $batchFailedIPs failed',
+      _logService.logOk(
+        '[OK] Phase 2 complete: $successCount passed, $failCount failed latency test',
+      );
+
+      // Check cancellation
+      if (_isCancelled) {
+        return _cancelledResult(processedCount, scanStartTime);
+      }
+
+      // ===== PHASE 3: SORT & FILTER =====
+      _emitProgress(
+        ScanProgress(
+          totalIPs: ipsToTest.length,
+          processedIPs: processedCount,
+          successfulIPs: successCount,
+          failedIPs: failCount,
+          targetCleanIPs: config.targetCleanIPs,
+          cleanIPsFound: 0,
+          totalIPsTested: processedCount,
+          stage: ScanStage.sorting,
+          message: 'Phase 3/5: Filtering and sorting results',
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      _logService.logInfo('[INFO] ===== PHASE 3: SORT & FILTER =====');
+      _logService.logInfo(
+        '[INFO] Filters: latency <= ${config.maxLatency}ms, loss <= ${(config.maxLossRate * 100).toStringAsFixed(0)}%',
+      );
+
+      // Filter by criteria
+      final filteredResults = latencyResults.entries.where((entry) {
+        final result = entry.value;
+        if (!result.isSuccessful) return false;
+
+        final lossRate = 1.0 - result.successRate;
+        final meetsLatency = result.averageLatencyMs <= config.maxLatency;
+        final meetsLoss = lossRate <= config.maxLossRate;
+
+        return meetsLatency && meetsLoss;
+      }).toList();
+
+      _logService.logInfo(
+        '[INFO] After filtering: ${filteredResults.length} IPs meet criteria '
+        '(${successCount - filteredResults.length} filtered out)',
+      );
+
+      if (filteredResults.isEmpty) {
+        _logService.logError(
+          '[ERROR] No IPs passed latency/loss filters',
+          null,
+          null,
         );
-
-        // Filter to only successful latency results
-        final successfulLatencies = Map.fromEntries(
-          latencyResults.entries.where((e) => e.value.isSuccessful),
+        return DartScanResult(
+          results: [],
+          timestamp: DateTime.now(),
+          totalTested: processedCount,
+          successful: 0,
+          failed: processedCount,
+          status: ScanStatus.failed,
+          message:
+              'No IPs passed latency/loss filters. '
+              'Try: (1) Increase max latency from ${config.maxLatency}ms, '
+              '(2) Increase max loss rate from ${(config.maxLossRate * 100).toStringAsFixed(0)}%',
         );
+      }
 
-        if (successfulLatencies.isEmpty) {
-          _logService.logWarn(
-            'Batch $currentBatch: No IPs passed latency test, trying next batch',
-          );
-          continue; // Try next batch
+      // Sort by [loss rate ASC, latency ASC] - CRITICAL: matches Go scanner
+      filteredResults.sort((a, b) {
+        final aLoss = 1.0 - a.value.successRate;
+        final bLoss = 1.0 - b.value.successRate;
+
+        // 1. Lower loss rate wins
+        if (aLoss != bLoss) {
+          return aLoss.compareTo(bLoss);
         }
 
-        // Step 4: Speed testing (Pareto-based, optional)
-        final speedResults = <String, SpeedResult>{};
+        // 2. Lower latency wins
+        return a.value.averageLatencyMs.compareTo(b.value.averageLatencyMs);
+      });
 
-        if (!config.disableDownload) {
-          // Use Pareto principle: test downloads for top 20% batches until target met
-          final testResults = await _testDownloadsPareto(
-            successfulLatencies: successfulLatencies,
-            config: config,
-            targetCleanIPs: config.targetCleanIPs,
-            currentCleanCount: allScanResults.length,
-            currentBatch: currentBatch,
-            totalIPsTested: totalIPsTested,
-            latencyPass: batchSuccessfulIPs,
-            latencyFail: batchFailedIPs,
+      _logService.logOk(
+        '[OK] Phase 3 complete: ${filteredResults.length} IPs sorted by loss rate and latency',
+      );
+
+      // Log top 5 IPs for debugging
+      final top5 = filteredResults.take(5);
+      for (var i = 0; i < top5.length; i++) {
+        final entry = top5.elementAt(i);
+        final lossRate = 1.0 - entry.value.successRate;
+        _logService.logInfo(
+          '[INFO] Top ${i + 1}: ${entry.key} - '
+          'loss: ${(lossRate * 100).toStringAsFixed(1)}%, '
+          'latency: ${entry.value.averageLatencyMs.toStringAsFixed(2)}ms',
+        );
+      }
+
+      // Check cancellation
+      if (_isCancelled) {
+        return _cancelledResult(processedCount, scanStartTime);
+      }
+
+      // ===== PHASE 4: DOWNLOAD TESTING (SERIAL WITH EARLY EXIT) =====
+      _logService.logInfo('[INFO] ===== PHASE 4: DOWNLOAD TESTING =====');
+      _logService.logInfo(
+        '[INFO] Testing downloads serially (1 at a time) until ${config.targetCleanIPs} clean IPs found',
+      );
+      _logService.logInfo(
+        '[INFO] Download config: ${(config.downloadBytes / 1000000).toStringAsFixed(1)} MB, '
+        'timeout: ${config.downloadTestTime}s, min speed: ${config.minDownloadSpeed} MB/s',
+      );
+
+      final cleanResults = <ScanResult>[];
+      var downloadTestCount = 0;
+      var downloadSuccessCount = 0;
+
+      for (var i = 0; i < filteredResults.length; i++) {
+        // Check if we've met our target (EARLY EXIT)
+        if (cleanResults.length >= config.targetCleanIPs) {
+          _logService.logOk(
+            '[OK] Target reached! Found ${cleanResults.length}/${config.targetCleanIPs} clean IPs '
+            'after testing $downloadTestCount/${filteredResults.length} IPs (${((downloadTestCount / filteredResults.length) * 100).toStringAsFixed(1)}%)',
           );
-          speedResults.addAll(testResults);
+          break;
         }
 
-        // Step 5: Build results for this batch
+        // Check cancellation
+        if (_isCancelled) {
+          return _cancelledResult(processedCount, scanStartTime, cleanResults);
+        }
+
+        final entry = filteredResults[i];
+        final ip = entry.key;
+        final latencyResult = entry.value;
+
+        downloadTestCount++;
+
         _emitProgress(
           ScanProgress(
-            totalIPs: batchTotalIPs,
-            processedIPs: batchProcessedIPs,
-            successfulIPs: batchSuccessfulIPs,
-            failedIPs: batchFailedIPs,
-            currentBatch: currentBatch,
-            totalBatchesPlanned: maxBatches,
+            totalIPs: filteredResults.length,
+            processedIPs: downloadTestCount,
+            successfulIPs: downloadSuccessCount,
+            failedIPs: downloadTestCount - downloadSuccessCount,
+            currentIP: ip,
             targetCleanIPs: config.targetCleanIPs,
-            cleanIPsFound: allScanResults.length,
-            minAcceptableIPs: config.minAcceptableIPs,
-            totalIPsTested: totalIPsTested,
-            stage: ScanStage.sorting,
-            message: 'Batch $currentBatch: Building results',
+            cleanIPsFound: cleanResults.length,
+            totalIPsTested: processedCount,
+            stage: ScanStage.speedTesting,
+            subStage:
+                'Testing ${cleanResults.length}/${config.targetCleanIPs} found',
+            message:
+                'Phase 4/5: Download testing $downloadTestCount/${filteredResults.length}',
             timestamp: DateTime.now(),
           ),
         );
 
-        var batchResults = 0;
-        var duplicateCount = 0;
-        var skippedNoDownload = 0;
-        var skippedFailedDownload = 0;
-
-        // Iterate over IPs that passed latency test
-        for (final entry in successfulLatencies.entries) {
-          final ip = entry.key;
-
-          // If download testing is enabled, ONLY include IPs with successful downloads
-          if (!config.disableDownload) {
-            if (!speedResults.containsKey(ip)) {
-              skippedNoDownload++;
-              continue; // Skip IPs without download test results
-            }
-
-            // Skip IPs with failed download tests (0 MB/s)
-            if (!speedResults[ip]!.isSuccessful) {
-              skippedFailedDownload++;
-              continue;
-            }
-          }
-
-          final scanResult = ScanResult.fromTests(
-            ip: ip,
-            latencyResult: latencyResults[ip]!,
-            speedResult: speedResults[ip],
-          );
-
-          // Use _addCleanIP to prevent duplicates in results
-          final added = _addCleanIP(ip, scanResult, allScanResults);
-          if (added) {
-            batchResults++;
-          } else {
-            duplicateCount++;
-          }
-        }
-
-        if (skippedNoDownload > 0) {
-          _logService.logInfo(
-            'Batch $currentBatch: Skipped $skippedNoDownload IPs without download tests',
-          );
-        }
-
-        if (skippedFailedDownload > 0) {
-          _logService.logInfo(
-            'Batch $currentBatch: Skipped $skippedFailedDownload IPs with failed downloads',
-          );
-        }
-
-        if (duplicateCount > 0) {
-          _logService.logWarn(
-            'Batch $currentBatch: Skipped $duplicateCount duplicate IPs',
-          );
-        }
-
-        _logService.logOk(
-          'Batch $currentBatch complete: Added $batchResults clean IPs (total: ${allScanResults.length}/${config.targetCleanIPs})',
+        // Test download speed (SERIAL - one at a time)
+        final speedResult = await _speedTester.testSpeed(
+          ip: ip,
+          port: config.testPort,
+          testUrl: config.testUrl,
+          downloadBytes: config.downloadBytes,
+          timeout: Duration(seconds: config.downloadTestTime),
+          isCancelled: () => _isCancelled,
         );
 
-        // Check if we've met our goal
-        if (allScanResults.length >= config.targetCleanIPs) {
-          _logService.logOk(
-            'Target reached after batch $currentBatch: ${allScanResults.length}/${config.targetCleanIPs} clean IPs',
+        // Check if download meets minimum speed requirement
+        if (speedResult.isSuccessful) {
+          final speedMBps = speedResult.speedMBps;
+
+          if (speedMBps >= config.minDownloadSpeed) {
+            downloadSuccessCount++;
+
+            // Create ScanResult with nested latencyResult and speedResult
+            final scanResult = ScanResult.fromTests(
+              ip: ip,
+              latencyResult: latencyResult,
+              speedResult: speedResult,
+            );
+
+            cleanResults.add(scanResult);
+
+            _logService.logOk(
+              '[OK] Clean IP found (${cleanResults.length}/${config.targetCleanIPs}): $ip - '
+              'speed: ${speedMBps.toStringAsFixed(2)} MB/s, '
+              'latency: ${latencyResult.averageLatencyMs.toStringAsFixed(2)}ms',
+            );
+          } else {
+            _logService.logInfo(
+              '[INFO] IP rejected (speed too low): $ip - '
+              '${speedMBps.toStringAsFixed(2)} MB/s < ${config.minDownloadSpeed} MB/s',
+            );
+          }
+        } else {
+          _logService.logInfo(
+            '[INFO] IP rejected (download failed): $ip - ${speedResult.error}',
           );
-          break;
         }
       }
 
-      // Sort all results by quality
-      allScanResults.sort((a, b) => a.compareQuality(b));
-
-      final elapsedTime = DateTime.now().difference(scanStartTime);
       _logService.logOk(
-        'Scan complete: ${allScanResults.length} clean IPs found in $currentBatch batches ($totalIPsTested IPs tested, ${elapsedTime.inSeconds}s)',
+        '[OK] Phase 4 complete: Found ${cleanResults.length} clean IPs '
+        '(tested $downloadTestCount/${filteredResults.length} IPs for downloads)',
       );
 
-      // Determine scan status and generate message
-      final (status, statusMessage) = _isCancelled
-          ? (
-              ScanStatus.cancelled,
-              'Scan cancelled by user. Found ${allScanResults.length} clean IPs before cancellation (target: ${config.targetCleanIPs}).',
-            )
-          : determineScanStatus(
-              allScanResults.length,
-              config.targetCleanIPs,
-              config.minAcceptableIPs,
-              totalIPsTested,
-              config.maxTotalIPsToTest,
-              availableIPs.length,
-            );
+      // Check cancellation
+      if (_isCancelled) {
+        return _cancelledResult(processedCount, scanStartTime, cleanResults);
+      }
 
-      // Log status
+      // ===== PHASE 5: FINAL SORT =====
+      _emitProgress(
+        ScanProgress(
+          totalIPs: processedCount,
+          processedIPs: processedCount,
+          successfulIPs: cleanResults.length,
+          failedIPs: processedCount - cleanResults.length,
+          targetCleanIPs: config.targetCleanIPs,
+          cleanIPsFound: cleanResults.length,
+          totalIPsTested: processedCount,
+          stage: ScanStage.sorting,
+          message: 'Phase 5/5: Sorting final results',
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      _logService.logInfo('[INFO] ===== PHASE 5: FINAL SORT =====');
+      _logService.logInfo(
+        '[INFO] Sorting ${cleanResults.length} clean IPs by download speed',
+      );
+
+      // Sort by download speed DESC (fastest first)
+      cleanResults.sort((a, b) {
+        final aSpeed = a.speedResult?.speedMBps ?? 0.0;
+        final bSpeed = b.speedResult?.speedMBps ?? 0.0;
+        return bSpeed.compareTo(aSpeed); // Descending
+      });
+
+      _logService.logOk(
+        '[OK] Phase 5 complete: Results sorted by download speed',
+      );
+
+      // Log top 5 results
+      final topResults = cleanResults.take(5);
+      for (var i = 0; i < topResults.length; i++) {
+        final result = topResults.elementAt(i);
+        _logService.logInfo(
+          '[INFO] Top ${i + 1}: ${result.ip} - '
+          'speed: ${result.speedResult?.speedMBps.toStringAsFixed(2)} MB/s, '
+          'latency: ${result.latencyResult.averageLatencyMs.toStringAsFixed(2)}ms',
+        );
+      }
+
+      // ===== COMPLETE =====
+      final elapsedTime = DateTime.now().difference(scanStartTime);
+      final (status, message) = _determineStatus(
+        cleanResults.length,
+        config.targetCleanIPs,
+        processedCount,
+        config.maxIPsToTest,
+      );
+
+      _logService.logInfo('[INFO] ===== SCAN COMPLETE =====');
+      _logService.logInfo(
+        '[INFO] Found ${cleanResults.length} clean IPs in ${elapsedTime.inSeconds}s '
+        '(tested $processedCount total IPs)',
+      );
+
       switch (status) {
         case ScanStatus.success:
-          _logService.logOk('[OK] $statusMessage');
+          _logService.logOk('[OK] $message');
           break;
         case ScanStatus.partial:
-          _logService.logWarn('[WARN] $statusMessage');
+          _logService.logWarn('[WARN] $message');
           break;
         case ScanStatus.insufficient:
-          _logService.logWarn('[WARN] $statusMessage');
+          _logService.logWarn('[WARN] $message');
           break;
         case ScanStatus.failed:
-          _logService.logError('[ERROR] $statusMessage', null, null);
+          _logService.logError('[ERROR] $message', null, null);
           break;
         case ScanStatus.cancelled:
-          _logService.logWarn('[WARN] $statusMessage');
+          _logService.logWarn('[WARN] $message');
           break;
       }
 
-      // Step 6: Complete
       _emitProgress(
         ScanProgress(
-          totalIPs: totalIPsTested,
-          processedIPs: totalIPsTested,
-          successfulIPs: allScanResults.length,
-          failedIPs: totalIPsTested - allScanResults.length,
-          currentBatch: currentBatch,
-          batchesCompleted: currentBatch,
-          totalBatchesPlanned: maxBatches,
+          totalIPs: processedCount,
+          processedIPs: processedCount,
+          successfulIPs: cleanResults.length,
+          failedIPs: processedCount - cleanResults.length,
           targetCleanIPs: config.targetCleanIPs,
-          cleanIPsFound: allScanResults.length,
-          minAcceptableIPs: config.minAcceptableIPs,
-          totalIPsTested: totalIPsTested,
+          cleanIPsFound: cleanResults.length,
+          totalIPsTested: processedCount,
           elapsedTime: elapsedTime,
           stage: ScanStage.completed,
-          message: statusMessage,
+          message: message,
           timestamp: DateTime.now(),
         ),
       );
 
       return DartScanResult(
-        results: allScanResults,
+        results: cleanResults,
         timestamp: DateTime.now(),
-        totalTested: totalIPsTested,
-        successful: allScanResults.length,
-        failed: totalIPsTested - allScanResults.length,
+        totalTested: processedCount,
+        successful: cleanResults.length,
+        failed: processedCount - cleanResults.length,
         status: status,
-        message: statusMessage,
+        message: message,
       );
     } catch (e, stackTrace) {
-      _logService.logError('Scan failed', e, stackTrace);
+      _logService.logError('[ERROR] Scan failed with exception', e, stackTrace);
 
       _emitProgress(
         ScanProgress(
-          totalIPs: totalIPsTested,
-          processedIPs: totalIPsTested,
-          successfulIPs: allScanResults.length,
-          failedIPs: totalIPsTested - allScanResults.length,
-          currentBatch: currentBatch,
+          totalIPs: 0,
+          processedIPs: 0,
+          successfulIPs: 0,
+          failedIPs: 0,
           targetCleanIPs: config.targetCleanIPs,
-          cleanIPsFound: allScanResults.length,
+          cleanIPsFound: 0,
+          totalIPsTested: 0,
           stage: ScanStage.failed,
           message: 'Scan failed: $e',
           timestamp: DateTime.now(),
@@ -783,7 +574,84 @@ class DartScannerService {
     }
   }
 
-  /// Start listening for progress updates before calling executeScan
+  /// Helper: Create cancelled result
+  DartScanResult _cancelledResult(
+    int totalTested,
+    DateTime startTime, [
+    List<ScanResult>? partialResults,
+  ]) {
+    final results = partialResults ?? [];
+    final message =
+        'Scan cancelled by user. Found ${results.length} clean IPs before cancellation.';
+
+    _logService.logWarn('[WARN] $message');
+
+    _emitProgress(
+      ScanProgress(
+        totalIPs: totalTested,
+        processedIPs: totalTested,
+        successfulIPs: results.length,
+        failedIPs: totalTested - results.length,
+        targetCleanIPs: 0,
+        cleanIPsFound: results.length,
+        totalIPsTested: totalTested,
+        elapsedTime: DateTime.now().difference(startTime),
+        stage: ScanStage.completed,
+        message: message,
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    return DartScanResult(
+      results: results,
+      timestamp: DateTime.now(),
+      totalTested: totalTested,
+      successful: results.length,
+      failed: totalTested - results.length,
+      status: ScanStatus.cancelled,
+      message: message,
+    );
+  }
+
+  /// Helper: Determine scan status
+  (ScanStatus, String) _determineStatus(
+    int found,
+    int target,
+    int tested,
+    int maxAllowed,
+  ) {
+    if (found == 0) {
+      return (
+        ScanStatus.failed,
+        'No clean IPs found after testing $tested IPs. '
+            'Try: (1) Lower quality requirements, (2) Check network connection',
+      );
+    }
+
+    if (found >= target) {
+      return (
+        ScanStatus.success,
+        'Found $found clean IPs (target: $target). Scan completed successfully.',
+      );
+    }
+
+    if (tested >= maxAllowed * 0.9) {
+      return (
+        ScanStatus.partial,
+        'Found $found clean IPs (target: $target). '
+            'Tested $tested of $maxAllowed allowed IPs. '
+            'Try: (1) Increase max IPs to test, (2) Lower quality requirements',
+      );
+    }
+
+    return (
+      ScanStatus.insufficient,
+      'Found only $found clean IPs (target: $target). '
+          'Try: (1) Lower quality requirements, (2) Run scan again',
+    );
+  }
+
+  /// Start listening for progress updates
   Stream<ScanProgress> startProgressStream() {
     _progressController?.close();
     _progressController = StreamController<ScanProgress>.broadcast();
@@ -801,43 +669,19 @@ class DartScannerService {
     _progressController?.add(progress);
   }
 
-  /// Check if the service is available (always true for Dart scanner)
-  bool get isAvailable => true;
-
-  /// Get scanner version
-  String get version => '1.0.0-dart';
-
-  /// Extract download bytes from test URL
-  ///
-  /// Parses URLs like "https://speed.cloudflare.com/__down?bytes=52428800"
-  /// Returns null if bytes parameter not found
-  int? _extractDownloadBytes(String testUrl) {
-    try {
-      final uri = Uri.parse(testUrl);
-      final bytesParam = uri.queryParameters['bytes'];
-      if (bytesParam != null) {
-        return int.tryParse(bytesParam);
-      }
-    } catch (e) {
-      _logService.logWarn('Failed to parse download bytes from URL: $e');
-    }
-    return null;
-  }
-
   /// Get CIDR expansion samples per range based on platform
   int _getCIDRSamplesForPlatform() {
     if (Platform.isAndroid || Platform.isIOS) {
-      // Mobile: Sample 50 IPs per CIDR range
-      // With 15 CIDR ranges, this gives ~750 total IPs
-      // Allows 5 batches of 150 IPs each for multi-batch scanning
-      return 50;
+      return 50; // Mobile: ~750 total IPs with 15 CIDR ranges
     } else if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
-      // Desktop: Sample 100 IPs per range
-      // With 15 CIDR ranges, this gives ~1500 total IPs
-      // Allows 10 batches of 150 IPs or 5 batches of 300 IPs
-      return 100;
+      return 100; // Desktop: ~1500 total IPs with 15 CIDR ranges
     }
-    // Fallback (web, etc.)
-    return 50;
+    return 50; // Fallback
   }
+
+  /// Check if the service is available
+  bool get isAvailable => true;
+
+  /// Get scanner version
+  String get version => '2.0.0-dart-go-algorithm';
 }
