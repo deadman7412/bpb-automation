@@ -16,6 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Extract version from pubspec.yaml
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -45,15 +52,17 @@ jobs:
         run: flutter build apk --release
 
       - name: Rename APK
-        run: mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/BPB-Automation-Android-Universal.apk
+        run: |
+          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/BPB-Automation-Android-Universal-${{ steps.version.outputs.version }}.apk
+          mv build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/BPB-Automation-Android-Debug-${{ steps.version.outputs.version }}.apk
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: |
-            build/app/outputs/flutter-apk/app-debug.apk
-            build/app/outputs/flutter-apk/BPB-Automation-Android-Universal.apk
+            build/app/outputs/flutter-apk/BPB-Automation-Android-Debug-${{ steps.version.outputs.version }}.apk
+            build/app/outputs/flutter-apk/BPB-Automation-Android-Universal-${{ steps.version.outputs.version }}.apk
           retention-days: 30
 
   # macOS Build
@@ -61,6 +70,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Extract version from pubspec.yaml
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -92,7 +108,7 @@ jobs:
             --window-size 800 400 \
             --icon-size 100 \
             --app-drop-link 600 185 \
-            "BPB-Automation-macOS.dmg" \
+            "BPB-Automation-macOS-${{ steps.version.outputs.version }}.dmg" \
             "build/macos/Build/Products/Release/bpb_automation.app" || true
 
       - name: Upload macOS artifacts
@@ -100,8 +116,7 @@ jobs:
         with:
           name: macos-app
           path: |
-            build/macos/Build/Products/Release/bpb_automation.app
-            BPB-Automation-macOS.dmg
+            BPB-Automation-macOS-${{ steps.version.outputs.version }}.dmg
           retention-days: 30
 
   # Linux Build
@@ -109,6 +124,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Extract version from pubspec.yaml
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
 
       - name: Install Linux dependencies
         run: |
@@ -132,28 +154,12 @@ jobs:
       - name: Build Linux (Release)
         run: flutter build linux --release
 
-      - name: Create .desktop file
-        run: |
-          mkdir -p packaging/linux
-          cat > packaging/linux/bpb-automation.desktop << 'EOF'
-          [Desktop Entry]
-          Version=1.0
-          Type=Application
-          Name=BPB Automation
-          Comment=Cloudflare Clean IP Scanner for BPB Panel
-          Exec=bpb_automation
-          Icon=bpb_automation
-          Terminal=false
-          Categories=Network;Utility;
-          Keywords=cloudflare;scanner;bpb;
-          EOF
-
       - name: Package as tar.gz
         run: |
           cd build/linux/x64/release/bundle
-          tar -czf ../../../../../BPB-Automation-Linux-x64.tar.gz *
+          tar -czf ../../../../../BPB-Automation-Linux-x64-${{ steps.version.outputs.version }}.tar.gz *
           cd -
-          ls -lh BPB-Automation-Linux-x64.tar.gz
+          ls -lh BPB-Automation-Linux-x64-${{ steps.version.outputs.version }}.tar.gz
 
       - name: Create .deb package
         run: |
@@ -187,7 +193,7 @@ jobs:
           echo "Creating control file..."
           cat > debian-pkg/DEBIAN/control << 'EOF'
           Package: bpb-automation
-          Version: 1.0.0
+          Version: ${{ steps.version.outputs.version }}
           Section: net
           Priority: optional
           Architecture: amd64
@@ -198,8 +204,8 @@ jobs:
           EOF
           
           echo "Building .deb package..."
-          dpkg-deb --build debian-pkg BPB-Automation-Linux-x64.deb
-          ls -lh BPB-Automation-Linux-x64.deb
+          dpkg-deb --build debian-pkg BPB-Automation-Linux-x64-${{ steps.version.outputs.version }}.deb
+          ls -lh BPB-Automation-Linux-x64-${{ steps.version.outputs.version }}.deb
           echo ".deb package created successfully"
 
       - name: Create .rpm package
@@ -228,12 +234,12 @@ jobs:
           EOF
           
           echo "Creating tarball for rpmbuild..."
-          tar -czf ~/rpmbuild/SOURCES/bpb-automation-1.0.0.tar.gz -C rpm-pkg .
+          tar -czf ~/rpmbuild/SOURCES/bpb-automation-${{ steps.version.outputs.version }}.tar.gz -C rpm-pkg .
           
           echo "Creating spec file..."
           cat > ~/rpmbuild/SPECS/bpb-automation.spec << 'EOF'
           Name:           bpb-automation
-          Version:        1.0.0
+          Version:        ${{ steps.version.outputs.version }}
           Release:        1%{?dist}
           Summary:        Cloudflare Clean IP Scanner for BPB Panel
           License:        Proprietary
@@ -262,8 +268,8 @@ jobs:
           rpmbuild -bb ~/rpmbuild/SPECS/bpb-automation.spec
           
           echo "Copying RPM to working directory..."
-          cp ~/rpmbuild/RPMS/x86_64/bpb-automation-*.rpm BPB-Automation-Linux-x64.rpm
-          ls -lh BPB-Automation-Linux-x64.rpm
+          cp ~/rpmbuild/RPMS/x86_64/bpb-automation-*.rpm BPB-Automation-Linux-x64-${{ steps.version.outputs.version }}.rpm
+          ls -lh BPB-Automation-Linux-x64-${{ steps.version.outputs.version }}.rpm
           echo ".rpm package created successfully"
 
       - name: Upload Linux artifacts
@@ -271,9 +277,9 @@ jobs:
         with:
           name: linux-x64
           path: |
-            BPB-Automation-Linux-x64.tar.gz
-            BPB-Automation-Linux-x64.deb
-            BPB-Automation-Linux-x64.rpm
+            BPB-Automation-Linux-x64-${{ steps.version.outputs.version }}.tar.gz
+            BPB-Automation-Linux-x64-${{ steps.version.outputs.version }}.deb
+            BPB-Automation-Linux-x64-${{ steps.version.outputs.version }}.rpm
           retention-days: 30
 
   # Windows Build
@@ -281,6 +287,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Extract version from pubspec.yaml
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -301,15 +315,14 @@ jobs:
       - name: Package as ZIP
         run: |
           cd build\windows\x64\runner\Release
-          Compress-Archive -Path * -DestinationPath ..\..\..\..\..\BPB-Automation-Windows-x64.zip
+          Compress-Archive -Path * -DestinationPath ..\..\..\..\..\BPB-Automation-Windows-x64-${{ steps.version.outputs.version }}.zip
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64
           path: |
-            build/windows/x64/runner/Release
-            BPB-Automation-Windows-x64.zip
+            BPB-Automation-Windows-x64-${{ steps.version.outputs.version }}.zip
           retention-days: 30
 
   # Create GitHub Release (only on tags)
@@ -331,12 +344,12 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/android-apk/BPB-Automation-Android-Universal.apk
-            artifacts/macos-app/BPB-Automation-macOS.dmg
-            artifacts/linux-x64/BPB-Automation-Linux-x64.tar.gz
-            artifacts/linux-x64/BPB-Automation-Linux-x64.deb
-            artifacts/linux-x64/BPB-Automation-Linux-x64.rpm
-            artifacts/windows-x64/BPB-Automation-Windows-x64.zip
+            artifacts/android-apk/*.apk
+            artifacts/macos-app/*.dmg
+            artifacts/linux-x64/*.tar.gz
+            artifacts/linux-x64/*.deb
+            artifacts/linux-x64/*.rpm
+            artifacts/windows-x64/*.zip
           draft: false
           generate_release_notes: true
           prerelease: false
