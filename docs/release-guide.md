@@ -72,7 +72,6 @@ git push origin v2.2.0
 2. Find the new release (e.g., `v2.2.0`)
 3. Verify all artifacts are attached:
    - `BPB-Automation-Android-Universal-2.2.0.apk`
-   - `BPB-Automation-Android-Debug-2.2.0.apk`
    - `BPB-Automation-macOS-2.2.0.dmg`
    - `BPB-Automation-Linux-x64-2.2.0.tar.gz`
    - `BPB-Automation-Linux-x64-2.2.0.deb`
@@ -124,12 +123,13 @@ Each release includes the following artifacts:
 | Platform | Format | Filename Pattern | Size (approx) |
 |----------|--------|------------------|---------------|
 | Android | APK (Universal) | `BPB-Automation-Android-Universal-{VERSION}.apk` | ~118 MB |
-| Android | APK (Debug) | `BPB-Automation-Android-Debug-{VERSION}.apk` | ~120 MB |
 | macOS | DMG | `BPB-Automation-macOS-{VERSION}.dmg` | ~113 MB |
 | Linux | tar.gz | `BPB-Automation-Linux-x64-{VERSION}.tar.gz` | ~67 MB |
 | Linux | .deb (Ubuntu/Debian) | `BPB-Automation-Linux-x64-{VERSION}.deb` | ~67 MB |
 | Linux | .rpm (Fedora/RHEL) | `BPB-Automation-Linux-x64-{VERSION}.rpm` | ~67 MB |
 | Windows | ZIP | `BPB-Automation-Windows-x64-{VERSION}.zip` | ~45 MB |
+
+**Note:** Debug builds are not included in releases. Only production-ready release builds are distributed.
 
 ## Troubleshooting Failed Releases
 
