@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use_from_same_package
+
 /// Configuration for the Cloudflare IP Scanner.
 ///
 /// This model contains all parameters that can be passed to the scanner binary,

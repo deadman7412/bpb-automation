@@ -70,16 +70,6 @@ sudo rpm -i BPB-Automation-Linux-x64.rpm
 sudo dnf install BPB-Automation-Linux-x64.rpm
 ```
 
-**Universal Linux (AppImage)**
-```bash
-# Download BPB-Automation-Linux-x64.AppImage
-chmod +x BPB-Automation-Linux-x64.AppImage
-./BPB-Automation-Linux-x64.AppImage
-
-# Optional: Move to /usr/local/bin for system-wide access
-sudo mv BPB-Automation-Linux-x64.AppImage /usr/local/bin/bpb-automation
-```
-
 **Manual Installation (tar.gz)**
 ```bash
 # Download BPB-Automation-Linux-x64.tar.gz
@@ -88,7 +78,7 @@ cd bundle
 ./bpb_automation
 ```
 
-**Note:** For .deb and .rpm packages, a desktop entry is automatically created. For AppImage or manual installation, you can launch from terminal or create a desktop shortcut manually.
+**Note:** For .deb and .rpm packages, a desktop entry is automatically created and the application is available in your application menu. For manual installation, you can launch from terminal or create a desktop shortcut manually.
 
 #### Windows
 ```bash
