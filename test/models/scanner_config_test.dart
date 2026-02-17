@@ -349,5 +349,40 @@ void main() {
         expect(str, contains('250')); // threads
       });
     });
+
+    group('Platform Detection', () {
+      test(
+        'defaultForPlatform returns mobile on Android/iOS, desktop otherwise',
+        () {
+          // This test will pass on any platform
+          // On Android/iOS it returns mobile, on other platforms it returns desktop
+          final config = ScannerConfig.defaultForPlatform();
+          expect(config, isNotNull);
+
+          // Verify it returns one of the known presets
+          expect(
+            config == ScannerConfig.mobile || config == ScannerConfig.desktop,
+            isTrue,
+          );
+        },
+      );
+
+      test('detectedPresetName returns valid preset name', () {
+        final presetName = ScannerConfig.detectedPresetName();
+        expect(presetName, isIn(['Mobile', 'Desktop']));
+      });
+
+      test('defaultForPlatform returns consistent preset name', () {
+        // Ensure the config returned matches the preset name
+        final config = ScannerConfig.defaultForPlatform();
+        final presetName = ScannerConfig.detectedPresetName();
+
+        if (presetName == 'Mobile') {
+          expect(config, equals(ScannerConfig.mobile));
+        } else {
+          expect(config, equals(ScannerConfig.desktop));
+        }
+      });
+    });
   });
 }

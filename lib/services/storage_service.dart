@@ -31,11 +31,9 @@ class StorageService {
   static const String _keyNumIpsToUse = 'num_ips_to_use';
 
   StorageService._internal()
-      : _secureStorage = const FlutterSecureStorage(
-          aOptions: AndroidOptions(
-            encryptedSharedPreferences: true,
-          ),
-        );
+    : _secureStorage = const FlutterSecureStorage(
+        aOptions: AndroidOptions(encryptedSharedPreferences: true),
+      );
 
   /// Initializes the storage service.
   ///
@@ -83,11 +81,19 @@ class StorageService {
       );
       _logService.logOk('Credentials written to secure storage successfully');
     } catch (e) {
-      _logService.logWarn('Failed to write to secure storage, using SharedPreferences fallback: $e');
+      _logService.logWarn(
+        'Failed to write to secure storage, using SharedPreferences fallback: $e',
+      );
       // Fallback to SharedPreferences (persists across restarts)
       await _prefs.setString('${_keyApiToken}_fallback', credentials.apiToken);
-      await _prefs.setString('${_keyAccountId}_fallback', credentials.accountId);
-      await _prefs.setString('${_keyKvNamespaceId}_fallback', credentials.kvNamespaceId);
+      await _prefs.setString(
+        '${_keyAccountId}_fallback',
+        credentials.accountId,
+      );
+      await _prefs.setString(
+        '${_keyKvNamespaceId}_fallback',
+        credentials.kvNamespaceId,
+      );
       _logService.logOk('Credentials saved to SharedPreferences fallback');
     }
   }
@@ -107,7 +113,9 @@ class StorageService {
       kvNamespaceId = await _secureStorage.read(key: _keyKvNamespaceId);
 
       _logService.logInfo('Read from secure storage:');
-      _logService.logInfo('  API Token: ${apiToken != null ? "${apiToken.substring(0, 10)}... (${apiToken.length} chars)" : "null"}');
+      _logService.logInfo(
+        '  API Token: ${apiToken != null ? "${apiToken.substring(0, 10)}... (${apiToken.length} chars)" : "null"}',
+      );
       _logService.logInfo('  Account ID: ${accountId ?? "null"}');
       _logService.logInfo('  KV Namespace ID: ${kvNamespaceId ?? "null"}');
     } catch (e) {
@@ -116,19 +124,25 @@ class StorageService {
 
     // If secure storage returned null, try SharedPreferences fallback
     if (apiToken == null || accountId == null || kvNamespaceId == null) {
-      _logService.logInfo('Secure storage empty, checking SharedPreferences fallback');
+      _logService.logInfo(
+        'Secure storage empty, checking SharedPreferences fallback',
+      );
       apiToken = _prefs.getString('${_keyApiToken}_fallback');
       accountId = _prefs.getString('${_keyAccountId}_fallback');
       kvNamespaceId = _prefs.getString('${_keyKvNamespaceId}_fallback');
 
       _logService.logInfo('SharedPreferences fallback values:');
-      _logService.logInfo('  API Token: ${apiToken != null ? "${apiToken.substring(0, 10)}... (${apiToken.length} chars)" : "null"}');
+      _logService.logInfo(
+        '  API Token: ${apiToken != null ? "${apiToken.substring(0, 10)}... (${apiToken.length} chars)" : "null"}',
+      );
       _logService.logInfo('  Account ID: ${accountId ?? "null"}');
       _logService.logInfo('  KV Namespace ID: ${kvNamespaceId ?? "null"}');
     }
 
     if (apiToken == null || accountId == null || kvNamespaceId == null) {
-      _logService.logWarn('Credentials incomplete in both storages - returning null');
+      _logService.logWarn(
+        'Credentials incomplete in both storages - returning null',
+      );
       return null;
     }
 
@@ -171,20 +185,46 @@ class StorageService {
 
   /// Retrieves scanner configuration.
   ///
-  /// Returns default config if none is saved.
+  /// - If user has saved a config: Returns their saved preference
+  /// - If no config saved (first launch): Auto-detects platform and returns appropriate preset
+  ///   - Mobile (Android/iOS): Conservative settings (300ms, 0.2 loss, 2MB/s)
+  ///   - Desktop/Web: Unrestricted settings (9999ms, 1.0 loss, 0MB/s)
   Future<ScannerConfig> getScannerConfig() async {
     final json = _prefs.getString(_keyScannerConfig);
     if (json == null) {
-      return const ScannerConfig(); // Return default
+      // First launch - auto-detect platform and use appropriate preset
+      final config = ScannerConfig.defaultForPlatform();
+      final presetName = ScannerConfig.detectedPresetName();
+      _logService.logInfo(
+        '[INFO] No saved config - auto-detected platform: $presetName',
+      );
+      _logService.logInfo(
+        '[INFO] Using $presetName preset: ${config.threads} threads, ${config.maxLatency}ms latency',
+      );
+      return config;
     }
 
     try {
       final map = jsonDecode(json) as Map<String, dynamic>;
-      return ScannerConfig.fromJson(map);
+      final config = ScannerConfig.fromJson(map);
+      _logService.logInfo('[INFO] Loaded saved scanner config from storage');
+      return config;
     } catch (e) {
-      // If parsing fails, return default config
-      return const ScannerConfig();
+      // If parsing fails, auto-detect platform
+      _logService.logWarn(
+        '[WARN] Failed to parse saved config, using platform default: $e',
+      );
+      return ScannerConfig.defaultForPlatform();
     }
+  }
+
+  /// Checks if this is the first time loading scanner config (no saved config exists).
+  ///
+  /// Used to determine if we should show the platform auto-detection notification.
+  /// Returns true if no config has been saved yet, false otherwise.
+  Future<bool> isFirstTimeConfig() async {
+    final json = _prefs.getString(_keyScannerConfig);
+    return json == null;
   }
 
   // ==================== Scan Results ====================

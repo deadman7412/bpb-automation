@@ -4,6 +4,58 @@
 
 ## Recent Updates (v2.1.0)
 
+### 0. Automatic Platform-Based Preset Selection (NEW - UX Improvement)
+
+**Problem**: Users had to manually select Mobile or Desktop preset on first launch, even though the app could detect the platform automatically.
+
+**Solution**: Implemented automatic platform detection that selects appropriate preset on first launch while respecting user's saved preferences.
+
+**Files Changed**:
+- `lib/models/scanner_config.dart`: Added `defaultForPlatform()` and `detectedPresetName()` static methods
+- `lib/services/storage_service.dart`: Updated `getScannerConfig()` to use platform detection, added `isFirstTimeConfig()`
+- `lib/screens/home_screen.dart`: Added first-launch notification to inform user about auto-detected preset
+- `test/models/scanner_config_test.dart`: Added platform detection tests
+- `test/services/storage_service_test.dart`: Added first-time config tests
+
+**How It Works**:
+```
+First Launch (no saved config):
+  ├─ Detect platform: Android/iOS → Mobile preset
+  │                   macOS/Windows/Linux/Web → Desktop preset
+  ├─ Show notification: "Mobile device detected - Using Mobile preset"
+  ├─ User can click "Configure" to change
+  └─ Auto-detection only happens once
+
+After User Saves Config:
+  └─ User's preference always respected (no override)
+```
+
+**Preset Characteristics**:
+- **Mobile** (Android/iOS): Conservative settings
+  - 300ms max latency, 0.2 max loss rate, 2MB/s min speed
+  - 100 threads, 5 target clean IPs, 5000 max IPs to test
+  
+- **Desktop** (macOS/Windows/Linux/Web): Unrestricted settings
+  - 9999ms max latency, 1.0 max loss rate, 0MB/s min speed
+  - 200 threads, 10 target clean IPs, 10000 max IPs to test
+
+**Benefits**:
+- 🎯 **Automatic optimization**: App selects best preset for device type
+- 📱 **Better mobile UX**: Conservative settings prevent battery/data drain
+- 💻 **Better desktop performance**: Unrestricted settings for maximum speed
+- ✅ **User control**: Can override anytime via Configuration screen
+- 🔔 **Clear communication**: Notification explains what was auto-selected
+
+**First-Launch Notification**:
+```
+"Mobile device detected - Using Mobile preset. 
+ You can change this in Configuration."
+ 
+[Configure] button → Opens config screen
+```
+
+---
+
 ### 1. Multi-Round Sampling Algorithm (NEW - Major Improvement)
 
 **Problem**: Sometimes only 7-8 clean IPs found when target is 10, requiring manual deep scan.

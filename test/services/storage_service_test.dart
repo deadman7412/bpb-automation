@@ -106,10 +106,28 @@ void main() {
         expect(retrieved, equals(testConfig));
       });
 
-      test('getScannerConfig returns default when none saved', () async {
-        final retrieved = await storage.getScannerConfig();
+      test('getScannerConfig uses platform default on first launch', () async {
+        // Should return platform-appropriate preset (mobile or desktop)
+        final config = await storage.getScannerConfig();
 
-        expect(retrieved, equals(const ScannerConfig()));
+        // Should match either mobile or desktop preset
+        expect(
+          config == ScannerConfig.mobile || config == ScannerConfig.desktop,
+          isTrue,
+        );
+      });
+
+      test('isFirstTimeConfig returns true when no config saved', () async {
+        final isFirstTime = await storage.isFirstTimeConfig();
+        expect(isFirstTime, isTrue);
+      });
+
+      test('isFirstTimeConfig returns false after config saved', () async {
+        const config = ScannerConfig(targetCleanIPs: 15);
+        await storage.saveScannerConfig(config);
+
+        final isFirstTime = await storage.isFirstTimeConfig();
+        expect(isFirstTime, isFalse);
       });
 
       test('scanner config persists across multiple retrievals', () async {

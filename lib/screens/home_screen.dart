@@ -6,6 +6,7 @@ import '../services/dart_scanner_service.dart';
 import '../models/scan_progress.dart';
 import '../models/scan_result.dart';
 import '../models/clean_ip.dart';
+import '../models/scanner_config.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -40,6 +41,49 @@ class _HomeScreenState extends State<HomeScreen> {
       _lastScanTime = lastScan;
       _lastIPCount = count;
     });
+
+    // Check if this is first launch (no saved config)
+    _checkAndNotifyFirstTimeConfig();
+  }
+
+  /// Checks if this is the first time loading config and shows notification.
+  ///
+  /// Shows a notification informing user about auto-detected platform preset
+  /// with an action button to open the configuration screen.
+  Future<void> _checkAndNotifyFirstTimeConfig() async {
+    final isFirstTime = await _storage.isFirstTimeConfig();
+
+    if (isFirstTime) {
+      final presetName = ScannerConfig.detectedPresetName();
+
+      if (!mounted) return;
+
+      // Show notification after a short delay so UI is ready
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$presetName device detected - Using $presetName preset. You can change this in Configuration.',
+            ),
+            duration: const Duration(seconds: 5),
+            backgroundColor: Colors.blue,
+            action: SnackBarAction(
+              label: 'Configure',
+              textColor: Colors.white,
+              onPressed: () {
+                Navigator.pushNamed(context, '/config');
+              },
+            ),
+          ),
+        );
+
+        _log.logInfo(
+          '[INFO] First launch notification shown for $presetName preset',
+        );
+      });
+    }
   }
 
   Future<void> _startScan() async {
@@ -381,7 +425,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                       color:
                                           Theme.of(context).brightness ==
                                               Brightness.dark
-                                          ? Colors.blue[900]!.withOpacity(0.3)
+                                          ? Colors.blue[900]!.withValues(
+                                              alpha: 0.3,
+                                            )
                                           : Colors.blue[50],
                                       borderRadius: BorderRadius.circular(8),
                                       border: Border.all(
@@ -506,8 +552,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                       color:
                                           Theme.of(context).brightness ==
                                               Brightness.dark
-                                          ? Colors.black.withOpacity(0.3)
-                                          : Colors.grey.withOpacity(0.1),
+                                          ? Colors.black.withValues(alpha: 0.3)
+                                          : Colors.grey.withValues(alpha: 0.1),
                                       spreadRadius: 1,
                                       blurRadius: 3,
                                       offset: const Offset(0, 1),
@@ -754,9 +800,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: finalColor.withOpacity(0.15),
+        color: finalColor.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: finalColor.withOpacity(0.4)),
+        border: Border.all(color: finalColor.withValues(alpha: 0.4)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

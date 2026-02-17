@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 /// Configuration for the Cloudflare IP Scanner.
 ///
 /// Simplified configuration matching the Go scanner's proven algorithm.
@@ -128,6 +130,30 @@ class ScannerConfig {
       'max_ips_to_test': maxIPsToTest,
       'test_all_ips': testAllIPs,
     };
+  }
+
+  /// Returns the appropriate default config based on the current platform.
+  ///
+  /// - Mobile platforms (Android/iOS): Returns [mobile] preset (conservative)
+  /// - Desktop/Web platforms (macOS/Windows/Linux): Returns [desktop] preset (unrestricted)
+  ///
+  /// This is used for first-time app launch when no config is saved.
+  static ScannerConfig defaultForPlatform() {
+    if (Platform.isAndroid || Platform.isIOS) {
+      return mobile;
+    }
+    // Desktop/Web platforms (including VPS servers)
+    return desktop;
+  }
+
+  /// Returns a human-readable name for the detected platform preset.
+  ///
+  /// Returns 'Mobile' for Android/iOS, 'Desktop' for all other platforms.
+  static String detectedPresetName() {
+    if (Platform.isAndroid || Platform.isIOS) {
+      return 'Mobile';
+    }
+    return 'Desktop';
   }
 
   /// Default configuration for mobile devices (conservative)
