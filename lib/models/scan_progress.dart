@@ -28,6 +28,10 @@ class ScanProgress {
   // NEW: Sub-stage detail for better UX
   final String? subStage;
 
+  // NEW: Last batch latency results (preserved during download testing)
+  final int? lastBatchLatencyPass;
+  final int? lastBatchLatencyFail;
+
   const ScanProgress({
     required this.totalIPs,
     required this.processedIPs,
@@ -47,6 +51,8 @@ class ScanProgress {
     this.testEfficiency,
     this.elapsedTime,
     this.subStage,
+    this.lastBatchLatencyPass,
+    this.lastBatchLatencyFail,
   });
 
   /// Progress as percentage (0.0 to 1.0)
@@ -131,6 +137,8 @@ class ScanProgress {
     double? testEfficiency,
     Duration? elapsedTime,
     String? subStage,
+    int? lastBatchLatencyPass,
+    int? lastBatchLatencyFail,
   }) {
     return ScanProgress(
       totalIPs: totalIPs ?? this.totalIPs,
@@ -151,6 +159,8 @@ class ScanProgress {
       testEfficiency: testEfficiency ?? this.testEfficiency,
       elapsedTime: elapsedTime ?? this.elapsedTime,
       subStage: subStage ?? this.subStage,
+      lastBatchLatencyPass: lastBatchLatencyPass ?? this.lastBatchLatencyPass,
+      lastBatchLatencyFail: lastBatchLatencyFail ?? this.lastBatchLatencyFail,
     );
   }
 
@@ -186,6 +196,8 @@ class ScanProgress {
       'testEfficiency': testEfficiency,
       'elapsedTime': elapsedTime?.inMilliseconds,
       'subStage': subStage,
+      'lastBatchLatencyPass': lastBatchLatencyPass,
+      'lastBatchLatencyFail': lastBatchLatencyFail,
     };
   }
 
@@ -212,6 +224,8 @@ class ScanProgress {
           ? Duration(milliseconds: json['elapsedTime'] as int)
           : null,
       subStage: json['subStage'] as String?,
+      lastBatchLatencyPass: json['lastBatchLatencyPass'] as int?,
+      lastBatchLatencyFail: json['lastBatchLatencyFail'] as int?,
     );
   }
 }

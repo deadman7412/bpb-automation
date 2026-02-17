@@ -60,7 +60,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
   bool _configsEqual(ScannerConfig a, ScannerConfig b) {
     return a.threads == b.threads &&
         a.testCount == b.testCount &&
-        a.downloadCount == b.downloadCount &&
+        // Removed downloadCount comparison - deprecated setting
         a.latencyLimit == b.latencyLimit &&
         a.speedLimit == b.speedLimit &&
         a.disableDownload == b.disableDownload &&
@@ -274,16 +274,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               ),
                               'Number of tests per IP',
                             ),
-                            _buildSlider(
-                              'IPs to Scan for Speed',
-                              _config.downloadCount.toDouble(),
-                              1,
-                              100,
-                              (value) => _updateConfig(
-                                _config.copyWith(downloadCount: value.toInt()),
-                              ),
-                              'Number of IPs to test for download speed (after latency filtering)',
-                            ),
+                            // REMOVED: 'IPs to Scan for Speed' (downloadCount) - deprecated after Pareto migration
+                            // The new algorithm uses Pareto 20% rule and targetCleanIPs instead
                             _buildSlider(
                               'Target Clean IPs',
                               _config.targetCleanIPs.toDouble(),

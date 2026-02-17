@@ -351,14 +351,57 @@ class _HomeScreenState extends State<HomeScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
-                              Text(
-                                'Pass: ${_currentProgress!.successfulIPs}',
-                                style: const TextStyle(color: Colors.green),
-                              ),
-                              Text(
-                                'Fail: ${_currentProgress!.failedIPs}',
-                                style: const TextStyle(color: Colors.red),
-                              ),
+                              // During download testing, show preserved latency results
+                              if (_currentProgress!.stage ==
+                                      ScanStage.speedTesting &&
+                                  _currentProgress!.lastBatchLatencyPass !=
+                                      null)
+                                Column(
+                                  children: [
+                                    Text(
+                                      'Latency Results:',
+                                      style: TextStyle(
+                                        color: Colors.grey[600],
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'Pass: ${_currentProgress!.lastBatchLatencyPass}',
+                                          style: const TextStyle(
+                                            color: Colors.green,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Text(
+                                          'Fail: ${_currentProgress!.lastBatchLatencyFail}',
+                                          style: const TextStyle(
+                                            color: Colors.red,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                )
+                              else
+                                // During other stages, show current pass/fail
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Pass: ${_currentProgress!.successfulIPs}',
+                                      style: const TextStyle(
+                                        color: Colors.green,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Text(
+                                      'Fail: ${_currentProgress!.failedIPs}',
+                                      style: const TextStyle(color: Colors.red),
+                                    ),
+                                  ],
+                                ),
                               if (_currentProgress!.totalIPsTested > 0)
                                 Text(
                                   'Total: ${_currentProgress!.totalIPsTested}',

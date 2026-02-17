@@ -16,6 +16,7 @@ void main() {
         5, // minAcceptableIPs
         150, // totalIPsTested
         1000, // maxTotalIPsToTest
+        750, // totalIPsAvailable
       );
 
       expect(status, ScanStatus.success);
@@ -31,6 +32,7 @@ void main() {
         5, // minAcceptableIPs
         150, // totalIPsTested
         1000, // maxTotalIPsToTest
+        750, // totalIPsAvailable
       );
 
       expect(status, ScanStatus.success);
@@ -46,6 +48,7 @@ void main() {
         5, // minAcceptableIPs
         300, // totalIPsTested
         1000, // maxTotalIPsToTest
+        750, // totalIPsAvailable
       );
 
       expect(status, ScanStatus.partial);
@@ -65,6 +68,7 @@ void main() {
         5, // minAcceptableIPs
         300, // totalIPsTested
         1000, // maxTotalIPsToTest
+        750, // totalIPsAvailable
       );
 
       expect(status, ScanStatus.partial);
@@ -80,6 +84,7 @@ void main() {
         5, // minAcceptableIPs
         800, // totalIPsTested
         1000, // maxTotalIPsToTest
+        1500, // totalIPsAvailable (plenty available, quality issue)
       );
 
       expect(status, ScanStatus.insufficient);
@@ -100,6 +105,7 @@ void main() {
         5, // minAcceptableIPs
         500, // totalIPsTested
         1000, // maxTotalIPsToTest
+        750, // totalIPsAvailable
       );
 
       expect(status, ScanStatus.failed);
@@ -118,6 +124,7 @@ void main() {
         10, // minAcceptableIPs
         1000, // totalIPsTested
         1000, // maxTotalIPsToTest (hit limit)
+        1500, // totalIPsAvailable
       );
 
       expect(status, ScanStatus.insufficient);
@@ -133,6 +140,7 @@ void main() {
         6, // minAcceptableIPs
         600, // totalIPsTested
         1000, // maxTotalIPsToTest
+        750, // totalIPsAvailable
       );
 
       expect(status, ScanStatus.partial);
@@ -148,6 +156,7 @@ void main() {
         5, // minAcceptableIPs
         900, // totalIPsTested
         1000, // maxTotalIPsToTest
+        1500, // totalIPsAvailable (plenty available, quality issue)
       );
 
       expect(status, ScanStatus.insufficient);
@@ -164,12 +173,68 @@ void main() {
         5, // minAcceptableIPs
         300, // totalIPsTested
         1000, // maxTotalIPsToTest
+        750, // totalIPsAvailable
       );
 
       expect(status, ScanStatus.failed);
       expect(message, contains('Check network connection'));
       expect(message, contains('Lower latency/speed requirements'));
       expect(message, contains('Use different IP ranges'));
+    });
+
+    test('should detect IP pool exhaustion in partial status', () {
+      final (status, message) = service.determineScanStatus(
+        7, // cleanIPsFound (meets min but not target)
+        15, // targetCleanIPs
+        5, // minAcceptableIPs
+        145, // totalIPsTested (95% of available)
+        1000, // maxTotalIPsToTest
+        150, // totalIPsAvailable (small pool - mobile scenario)
+      );
+
+      expect(status, ScanStatus.partial);
+      expect(message, contains('Found 7 clean IPs'));
+      expect(message, contains('target: 15'));
+      expect(message, contains('Tested 145 of 150 available IPs'));
+      expect(message, contains('Run on desktop for larger IP pool'));
+      expect(message, contains('Lower quality requirements'));
+    });
+
+    test('should detect IP pool exhaustion in insufficient status', () {
+      final (status, message) = service.determineScanStatus(
+        4, // cleanIPsFound (below min)
+        15, // targetCleanIPs
+        5, // minAcceptableIPs
+        145, // totalIPsTested (95% of available)
+        1000, // maxTotalIPsToTest
+        150, // totalIPsAvailable (small pool - mobile scenario)
+      );
+
+      expect(status, ScanStatus.insufficient);
+      expect(message, contains('Found only 4 clean IPs'));
+      expect(message, contains('min: 5'));
+      expect(message, contains('Tested 145 of 150 available IPs'));
+      expect(message, contains('Run on desktop for larger IP pool'));
+      expect(message, contains('Lower latency threshold'));
+      expect(message, contains('Disable download test'));
+    });
+
+    test('should suggest increasing max IPs when pool not exhausted', () {
+      final (status, message) = service.determineScanStatus(
+        4, // cleanIPsFound (below min)
+        15, // targetCleanIPs
+        5, // minAcceptableIPs
+        200, // totalIPsTested (only 25% of available)
+        1000, // maxTotalIPsToTest
+        750, // totalIPsAvailable (plenty available)
+      );
+
+      expect(status, ScanStatus.insufficient);
+      expect(message, contains('Found only 4 clean IPs'));
+      // Should NOT mention IP pool exhaustion
+      expect(message.contains('Tested 200 of 750'), isFalse);
+      // Should suggest increasing max IPs since plenty are available
+      expect(message, contains('Increase max IPs to test from 1000 to 2000'));
     });
   });
 

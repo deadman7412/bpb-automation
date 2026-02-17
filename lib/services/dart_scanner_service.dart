@@ -134,6 +134,7 @@ class DartScannerService {
     int minAcceptableIPs,
     int totalIPsTested,
     int maxTotalIPsToTest,
+    int totalIPsAvailable,
   ) {
     // No results at all
     if (cleanIPsFound == 0) {
@@ -156,6 +157,18 @@ class DartScannerService {
 
     // Minimum acceptable met but not target
     if (cleanIPsFound >= minAcceptableIPs) {
+      // Check if IP pool exhaustion was the limiting factor
+      if (totalIPsTested >= totalIPsAvailable * 0.9) {
+        // Tested 90%+ of available IPs - pool is exhausted
+        return (
+          ScanStatus.partial,
+          'Found $cleanIPsFound clean IPs (target: $targetCleanIPs). '
+              'Tested $totalIPsTested of $totalIPsAvailable available IPs. '
+              'Try: (1) Run on desktop for larger IP pool, '
+              '(2) Lower quality requirements, or (3) Accept $cleanIPsFound IPs.',
+        );
+      }
+
       return (
         ScanStatus.partial,
         'Found $cleanIPsFound clean IPs (min: $minAcceptableIPs, target: $targetCleanIPs). '
@@ -164,7 +177,19 @@ class DartScannerService {
       );
     }
 
-    // Below minimum acceptable
+    // Below minimum acceptable - differentiate between IP pool exhaustion vs quality issues
+    if (totalIPsTested >= totalIPsAvailable * 0.9) {
+      // Tested 90%+ of available IPs - pool is exhausted
+      return (
+        ScanStatus.insufficient,
+        'Found only $cleanIPsFound clean IPs (min: $minAcceptableIPs). '
+            'Tested $totalIPsTested of $totalIPsAvailable available IPs. '
+            'Try: (1) Run on desktop for larger IP pool, '
+            '(2) Lower latency threshold, (3) Lower speed requirements, '
+            'or (4) Disable download test.',
+      );
+    }
+
     return (
       ScanStatus.insufficient,
       'Found only $cleanIPsFound clean IPs (min: $minAcceptableIPs, target: $targetCleanIPs). '
@@ -194,6 +219,8 @@ class DartScannerService {
     required int currentCleanCount,
     required int currentBatch,
     required int totalIPsTested,
+    required int latencyPass,
+    required int latencyFail,
   }) async {
     final speedResults = <String, SpeedResult>{};
 
@@ -230,6 +257,8 @@ class DartScannerService {
 
     var totalTested = 0;
     var currentIndex = 0;
+    var cleanIPsFoundInThisBatch =
+        0; // Track clean IPs found during this download test phase
 
     // Process in Pareto batches (20% at a time by default)
     while (currentIndex < totalAvailable && cleanIPsNeeded > 0) {
@@ -267,7 +296,7 @@ class DartScannerService {
           failedIPs: 0,
           currentBatch: currentBatch,
           targetCleanIPs: config.targetCleanIPs,
-          cleanIPsFound: currentCleanCount,
+          cleanIPsFound: currentCleanCount + cleanIPsFoundInThisBatch,
           minAcceptableIPs: config.minAcceptableIPs,
           totalIPsTested: totalIPsTested,
           stage: ScanStage.speedTesting,
@@ -276,6 +305,8 @@ class DartScannerService {
           message:
               'Testing downloads for top ${(batchEnd / totalAvailable * 100).toInt()}% IPs',
           timestamp: DateTime.now(),
+          lastBatchLatencyPass: latencyPass,
+          lastBatchLatencyFail: latencyFail,
         ),
       );
 
@@ -298,6 +329,7 @@ class DartScannerService {
 
         if (speedResult.isSuccessful) {
           successInBatch++;
+          cleanIPsFoundInThisBatch++; // Increment real-time counter
         }
 
         _emitProgress(
@@ -309,14 +341,16 @@ class DartScannerService {
             currentIP: speedResult.ip,
             currentBatch: currentBatch,
             targetCleanIPs: config.targetCleanIPs,
-            cleanIPsFound: currentCleanCount,
+            cleanIPsFound: currentCleanCount + cleanIPsFoundInThisBatch,
             minAcceptableIPs: config.minAcceptableIPs,
             totalIPsTested: totalIPsTested,
             stage: ScanStage.speedTesting,
             subStage: 'Testing $totalTested/$totalAvailable IPs',
             message:
-                'Tested: $processedInBatch/${batch.length} ($successInBatch clean)',
+                'Testing downloads: $processedInBatch/${batch.length} tested',
             timestamp: DateTime.now(),
+            lastBatchLatencyPass: latencyPass,
+            lastBatchLatencyFail: latencyFail,
           ),
         );
       }
@@ -561,6 +595,8 @@ class DartScannerService {
             currentCleanCount: allScanResults.length,
             currentBatch: currentBatch,
             totalIPsTested: totalIPsTested,
+            latencyPass: batchSuccessfulIPs,
+            latencyFail: batchFailedIPs,
           );
           speedResults.addAll(testResults);
         }
@@ -673,6 +709,7 @@ class DartScannerService {
               config.minAcceptableIPs,
               totalIPsTested,
               config.maxTotalIPsToTest,
+              availableIPs.length,
             );
 
       // Log status
@@ -790,13 +827,17 @@ class DartScannerService {
   /// Get CIDR expansion samples per range based on platform
   int _getCIDRSamplesForPlatform() {
     if (Platform.isAndroid || Platform.isIOS) {
-      // Mobile: Sample only 10 IPs per CIDR range
-      return 10;
-    } else if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
-      // Desktop: Sample more IPs per range
+      // Mobile: Sample 50 IPs per CIDR range
+      // With 15 CIDR ranges, this gives ~750 total IPs
+      // Allows 5 batches of 150 IPs each for multi-batch scanning
       return 50;
+    } else if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
+      // Desktop: Sample 100 IPs per range
+      // With 15 CIDR ranges, this gives ~1500 total IPs
+      // Allows 10 batches of 150 IPs or 5 batches of 300 IPs
+      return 100;
     }
-    // Fallback
-    return 10;
+    // Fallback (web, etc.)
+    return 50;
   }
 }

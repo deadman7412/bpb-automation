@@ -6,32 +6,65 @@ The `pareto_scanner_integration_test.dart` file contains comprehensive end-to-en
 
 ### Test Scenarios
 
-The test suite covers all 10 migration requirements:
+The test suite includes 13 tests covering:
 
-1. **Goal met in single batch** - Verifies successful completion with minimal batching
-2. **Goal met across multiple batches** - Tests multi-batch scanning loop
-3. **Partial success** - Tests graceful degradation (min met, target not met)
-4. **Insufficient results** - Tests failure case (below minimum)
-5. **No downloads found** - Tests downloads disabled mode
-6. **Exhausted all IPs** - Tests IP pool exhaustion handling
-7. **Duplicate prevention** - Verifies no IP tested twice across batches
-8. **Pareto 20% efficiency** - Validates 20% incremental download testing
-9. **Platform-adaptive batch sizes** - Tests mobile vs desktop batch sizing
-10. **Edge cases** - Zero IPs, invalid config, network failures
+**Network Tests (8 tests - SLOW, 30-60 min total):**
+1. **Scenario 1** - Goal met in single batch (5 min timeout)
+2. **Scenario 2** - Goal met across multiple batches (10 min timeout)
+3. **Scenario 3** - Partial success (5 min timeout)
+4. **Scenario 4** - Insufficient results (3 min timeout)
+5. **Scenario 5** - No downloads found (5 min timeout)
+6. **Scenario 6** - Exhausted all IPs (5 min timeout)
+7. **Scenario 7** - Duplicate prevention (10 min timeout)
+8. **Scenario 9** - Pareto efficiency (5 min timeout)
+
+**Validation Tests (5 tests - FAST, <1 second total):**
+9. **Scenario 8** - Platform-adaptive batch sizes
+10. **Scenario 10** - Edge case: Zero target
+11. **Scenario 10b** - Edge case: Min > target
+12. **Scenario 10c** - Edge case: Batch size validation
+13. **Status determination** - All status types
 
 ### Running the Tests
 
-**IMPORTANT**: These are real integration tests that perform actual network scans against Cloudflare IPs. They do NOT use mocking.
+**IMPORTANT**: Network tests perform actual scans against Cloudflare IPs and take 30-60 minutes!
+Network tests may fail in restricted environments due to rate limiting, firewalls, or network conditions.
 
-#### Run all integration tests:
+#### RECOMMENDED: Run only fast validation tests (development workflow)
 ```bash
-flutter test test/integration/
+flutter test test/integration/pareto_scanner_integration_test.dart --exclude-tags=integration
 ```
+This runs the 5 fast validation tests (<1 second total) and skips the 8 slow network tests.
 
-#### Run specific test:
+**This is the recommended command for development and CI pipelines.**
+
+#### Run ALL tests including slow network tests (30-60 minutes):
 ```bash
 flutter test test/integration/pareto_scanner_integration_test.dart
 ```
+OR to explicitly run only network tests:
+```bash
+flutter test test/integration/pareto_scanner_integration_test.dart --tags=integration
+```
+
+**WARNING**: Network tests may fail in CI environments, restricted networks, or due to:
+- Cloudflare rate limiting (HTTP 429)
+- Firewall/ISP blocking
+- Network connectivity issues
+- No clean IPs found in tested ranges
+
+These failures are expected and do NOT indicate bugs in the code.
+
+#### Run specific test by name:
+```bash
+flutter test test/integration/pareto_scanner_integration_test.dart --name="Scenario 8"
+```
+
+### Test Tags
+
+Network tests are tagged with: `['integration', 'slow', 'network']`
+- These tags allow skipping slow tests during development
+- Validation tests have NO tags and always run
 
 ### Test Execution Time
 

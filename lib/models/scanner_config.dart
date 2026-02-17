@@ -11,8 +11,14 @@ class ScannerConfig {
   /// More iterations = more accurate latency measurement
   final int testCount;
 
-  /// Number of IPs to test for download speed (1-100)
-  /// After latency testing, test download speed for top N IPs
+  /// DEPRECATED: Number of IPs to test for download speed (1-100)
+  ///
+  /// This setting is NO LONGER USED after Pareto migration.
+  /// The new algorithm uses Pareto principle (20% incremental testing)
+  /// and continues until targetCleanIPs is met.
+  ///
+  /// Kept for backward compatibility with saved configurations.
+  @Deprecated('Use targetCleanIPs and downloadTestPercentage instead')
   final int downloadCount;
 
   /// Maximum acceptable latency in milliseconds (1-1000)
