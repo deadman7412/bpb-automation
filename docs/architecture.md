@@ -70,17 +70,18 @@ String get version    // Returns '1.0.0-dart'
 
 **Scan Workflow:**
 1. Load IP addresses from bundled assets
-2. Expand CIDR ranges to individual IPs (random sampling)
+2. Expand CIDR ranges with **subnet-aware sampling** (see IP Selection Strategy below)
 3. Test latency for ALL IPs concurrently
-4. Filter successful results
+4. Filter successful results, sort by **loss rate first, then latency**
 5. Test download speed for top N IPs (from config.downloadCount)
-6. Calculate quality scores (60% latency + 40% speed)
-7. Sort by quality and return
+6. Calculate **EWMA-based quality scores** (see Speed Testing Algorithm below)
+7. Sort by quality (loss rate → latency → quality score) and return
 
 **Sub-services:**
-- **IPLoader**: CIDR expansion and random sampling
-- **LatencyTester**: TCP socket-based latency measurement
-- **SpeedTester**: Raw socket HTTPS download testing
+- **IPLoader**: CIDR expansion with subnet-aware IPv4 selection
+- **LatencyTester**: TCP socket-based latency measurement (1s timeout)
+- **SpeedTester**: Raw socket HTTPS download with EWMA quality scoring
+- **EWMA**: Exponentially Weighted Moving Average for sustained throughput quality
 
 ### 2. CloudflareApiService
 
@@ -196,14 +197,17 @@ class SpeedResult {
   final String testUrl;
   final int bytesDownloaded;
   final double durationSeconds;
-  final double speedMbps;
+  final double qualityScore;  // EWMA-based dimensionless quality metric
   final String? error;
 
   bool get isSuccessful;
+  double get speedMbps;  // Computed from qualityScore (backward compat)
   double get speedKbps;
   double get speedMBps;
 }
 ```
+
+**Note:** Primary metric is now `qualityScore` (EWMA-based), not raw speed in Mbps.
 
 ### ScanResult
 ```dart
@@ -361,13 +365,137 @@ String getUserFriendlyError(Exception e) {
 - Frontend: Flutter web UI
 - Deployment: Cloudflare Pages, Netlify, or VPS
 
+## Scanner Algorithm Details
+
+### IP Selection Strategy (Routing Diversity)
+
+**Goal:** Maximize routing diversity to ensure IPs connect through different Cloudflare PoPs (Points of Presence).
+
+**IPv4 Selection (Subnet-Aware):**
+- Large CIDR ranges (> /24): Select **one random IP per /24 subnet**
+  - Example: `104.16.0.0/13` (524,288 IPs) → Sample from 2,048 different /24 subnets
+  - Each /24 subnet typically routes through different paths to your ISP
+  - Prevents clustering IPs in the same network segment
+- Small CIDR ranges (≤ /24): Random sampling within subnet
+
+**Implementation:**
+```dart
+// For IPv4 CIDR like 104.16.0.0/13:
+1. Calculate number of /24 subnets in range
+2. Randomly select N subnets to sample
+3. For each selected subnet:
+   - Generate random IP within that /24
+   - Randomize last octet only (xxx.xxx.xxx.0-255)
+4. Result: N IPs from N different /24 subnets
+```
+
+**IPv6 Selection (Pure Random):**
+- Sample randomly across entire /32 range
+- No subnet-based logic (matches Go scanner behavior)
+- Randomize last 2 bytes completely
+
+**Why This Matters:**
+- Different /24 subnets connect to different Cloudflare edge servers
+- Edge servers have different routing paths to your ISP
+- Result: IPs with better routing quality for BPB Panel, even if raw speed metrics are similar
+
+### Speed Testing Algorithm (EWMA Quality Score)
+
+**Goal:** Measure sustained throughput quality, not just peak speed.
+
+**EWMA (Exponentially Weighted Moving Average):**
+- Library equivalent: `github.com/VividCortex/ewma` (Go)
+- Alpha coefficient: **0.2** (20% weight to new samples, 80% to historical average)
+- Favors sustained performance over brief bursts
+
+**Sampling Process:**
+```dart
+1. Start download from speed.cloudflare.com
+2. Every 100ms during download:
+   - Calculate bytes received since last sample
+   - Add to EWMA: ewma.add(bytesInInterval)
+3. After download completes:
+   - Apply normalization: qualityScore = ewma.value / (timeout / 120)
+   - Store qualityScore (dimensionless metric)
+```
+
+**Normalization Factor:**
+- Formula: `timeout_seconds / 120`
+- Example: 10s timeout → factor = 10/120 = 0.0833
+- Aligns quality scores across different timeout durations
+- Matches Go scanner's download quality calculation
+
+**Quality Score vs Speed Mbps:**
+- `qualityScore`: EWMA-based sustained throughput quality (primary metric)
+- `speedMbps`: Computed as `(bytesDownloaded * 8) / (durationSeconds * 1000000)` (backward compatibility)
+- Quality score is more reliable for BPB Panel performance
+
+### Latency Testing Algorithm
+
+**TCP Socket Connection Test:**
+```dart
+1. Connect to IP:443 via raw TCP socket
+2. Timeout: 1 second (aggressive, matches Go scanner)
+3. Measure connection establishment time
+4. Repeat 2 times per IP
+5. Calculate average latency from successful attempts
+```
+
+**Success Criteria:**
+- At least 1 successful connection out of 2 attempts
+- Connection established within 1s timeout
+- Valid TCP handshake completed
+
+**Loss Rate Calculation:**
+```dart
+lossRate = 1.0 - (successCount / totalAttempts)
+// Example: 1 success out of 2 attempts = 50% loss rate
+```
+
+### Sorting Algorithm (Multi-Criteria)
+
+**Priority Order:**
+1. **Loss Rate** (lower is better) - PRIMARY
+2. **Latency** (lower is better) - SECONDARY
+3. **Quality Score** (higher is better) - TERTIARY
+
+**Implementation:**
+```dart
+int compareQuality(ScanResult a, ScanResult b) {
+  // Compare loss rates first
+  if (a.lossRate != b.lossRate) {
+    return a.lossRate.compareTo(b.lossRate);  // Lower wins
+  }
+  
+  // If tied, compare latency
+  if (a.latency != b.latency) {
+    return a.latency.compareTo(b.latency);  // Lower wins
+  }
+  
+  // If still tied, compare quality score
+  return b.qualityScore.compareTo(a.qualityScore);  // Higher wins
+}
+```
+
+**Why Loss Rate First:**
+- 0% packet loss is critical for stable BPB Panel connections
+- Low latency with packet loss = unstable connection
+- Matches Go scanner's `PingDelaySet.Less()` behavior
+
 ## Performance Considerations
 
 ### IP Loading & CIDR Expansion
-- CIDR ranges randomly sampled (max 200 IPs per range)
+- CIDR ranges use **subnet-aware sampling** for IPv4 (one IP per /24 subnet)
+- IPv6 uses pure random sampling across /32 ranges
+- Max samples configurable per CIDR (default: 200 IPs)
 - Avoids expanding millions of IPs into memory
 - Typical load: ~3000 IPs from 15 CIDR ranges
 - Loading time: < 1 second
+
+**Routing Diversity:**
+- IPv4: 100 samples from /13 range = 100 different /24 subnets
+- Result: 100 IPs connecting through different network paths
+- Significantly improves BPB Panel IP quality vs random sampling
 
 ### Concurrent Testing
 - Configurable parallelism (default: 200 threads)

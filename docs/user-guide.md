@@ -120,18 +120,31 @@ After scan completes, you'll see:
 ```
 [OK] Scan complete
 [INFO] Found 10 clean IPs
-[INFO] Fastest: 172.67.156.23 (15.2 MB/s, 85ms)
+[INFO] Top IP: 172.67.156.23 (Quality: 15.2, Latency: 85ms, Loss: 0%)
 ```
 
 **IP List shows:**
 - IP Address
-- Download Speed (MB/s)
+- Quality Score (EWMA-based sustained throughput)
 - Latency (ms)
 - Loss Rate (%)
 
-**Green indicator**: Good IP (fast, low latency)
-**Yellow indicator**: Acceptable IP
-**Red indicator**: Slow IP (but still functional)
+**What is Quality Score?**
+- Measures sustained download performance, not peak speed
+- Based on EWMA (Exponentially Weighted Moving Average)
+- Higher is better (typical range: 5-20)
+- More reliable than raw speed for BPB Panel connections
+- Favors consistent throughput over brief bursts
+
+**Indicators:**
+- **Green**: Excellent (0% loss, low latency, high quality)
+- **Yellow**: Good (some packet loss or higher latency)
+- **Red**: Acceptable (works but not optimal)
+
+**Sorting Priority:**
+1. Loss rate (0% is best) - MOST IMPORTANT
+2. Latency (lower is better)
+3. Quality score (higher is better)
 
 ### Updating BPB Panel
 
@@ -200,11 +213,19 @@ Future feature:
 
 ### When to Scan
 
+**Important:** Always scan from the network you'll actually use!
+
 - When connection is slow
 - After changing networks (WiFi to mobile data)
 - Once daily for heavy users
 - Weekly for light users
 - After ISP maintenance
+
+**Why Network Matters:**
+- Scanner selects IPs with best routing to YOUR network
+- Different networks get different Cloudflare edge servers
+- IPs are optimized per /24 subnet for routing diversity
+- Mobile data IPs won't work optimally on WiFi and vice versa
 
 ### Where to Scan
 
@@ -236,9 +257,15 @@ Clean IPs differ by network, so scan where you'll use the proxy.
 **Solutions**:
 1. Check internet connection
 2. Try increasing latency limit to 300-500ms
-3. Decrease speed limit to 1-3 MB/s
+3. Decrease quality score limit to 1-3
 4. Enable "HTTP Mode" in Advanced Settings
 5. Reduce threads to 100
+
+**Understanding Quality Score Limits:**
+- Default limit: 5
+- If no IPs found, lower to 2-3
+- Quality score measures sustained throughput
+- Lower limits accept IPs with less consistent performance
 
 ### Update Fails
 
@@ -297,6 +324,20 @@ See [Cloudflare Setup Guide](cloudflare-setup.md) for credential help.
 
 ### Q: Do I need Cloudflare credentials to use the app?
 **A**: No, not for scanning. Credentials are only required if you want to automatically update your BPB Panel. You can scan and view clean IPs without any credentials.
+
+### Q: What is "Quality Score" and how is it different from speed?
+**A**: Quality Score is an EWMA-based metric that measures **sustained throughput quality**, not peak speed:
+- Peak speed can be misleading (brief bursts don't represent real performance)
+- Quality score emphasizes consistency (80% weight to historical average)
+- Higher quality score = more reliable BPB Panel connection
+- Roughly correlates with MB/s but filters out unreliable IPs
+
+### Q: Why does the scanner select IPs from different subnets?
+**A**: **Routing diversity improves BPB Panel performance:**
+- Each /24 subnet connects through different Cloudflare edge servers
+- Different edge servers have different routing paths to your ISP
+- Result: More stable connections even if raw speed is similar
+- This is why scanner IPs work better than random Cloudflare IPs
 
 ### Q: Do I need a VPS?
 **A**: No. The app runs on your device.

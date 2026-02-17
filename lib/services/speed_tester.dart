@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:bpb_automation/models/speed_result.dart';
+import 'package:bpb_automation/utils/ewma.dart';
 import 'log_service.dart';
 
 /// Service for testing download speed
@@ -86,10 +87,18 @@ class SpeedTester {
       activeSocket.write(request);
       await activeSocket.flush();
 
-      // Read response
+      // Read response with EWMA speed sampling
       bool headersParsed = false;
       int statusCode = 0;
       final buffer = BytesBuilder();
+
+      // EWMA for tracking sustained throughput quality
+      final ewma = EWMA(0.2); // Match Go scanner's default
+      int lastBytesRead = 0;
+      final sampleInterval = Duration(
+        milliseconds: timeout.inMilliseconds ~/ 100,
+      ); // 100 samples
+      Duration lastSampleTime = Duration.zero;
 
       _logService.logInfo('[INFO] Waiting for response from $ip...');
       await for (final chunk in activeSocket.timeout(timeout)) {
@@ -130,9 +139,22 @@ class SpeedTester {
             // Start counting bytes after headers
             totalBytes = data.length - headerEnd - 4; // -4 for \r\n\r\n
             headersParsed = true;
+            lastBytesRead = totalBytes;
+            lastSampleTime = stopwatch.elapsed;
           }
         } else {
           totalBytes += chunk.length;
+
+          // Sample speed periodically using EWMA
+          final currentTime = stopwatch.elapsed;
+          final elapsed = currentTime - lastSampleTime;
+
+          if (elapsed >= sampleInterval) {
+            final bytesInInterval = totalBytes - lastBytesRead;
+            ewma.add(bytesInInterval.toDouble());
+            lastBytesRead = totalBytes;
+            lastSampleTime = currentTime;
+          }
         }
       }
 
@@ -152,17 +174,30 @@ class SpeedTester {
 
       final durationSeconds = stopwatch.elapsedMicroseconds / 1000000.0;
 
+      // Calculate quality score using EWMA (matches Go scanner)
+      // Apply normalization factor: / (timeout.inSeconds / 120)
+      final normalizationFactor = timeout.inSeconds / 120;
+      double qualityScore = 0.0;
+
+      if (ewma.isInitialized && normalizationFactor > 0) {
+        qualityScore = ewma.value / normalizationFactor;
+      } else {
+        // Fallback to simple average if EWMA wasn't sampled
+        qualityScore = (totalBytes / durationSeconds) / normalizationFactor;
+      }
+
       final result = SpeedResult.success(
         ip: ip,
         testUrl: fullUrl,
         bytesDownloaded: totalBytes,
         durationSeconds: durationSeconds,
+        qualityScore: qualityScore,
       );
 
       _logService.logOk(
         '[OK] Download test SUCCESS: $ip - '
-        '${result.speedMbps.toStringAsFixed(2)} Mbps '
-        '(${result.speedMBps.toStringAsFixed(2)} MB/s, $totalBytes bytes in ${durationSeconds.toStringAsFixed(2)}s)',
+        'Quality: ${result.qualityScore.toStringAsFixed(2)} '
+        '($totalBytes bytes in ${durationSeconds.toStringAsFixed(2)}s)',
       );
 
       return result;

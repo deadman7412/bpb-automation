@@ -12,11 +12,13 @@ class LatencyTester {
   /// Connects to [ip]:[port] and measures connection time.
   /// Repeats [count] times and calculates statistics.
   /// Optionally accepts [isCancelled] callback to check for cancellation.
+  ///
+  /// Default timeout of 1s matches Go scanner's aggressive timeout behavior.
   Future<LatencyResult> testLatency({
     required String ip,
     required int port,
     required int count,
-    Duration timeout = const Duration(seconds: 3),
+    Duration timeout = const Duration(seconds: 1),
     bool Function()? isCancelled,
   }) async {
     _logService.logInfo('Testing latency for $ip:$port ($count attempts)');

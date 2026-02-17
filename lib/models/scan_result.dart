@@ -43,7 +43,8 @@ class ScanResult {
 
       // Latency quality (30%) - lower is better
       // Map 0-300ms to 30-0 points
-      final latencyScore = (1 - (latencyResult.averageLatencyMs / 300).clamp(0, 1)) * 30;
+      final latencyScore =
+          (1 - (latencyResult.averageLatencyMs / 300).clamp(0, 1)) * 30;
       score += latencyScore;
     }
 
@@ -55,7 +56,8 @@ class ScanResult {
     } else if (speedResult == null) {
       // If no speed test, redistribute weight to latency
       // Add bonus 20 points if latency is excellent
-      if (latencyResult.averageLatencyMs < 100 && latencyResult.successRate > 0.8) {
+      if (latencyResult.averageLatencyMs < 100 &&
+          latencyResult.successRate > 0.8) {
         score += 20;
       }
     }
@@ -70,10 +72,27 @@ class ScanResult {
   }
 
   /// Compare quality with another result (for sorting)
+  /// Matches Go scanner behavior: sort by loss rate first, then by latency
   /// Returns negative if this is better, positive if other is better
   int compareQuality(ScanResult other) {
-    // Higher quality score is better (so reverse comparison)
-    return other.qualityScore.compareTo(qualityScore);
+    // 1. Compare by loss rate first (lower loss is better)
+    final thisLoss = 1.0 - latencyResult.successRate;
+    final otherLoss = 1.0 - other.latencyResult.successRate;
+
+    if (thisLoss != otherLoss) {
+      return thisLoss.compareTo(otherLoss); // Lower loss wins
+    }
+
+    // 2. If loss rate is equal, compare by average latency (lower is better)
+    final thisLatency = latencyResult.averageLatencyMs;
+    final otherLatency = other.latencyResult.averageLatencyMs;
+
+    if (thisLatency != otherLatency) {
+      return thisLatency.compareTo(otherLatency); // Lower latency wins
+    }
+
+    // 3. If both equal, fall back to quality score
+    return other.qualityScore.compareTo(qualityScore); // Higher score wins
   }
 
   @override
@@ -100,7 +119,9 @@ class ScanResult {
   factory ScanResult.fromJson(Map<String, dynamic> json) {
     return ScanResult(
       ip: json['ip'] as String,
-      latencyResult: LatencyResult.fromJson(json['latencyResult'] as Map<String, dynamic>),
+      latencyResult: LatencyResult.fromJson(
+        json['latencyResult'] as Map<String, dynamic>,
+      ),
       speedResult: json['speedResult'] != null
           ? SpeedResult.fromJson(json['speedResult'] as Map<String, dynamic>)
           : null,

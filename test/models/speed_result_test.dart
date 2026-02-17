@@ -56,7 +56,7 @@ void main() {
       expect(result.isFailure, true);
       expect(result.error, 'Connection timeout');
       expect(result.bytesDownloaded, 0);
-      expect(result.speedMbps, 0);
+      expect(result.qualityScore, 0);
     });
 
     test('should serialize to and from JSON', () {
@@ -73,7 +73,10 @@ void main() {
       expect(restored.ip, original.ip);
       expect(restored.testUrl, original.testUrl);
       expect(restored.bytesDownloaded, original.bytesDownloaded);
-      expect(restored.durationSeconds, closeTo(original.durationSeconds, 0.001));
+      expect(
+        restored.durationSeconds,
+        closeTo(original.durationSeconds, 0.001),
+      );
       expect(restored.speedMbps, closeTo(original.speedMbps, 0.001));
       expect(restored.error, original.error);
     });
@@ -103,7 +106,7 @@ void main() {
 
       final str = result.toString();
       expect(str, contains('1.1.1.1'));
-      expect(str, contains('Mbps'));
+      expect(str, contains('Quality'));
       expect(str, contains('10000000 bytes'));
     });
 
@@ -127,11 +130,12 @@ void main() {
         testUrl: 'https://speed.cloudflare.com/__down?bytes=1000000',
         bytesDownloaded: 1000000,
         durationSeconds: 0,
-        speedMbps: 0,
+        qualityScore: 0,
         timestamp: DateTime.now(),
       );
 
-      expect(result.speedMbps, 0);
+      expect(result.qualityScore, 0);
+      expect(result.speedMbps, double.infinity); // bytes/0 = infinity
       // With bytes downloaded but zero duration, technically successful
       // (edge case that shouldn't happen in practice)
       expect(result.isSuccessful, true);

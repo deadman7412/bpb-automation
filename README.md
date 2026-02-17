@@ -9,8 +9,11 @@ BPB Automation helps you find the fastest Cloudflare IPs for your network and au
 ## Key Features
 
 - **Pure Dart IP scanner** - Native implementation, no binary dependencies
+- **Subnet-aware IP selection** - One IP per /24 subnet for maximum routing diversity
+- **EWMA quality scoring** - Sustained throughput measurement, not peak speed
+- **Loss-rate-first sorting** - Prioritizes connection stability over raw speed
 - Scan for clean Cloudflare IPs from your actual network
-- TCP latency testing + HTTP/HTTPS download speed testing
+- TCP latency testing (1s aggressive timeout) + HTTPS download speed testing
 - Automatic BPB Panel settings update via API
 - Cross-platform support: Android, iOS, macOS, Linux, Windows, Web
 - Offline-first design (no hosting required)
@@ -106,27 +109,58 @@ flutter test --tags=integration
 
 ## How It Works
 
-1. Loads Cloudflare IP ranges and expands CIDR notation
-2. Tests TCP latency for all IPs concurrently
-3. Tests download speed for top performers
-4. Calculates quality scores (latency + speed)
-5. Updates BPB Panel's Workers KV via Cloudflare API
-6. Your proxy connection uses the new clean IPs
+### Scanner Algorithm (Aligned with Go Scanner)
+
+1. **IP Loading with Subnet Diversity**
+   - Loads Cloudflare IP ranges from CIDR notation
+   - IPv4: Selects one random IP per /24 subnet (ensures routing diversity)
+   - IPv6: Pure random sampling across /32 ranges
+   - Result: IPs connect through different Cloudflare edge servers
+
+2. **Latency Testing**
+   - TCP socket connection to port 443
+   - Aggressive 1-second timeout (matches Go scanner)
+   - 2 attempts per IP
+   - Measures connection establishment time
+
+3. **Speed Testing (EWMA Quality Score)**
+   - Downloads from speed.cloudflare.com
+   - Samples speed every 100ms using EWMA (Exponentially Weighted Moving Average)
+   - Calculates sustained throughput quality (not peak speed)
+   - Normalization factor: timeout/120 (matches Go scanner)
+
+4. **Multi-Criteria Sorting**
+   - Priority 1: Loss rate (lower is better) - MOST IMPORTANT
+   - Priority 2: Latency (lower is better)
+   - Priority 3: Quality score (higher is better)
+
+5. **BPB Panel Update**
+   - Updates Workers KV via Cloudflare API
+   - Only modifies cleanIPs field (preserves other settings)
+   - Your proxy connection uses the new optimized IPs
+
+**Why This Algorithm Works Better:**
+- Different /24 subnets = different network routes to your ISP
+- EWMA quality score filters out inconsistent IPs with brief speed bursts
+- Loss-rate-first sorting prioritizes connection stability
+- Result: More reliable BPB Panel connections
 
 **Technical Implementation:**
 - Pure Dart - no external binaries or sandboxing issues
 - TCP socket connections for latency measurement
 - Raw HTTPS with manual HTTP protocol for speed testing
 - Configurable concurrency (1-1000 threads)
-- Quality-based sorting algorithm
+- EWMA-based quality scoring (alpha=0.2)
 
 ## Why Use This App
 
-- No VPS required - runs on your device
-- Tests from your actual network (mobile ISP, WiFi)
-- Clean IPs specific to your location and ISP
-- Automated updates - no manual CSV editing
-- Secure - all data stays local
+- **Better IP Quality** - Subnet-aware selection ensures routing diversity
+- **More Reliable** - EWMA scoring favors sustained performance over peaks
+- **Network-Specific** - Tests from your actual network (mobile ISP, WiFi)
+- **No VPS Required** - Runs directly on your device
+- **Automated Updates** - No manual CSV editing or configuration
+- **Secure** - All data stays local, encrypted credentials
+- **Clean IPs Specific to You** - Optimized for your location and ISP routing
 
 ## Security & Privacy
 
@@ -146,9 +180,13 @@ To be determined.
 
 ## Credits
 
-- [Cloudflare-Clean-IP-Scanner](https://github.com/bia-pain-bache/Cloudflare-Clean-IP-Scanner) - Scanner algorithm inspiration
+- [Cloudflare-Clean-IP-Scanner](https://github.com/bia-pain-bache/Cloudflare-Clean-IP-Scanner) - Algorithm aligned with Go scanner implementation
+  - Subnet-aware IPv4 selection (one IP per /24 subnet)
+  - EWMA quality scoring methodology
+  - Loss-rate-first sorting priority
 - [BPB-Worker-Panel](https://github.com/bia-pain-bache/BPB-Worker-Panel) - Panel software
 - IP lists sourced from Cloudflare's official IP ranges
+- EWMA implementation inspired by github.com/VividCortex/ewma
 
 ## Support
 

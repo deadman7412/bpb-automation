@@ -78,14 +78,22 @@ Number of IPs to Use: 10
 - **Recommended**: 30-50ms
 
 ### Speed Limit (-sl)
-- **What it does**: Minimum download speed (MB/s)
+- **What it does**: Minimum quality score threshold
 - **Default**: 5
 - **Range**: 0.1-100
-- **Impact**: IPs slower than this are filtered out
+- **Impact**: IPs with quality scores below this are filtered out
+- **Note**: Quality score is EWMA-based sustained throughput, not raw Mbps
 - **Recommended**:
-  - Fast connection: 10-20 MB/s
-  - Normal: 5-10 MB/s
-  - Slow: 1-5 MB/s
+  - Fast connection: 10-20
+  - Normal: 5-10
+  - Slow: 1-5
+
+**Understanding Quality Score:**
+- Based on EWMA (Exponentially Weighted Moving Average)
+- Measures sustained throughput quality, not peak speed
+- Favors consistent performance over brief bursts
+- More reliable indicator for BPB Panel stability
+- Roughly correlates with MB/s but is dimensionless
 
 ### Disable Download Test (-dd)
 - **What it does**: Skip speed testing, sort by latency only
@@ -109,7 +117,22 @@ Number of IPs to Use: 10
 
 ## Scanning Process
 
-### Phase 1: Latency Testing
+### Phase 1: IP Loading
+```
+[INFO] Loading IP addresses from CIDR ranges...
+[INFO] IPv4: Subnet-aware sampling (one IP per /24 subnet)
+[INFO] IPv6: Pure random sampling
+[OK] Loaded 2096 IPs (696 IPv4, 1400 IPv6)
+```
+
+**Key Feature - Subnet Diversity:**
+- IPv4 IPs selected from different /24 subnets for routing diversity
+- Each subnet connects through different Cloudflare PoPs
+- Results in better IP quality for BPB Panel
+
+**Duration**: < 1 second
+
+### Phase 2: Latency Testing
 ```
 [INFO] Starting latency tests...
 [INFO] Testing 1000 IPs with 200 threads...
@@ -119,51 +142,88 @@ Number of IPs to Use: 10
 [OK] Latency testing complete: 234 IPs passed filters
 ```
 
+**Test Method:**
+- TCP socket connection to port 443
+- 1 second timeout (aggressive)
+- 2 attempts per IP
+- Measures connection establishment time
+
 **Duration**: 10-30 seconds (depending on threads)
 
-### Phase 2: Speed Testing
+### Phase 3: Speed Testing
 ```
 [INFO] Starting download tests...
 [INFO] Testing top 10 IPs for speed...
-[INFO] Testing: 104.21.48.77 -> 12.5 MB/s
-[INFO] Testing: 172.67.156.23 -> 15.2 MB/s
+[INFO] Testing: 104.21.48.77 -> Quality: 12.5
+[INFO] Testing: 172.67.156.23 -> Quality: 15.2
 [OK] Speed testing complete
 ```
 
+**Test Method:**
+- Download from speed.cloudflare.com
+- EWMA sampling every 100ms
+- Quality score = EWMA / (timeout / 120)
+- Measures sustained throughput quality
+
 **Duration**: 2-5 minutes (depending on download test count)
 
-### Phase 3: Results
+### Phase 4: Sorting & Results
 ```
 [OK] Scan complete!
 [INFO] Found 10 clean IPs
-[INFO] Fastest: 172.67.156.23 (15.2 MB/s, 85ms)
-[INFO] Slowest: 104.19.203.112 (8.1 MB/s, 142ms)
+[INFO] Top IP: 172.67.156.23 (Quality: 15.2, Latency: 85ms, Loss: 0%)
 ```
+
+**Sorting Priority:**
+1. Loss rate (lower is better) - MOST IMPORTANT
+2. Latency (lower is better)
+3. Quality score (higher is better)
 
 ## Result Interpretation
 
-### CSV Output Format
+### CSV Output Format (Legacy)
 ```
-IP Address,Sent,Received,Loss Rate,Avg Latency,Download Speed
-172.67.156.23,4,4,0.00%,85.2,15.2
-104.21.48.77,4,4,0.00%,92.1,12.5
+IP Address,Sent,Received,Loss Rate,Avg Latency,Quality Score
+172.67.156.23,2,2,0.00%,85.2,15.2
+104.21.48.77,2,2,0.00%,92.1,12.5
 ...
 ```
 
 **Column Meanings:**
 - **IP Address**: Cloudflare CDN IP
-- **Sent**: Packets sent during test
-- **Received**: Packets received back
-- **Loss Rate**: Percentage of lost packets (0% is best)
-- **Avg Latency**: Average response time in milliseconds (lower is better)
-- **Download Speed**: Throughput in MB/s (higher is better)
+- **Sent**: Connection attempts during latency test
+- **Received**: Successful connections
+- **Loss Rate**: Percentage of failed connections (0% is best)
+- **Avg Latency**: Average TCP connection time in milliseconds (lower is better)
+- **Quality Score**: EWMA-based sustained throughput metric (higher is better)
+
+### Understanding Quality Score
+
+**What It Is:**
+- Exponentially Weighted Moving Average (EWMA) of download throughput
+- Measures **sustained** performance, not peak speed
+- Dimensionless metric (not Mbps)
+- Normalized across different test durations
+
+**Why It's Better Than Raw Speed:**
+- Filters out brief speed bursts that don't represent real performance
+- 80% weight to historical average, 20% to new samples
+- More reliable predictor of BPB Panel connection quality
+- Matches Go scanner's proven methodology
+
+**Rough Conversion:**
+- Quality Score ~10 ≈ ~10 MB/s sustained
+- But score emphasizes consistency over peaks
+- An IP with score 12 may outperform one with score 15 if more consistent
 
 ### IP Selection Logic
-1. Filter IPs by latency (within limits)
-2. Filter by packet loss (0% preferred)
-3. Run download tests on top N by latency
-4. Sort final results by download speed
-5. Take top N IPs for BPB Panel
+1. Filter IPs by latency (within configured limits)
+2. **Sort by loss rate FIRST** (0% loss prioritized)
+3. Then sort by latency (lower is better)
+4. Run download tests on top N by latency
+5. Calculate EWMA quality scores
+6. **Final sort: loss rate → latency → quality score**
+7. Take top N IPs for BPB Panel
 
 ## Network-Specific Recommendations
 

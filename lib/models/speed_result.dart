@@ -4,7 +4,14 @@ class SpeedResult {
   final String testUrl;
   final int bytesDownloaded;
   final double durationSeconds;
-  final double speedMbps;
+
+  /// Quality score calculated using EWMA (Exponentially Weighted Moving Average)
+  /// This is a dimensionless metric that represents sustained throughput quality
+  /// rather than instantaneous speed. Higher values indicate better quality.
+  ///
+  /// Matches the Go scanner's approach: EWMA value / (timeout_seconds / 120)
+  final double qualityScore;
+
   final DateTime timestamp;
   final String? error;
 
@@ -13,7 +20,7 @@ class SpeedResult {
     required this.testUrl,
     required this.bytesDownloaded,
     required this.durationSeconds,
-    required this.speedMbps,
+    required this.qualityScore,
     required this.timestamp,
     this.error,
   });
@@ -24,10 +31,14 @@ class SpeedResult {
   /// Whether the test failed
   bool get isFailure => error != null || bytesDownloaded == 0;
 
-  /// Speed in KB/s
+  /// Raw average speed in Mbps (for backward compatibility)
+  /// Note: This is the simple average, not the quality score
+  double get speedMbps => (bytesDownloaded * 8) / (durationSeconds * 1000000);
+
+  /// Speed in KB/s (simple average)
   double get speedKbps => speedMbps * 1024;
 
-  /// Speed in MB/s
+  /// Speed in MB/s (simple average)
   double get speedMBps => speedMbps / 8;
 
   /// Create a failed result
@@ -41,7 +52,7 @@ class SpeedResult {
       testUrl: testUrl,
       bytesDownloaded: 0,
       durationSeconds: 0,
-      speedMbps: 0,
+      qualityScore: 0,
       timestamp: DateTime.now(),
       error: error,
     );
@@ -53,14 +64,17 @@ class SpeedResult {
     required String testUrl,
     required int bytesDownloaded,
     required double durationSeconds,
+    double? qualityScore,
   }) {
-    final speedMbps = (bytesDownloaded * 8) / (durationSeconds * 1000000);
+    // If quality score not provided, fall back to simple average
+    final score = qualityScore ?? (bytesDownloaded / durationSeconds);
+
     return SpeedResult(
       ip: ip,
       testUrl: testUrl,
       bytesDownloaded: bytesDownloaded,
       durationSeconds: durationSeconds,
-      speedMbps: speedMbps,
+      qualityScore: score,
       timestamp: DateTime.now(),
     );
   }
@@ -70,7 +84,7 @@ class SpeedResult {
     if (isFailure) {
       return 'SpeedResult($ip - FAILED: $error)';
     }
-    return 'SpeedResult($ip - ${speedMbps.toStringAsFixed(2)} Mbps, '
+    return 'SpeedResult($ip - Quality: ${qualityScore.toStringAsFixed(2)}, '
         '$bytesDownloaded bytes in ${durationSeconds.toStringAsFixed(2)}s)';
   }
 
@@ -81,7 +95,8 @@ class SpeedResult {
       'testUrl': testUrl,
       'bytesDownloaded': bytesDownloaded,
       'durationSeconds': durationSeconds,
-      'speedMbps': speedMbps,
+      'qualityScore': qualityScore,
+      'speedMbps': speedMbps, // Include for backward compatibility
       'timestamp': timestamp.toIso8601String(),
       'error': error,
     };
@@ -94,7 +109,10 @@ class SpeedResult {
       testUrl: json['testUrl'] as String,
       bytesDownloaded: json['bytesDownloaded'] as int,
       durationSeconds: (json['durationSeconds'] as num).toDouble(),
-      speedMbps: (json['speedMbps'] as num).toDouble(),
+      qualityScore:
+          (json['qualityScore'] as num?)?.toDouble() ??
+          (json['speedMbps'] as num?)?.toDouble() ??
+          0.0,
       timestamp: DateTime.parse(json['timestamp'] as String),
       error: json['error'] as String?,
     );
