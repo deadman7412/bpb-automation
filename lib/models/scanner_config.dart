@@ -47,10 +47,28 @@ class ScannerConfig {
   /// Prevents tests from running too long
   final int downloadTestTime;
 
-  /// Maximum number of IPs to test from the available pool (10-3000)
-  /// Lower values = faster scans, higher values = more IPs discovered
-  /// New random IPs are selected on each scan
-  final int maxIPsToTest;
+  /// TARGET: Number of clean IPs with working downloads to find (1-50)
+  /// This is the primary goal - scanner will continue until this many valid IPs are found
+  /// A "clean IP" must have good latency AND successful download test
+  final int targetCleanIPs;
+
+  /// SAFETY NET: Minimum acceptable number of clean IPs (1-targetCleanIPs)
+  /// If target cannot be met, this is the minimum to accept partial success
+  final int minAcceptableIPs;
+
+  /// BATCH SIZE: Number of IPs to test per batch (50-500)
+  /// Platform-adaptive: Mobile default 150, Desktop default 300
+  /// Higher values = faster but may crash on low-end mobile devices
+  final int batchSize;
+
+  /// SAFETY LIMIT: Maximum total IPs to test across all batches (100-2000)
+  /// Prevents infinite scanning if clean IPs cannot be found
+  final int maxTotalIPsToTest;
+
+  /// PARETO RULE: Percentage of passing IPs to test for downloads (0.0-1.0)
+  /// Default 0.2 (20%) - tests top 20% by latency first, then next 20%, etc.
+  /// This is the Pareto principle: 80% of results from 20% of effort
+  final double downloadTestPercentage;
 
   /// Creates a ScannerConfig with the specified values.
   ///
@@ -67,7 +85,11 @@ class ScannerConfig {
     this.disableDownload = false,
     this.httpingMode = false,
     this.downloadTestTime = 10,
-    this.maxIPsToTest = 100,
+    this.targetCleanIPs = 10,
+    this.minAcceptableIPs = 5,
+    this.batchSize = 150,
+    this.maxTotalIPsToTest = 1000,
+    this.downloadTestPercentage = 0.2,
   });
 
   /// Creates a ScannerConfig from JSON.
@@ -80,12 +102,18 @@ class ScannerConfig {
       latencyLowerLimit: json['latency_lower_limit'] as int? ?? 40,
       speedLimit: json['speed_limit'] as int? ?? 5,
       testPort: json['test_port'] as int? ?? 443,
-      testUrl: json['test_url'] as String? ??
+      testUrl:
+          json['test_url'] as String? ??
           'https://speed.cloudflare.com/__down?bytes=',
       disableDownload: json['disable_download'] as bool? ?? false,
       httpingMode: json['httping_mode'] as bool? ?? false,
       downloadTestTime: json['download_test_time'] as int? ?? 10,
-      maxIPsToTest: json['max_ips_to_test'] as int? ?? 100,
+      targetCleanIPs: json['target_clean_ips'] as int? ?? 10,
+      minAcceptableIPs: json['min_acceptable_ips'] as int? ?? 5,
+      batchSize: json['batch_size'] as int? ?? 150,
+      maxTotalIPsToTest: json['max_total_ips_to_test'] as int? ?? 1000,
+      downloadTestPercentage:
+          json['download_test_percentage'] as double? ?? 0.2,
     );
   }
 
@@ -103,7 +131,11 @@ class ScannerConfig {
       'disable_download': disableDownload,
       'httping_mode': httpingMode,
       'download_test_time': downloadTestTime,
-      'max_ips_to_test': maxIPsToTest,
+      'target_clean_ips': targetCleanIPs,
+      'min_acceptable_ips': minAcceptableIPs,
+      'batch_size': batchSize,
+      'max_total_ips_to_test': maxTotalIPsToTest,
+      'download_test_percentage': downloadTestPercentage,
     };
   }
 
@@ -154,7 +186,10 @@ class ScannerConfig {
       testCount: 3,
       downloadCount: 5,
       downloadTestTime: 5,
-      maxIPsToTest: 150,
+      targetCleanIPs: 10,
+      minAcceptableIPs: 5,
+      batchSize: 150,
+      maxTotalIPsToTest: 800,
     );
   }
 
@@ -167,7 +202,10 @@ class ScannerConfig {
       testCount: 5,
       downloadCount: 15,
       downloadTestTime: 15,
-      maxIPsToTest: 500,
+      targetCleanIPs: 10,
+      minAcceptableIPs: 5,
+      batchSize: 300,
+      maxTotalIPsToTest: 1500,
     );
   }
 
@@ -180,7 +218,10 @@ class ScannerConfig {
       testCount: 2,
       downloadCount: 5,
       downloadTestTime: 5,
-      maxIPsToTest: 200,
+      targetCleanIPs: 5,
+      minAcceptableIPs: 3,
+      batchSize: 200,
+      maxTotalIPsToTest: 600,
     );
   }
 
@@ -193,7 +234,10 @@ class ScannerConfig {
       testCount: 10,
       downloadCount: 20,
       downloadTestTime: 20,
-      maxIPsToTest: 1000,
+      targetCleanIPs: 20,
+      minAcceptableIPs: 10,
+      batchSize: 300,
+      maxTotalIPsToTest: 2000,
     );
   }
 
@@ -208,7 +252,10 @@ class ScannerConfig {
       latencyLimit: 500,
       speedLimit: 1,
       downloadTestTime: 5,
-      maxIPsToTest: 50,
+      targetCleanIPs: 5,
+      minAcceptableIPs: 3,
+      batchSize: 50,
+      maxTotalIPsToTest: 200,
     );
   }
 
@@ -219,7 +266,7 @@ class ScannerConfig {
     // Check if running on mobile
     try {
       final isMobile = const bool.fromEnvironment('dart.library.io')
-          ? true  // Assume mobile if dart:io is available (simplified)
+          ? true // Assume mobile if dart:io is available (simplified)
           : false;
 
       return isMobile ? ScannerConfig.mobile() : ScannerConfig.desktop();
@@ -275,8 +322,27 @@ class ScannerConfig {
       errors.add('Download test time must be between 1 and 60 seconds');
     }
 
-    if (maxIPsToTest < 10 || maxIPsToTest > 3000) {
-      errors.add('Max IPs to test must be between 10 and 3000');
+    // NEW: Validate Pareto-based scanning fields
+    if (targetCleanIPs < 1 || targetCleanIPs > 50) {
+      errors.add('Target clean IPs must be between 1 and 50');
+    }
+
+    if (minAcceptableIPs < 1 || minAcceptableIPs > targetCleanIPs) {
+      errors.add(
+        'Minimum acceptable IPs must be between 1 and target clean IPs',
+      );
+    }
+
+    if (batchSize < 50 || batchSize > 500) {
+      errors.add('Batch size must be between 50 and 500');
+    }
+
+    if (maxTotalIPsToTest < 100 || maxTotalIPsToTest > 2000) {
+      errors.add('Max total IPs to test must be between 100 and 2000');
+    }
+
+    if (downloadTestPercentage < 0.1 || downloadTestPercentage > 1.0) {
+      errors.add('Download test percentage must be between 0.1 and 1.0');
     }
 
     return errors;
@@ -300,7 +366,11 @@ class ScannerConfig {
     bool? disableDownload,
     bool? httpingMode,
     int? downloadTestTime,
-    int? maxIPsToTest,
+    int? targetCleanIPs,
+    int? minAcceptableIPs,
+    int? batchSize,
+    int? maxTotalIPsToTest,
+    double? downloadTestPercentage,
   }) {
     return ScannerConfig(
       threads: threads ?? this.threads,
@@ -314,7 +384,12 @@ class ScannerConfig {
       disableDownload: disableDownload ?? this.disableDownload,
       httpingMode: httpingMode ?? this.httpingMode,
       downloadTestTime: downloadTestTime ?? this.downloadTestTime,
-      maxIPsToTest: maxIPsToTest ?? this.maxIPsToTest,
+      targetCleanIPs: targetCleanIPs ?? this.targetCleanIPs,
+      minAcceptableIPs: minAcceptableIPs ?? this.minAcceptableIPs,
+      batchSize: batchSize ?? this.batchSize,
+      maxTotalIPsToTest: maxTotalIPsToTest ?? this.maxTotalIPsToTest,
+      downloadTestPercentage:
+          downloadTestPercentage ?? this.downloadTestPercentage,
     );
   }
 
@@ -325,7 +400,10 @@ class ScannerConfig {
         'testCount: $testCount, '
         'downloadCount: $downloadCount, '
         'latencyLimit: ${latencyLimit}ms, '
-        'speedLimit: ${speedLimit}MB/s)';
+        'speedLimit: ${speedLimit}MB/s, '
+        'targetCleanIPs: $targetCleanIPs, '
+        'batchSize: $batchSize, '
+        'maxTotalIPsToTest: $maxTotalIPsToTest)';
   }
 
   @override
@@ -344,7 +422,11 @@ class ScannerConfig {
         other.disableDownload == disableDownload &&
         other.httpingMode == httpingMode &&
         other.downloadTestTime == downloadTestTime &&
-        other.maxIPsToTest == maxIPsToTest;
+        other.targetCleanIPs == targetCleanIPs &&
+        other.minAcceptableIPs == minAcceptableIPs &&
+        other.batchSize == batchSize &&
+        other.maxTotalIPsToTest == maxTotalIPsToTest &&
+        other.downloadTestPercentage == downloadTestPercentage;
   }
 
   @override
@@ -361,7 +443,11 @@ class ScannerConfig {
       disableDownload,
       httpingMode,
       downloadTestTime,
-      maxIPsToTest,
+      targetCleanIPs,
+      minAcceptableIPs,
+      batchSize,
+      maxTotalIPsToTest,
+      downloadTestPercentage,
     );
   }
 }

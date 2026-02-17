@@ -17,7 +17,11 @@ void main() {
         expect(config.disableDownload, isFalse);
         expect(config.httpingMode, isFalse);
         expect(config.downloadTestTime, equals(10));
-        expect(config.maxIPsToTest, equals(100));
+        expect(config.targetCleanIPs, equals(10));
+        expect(config.minAcceptableIPs, equals(5));
+        expect(config.batchSize, equals(150));
+        expect(config.maxTotalIPsToTest, equals(1000));
+        expect(config.downloadTestPercentage, equals(0.2));
       });
 
       test('creates instance with custom values', () {
@@ -51,6 +55,11 @@ void main() {
           'disable_download': true,
           'httping_mode': true,
           'download_test_time': 15,
+          'target_clean_ips': 20,
+          'min_acceptable_ips': 10,
+          'batch_size': 200,
+          'max_total_ips_to_test': 1500,
+          'download_test_percentage': 0.3,
         };
 
         final config = ScannerConfig.fromJson(json);
@@ -66,6 +75,11 @@ void main() {
         expect(config.disableDownload, isTrue);
         expect(config.httpingMode, isTrue);
         expect(config.downloadTestTime, equals(15));
+        expect(config.targetCleanIPs, equals(20));
+        expect(config.minAcceptableIPs, equals(10));
+        expect(config.batchSize, equals(200));
+        expect(config.maxTotalIPsToTest, equals(1500));
+        expect(config.downloadTestPercentage, equals(0.3));
       });
 
       test('uses defaults for missing fields', () {
@@ -168,6 +182,10 @@ void main() {
         expect(config.testCount, equals(3));
         expect(config.downloadCount, equals(5));
         expect(config.downloadTestTime, equals(5));
+        expect(config.targetCleanIPs, equals(10));
+        expect(config.minAcceptableIPs, equals(5));
+        expect(config.batchSize, equals(150));
+        expect(config.maxTotalIPsToTest, equals(800));
       });
 
       test('desktop() creates desktop-optimized config', () {
@@ -177,6 +195,10 @@ void main() {
         expect(config.testCount, equals(5));
         expect(config.downloadCount, equals(15));
         expect(config.downloadTestTime, equals(15));
+        expect(config.targetCleanIPs, equals(10));
+        expect(config.minAcceptableIPs, equals(5));
+        expect(config.batchSize, equals(300));
+        expect(config.maxTotalIPsToTest, equals(1500));
       });
 
       test('fast() creates fast config', () {
@@ -186,6 +208,10 @@ void main() {
         expect(config.testCount, equals(2));
         expect(config.downloadCount, equals(5));
         expect(config.downloadTestTime, equals(5));
+        expect(config.targetCleanIPs, equals(5));
+        expect(config.minAcceptableIPs, equals(3));
+        expect(config.batchSize, equals(200));
+        expect(config.maxTotalIPsToTest, equals(600));
       });
 
       test('thorough() creates thorough config', () {
@@ -195,6 +221,10 @@ void main() {
         expect(config.testCount, equals(10));
         expect(config.downloadCount, equals(20));
         expect(config.downloadTestTime, equals(20));
+        expect(config.targetCleanIPs, equals(20));
+        expect(config.minAcceptableIPs, equals(10));
+        expect(config.batchSize, equals(300));
+        expect(config.maxTotalIPsToTest, equals(2000));
       });
 
       test('emulator() creates emulator-safe config', () {
@@ -206,7 +236,10 @@ void main() {
         expect(config.latencyLimit, equals(500));
         expect(config.speedLimit, equals(1));
         expect(config.downloadTestTime, equals(5));
-        expect(config.maxIPsToTest, equals(50));
+        expect(config.targetCleanIPs, equals(5));
+        expect(config.minAcceptableIPs, equals(3));
+        expect(config.batchSize, equals(50));
+        expect(config.maxTotalIPsToTest, equals(200));
       });
     });
 
@@ -247,19 +280,13 @@ void main() {
       });
 
       test('validates latency limits', () {
-        const config1 = ScannerConfig(
-          latencyLowerLimit: 100,
-          latencyLimit: 50,
-        );
+        const config1 = ScannerConfig(latencyLowerLimit: 100, latencyLimit: 50);
         expect(
           config1.validate(),
           contains('Latency lower limit must be less than latency limit'),
         );
 
-        const config2 = ScannerConfig(
-          latencyLowerLimit: 50,
-          latencyLimit: 100,
-        );
+        const config2 = ScannerConfig(latencyLowerLimit: 50, latencyLimit: 100);
         expect(config2.validate(), isEmpty);
       });
 
@@ -279,10 +306,7 @@ void main() {
 
       test('validates test URL', () {
         const config = ScannerConfig(testUrl: '');
-        expect(
-          config.validate(),
-          contains('Test URL cannot be empty'),
-        );
+        expect(config.validate(), contains('Test URL cannot be empty'));
       });
 
       test('validates download test time', () {
@@ -296,6 +320,110 @@ void main() {
         expect(config3.validate(), isEmpty);
 
         const config4 = ScannerConfig(downloadTestTime: 60);
+        expect(config4.validate(), isEmpty);
+      });
+
+      test('validates target clean IPs range', () {
+        const config1 = ScannerConfig(targetCleanIPs: 0, minAcceptableIPs: 0);
+        expect(
+          config1.validate(),
+          contains('Target clean IPs must be between 1 and 50'),
+        );
+
+        const config2 = ScannerConfig(targetCleanIPs: 51, minAcceptableIPs: 10);
+        expect(
+          config2.validate(),
+          contains('Target clean IPs must be between 1 and 50'),
+        );
+
+        const config3 = ScannerConfig(targetCleanIPs: 1, minAcceptableIPs: 1);
+        expect(config3.validate(), isEmpty);
+
+        const config4 = ScannerConfig(targetCleanIPs: 50, minAcceptableIPs: 25);
+        expect(config4.validate(), isEmpty);
+      });
+
+      test('validates min acceptable IPs range', () {
+        const config1 = ScannerConfig(targetCleanIPs: 10, minAcceptableIPs: 0);
+        expect(
+          config1.validate(),
+          contains(
+            'Minimum acceptable IPs must be between 1 and target clean IPs',
+          ),
+        );
+
+        const config2 = ScannerConfig(targetCleanIPs: 10, minAcceptableIPs: 11);
+        expect(
+          config2.validate(),
+          contains(
+            'Minimum acceptable IPs must be between 1 and target clean IPs',
+          ),
+        );
+
+        const config3 = ScannerConfig(targetCleanIPs: 10, minAcceptableIPs: 5);
+        expect(config3.validate(), isEmpty);
+
+        const config4 = ScannerConfig(targetCleanIPs: 10, minAcceptableIPs: 10);
+        expect(config4.validate(), isEmpty);
+      });
+
+      test('validates batch size range', () {
+        const config1 = ScannerConfig(batchSize: 49);
+        expect(
+          config1.validate(),
+          contains('Batch size must be between 50 and 500'),
+        );
+
+        const config2 = ScannerConfig(batchSize: 501);
+        expect(
+          config2.validate(),
+          contains('Batch size must be between 50 and 500'),
+        );
+
+        const config3 = ScannerConfig(batchSize: 50);
+        expect(config3.validate(), isEmpty);
+
+        const config4 = ScannerConfig(batchSize: 500);
+        expect(config4.validate(), isEmpty);
+      });
+
+      test('validates max total IPs to test range', () {
+        const config1 = ScannerConfig(maxTotalIPsToTest: 99);
+        expect(
+          config1.validate(),
+          contains('Max total IPs to test must be between 100 and 2000'),
+        );
+
+        const config2 = ScannerConfig(maxTotalIPsToTest: 2001);
+        expect(
+          config2.validate(),
+          contains('Max total IPs to test must be between 100 and 2000'),
+        );
+
+        const config3 = ScannerConfig(maxTotalIPsToTest: 100);
+        expect(config3.validate(), isEmpty);
+
+        const config4 = ScannerConfig(maxTotalIPsToTest: 2000);
+        expect(config4.validate(), isEmpty);
+      });
+
+      test('validates download test percentage range', () {
+        const config1 = ScannerConfig(downloadTestPercentage: 0.05);
+        expect(
+          config1.validate(),
+          contains('Download test percentage must be between 0.1 and 1.0'),
+        );
+
+        const config2 = ScannerConfig(downloadTestPercentage: 1.1);
+        expect(
+          config2.validate(),
+          contains('Download test percentage must be between 0.1 and 1.0'),
+        );
+
+        const config3 = ScannerConfig(downloadTestPercentage: 0.1);
+        expect(config3.validate(), isEmpty);
+
+        const config4 = ScannerConfig(downloadTestPercentage: 1.0);
         expect(config4.validate(), isEmpty);
       });
     });
@@ -314,18 +442,30 @@ void main() {
 
     group('copyWith', () {
       test('creates new instance with updated values', () {
-        const original = ScannerConfig(
-          threads: 200,
-          testCount: 4,
-        );
+        const original = ScannerConfig(threads: 200, testCount: 4);
 
-        final updated = original.copyWith(
-          threads: 300,
-          testCount: 5,
-        );
+        final updated = original.copyWith(threads: 300, testCount: 5);
 
         expect(updated.threads, equals(300));
         expect(updated.testCount, equals(5));
+      });
+
+      test('updates Pareto-based scanning fields', () {
+        const original = ScannerConfig();
+
+        final updated = original.copyWith(
+          targetCleanIPs: 20,
+          minAcceptableIPs: 10,
+          batchSize: 250,
+          maxTotalIPsToTest: 1500,
+          downloadTestPercentage: 0.3,
+        );
+
+        expect(updated.targetCleanIPs, equals(20));
+        expect(updated.minAcceptableIPs, equals(10));
+        expect(updated.batchSize, equals(250));
+        expect(updated.maxTotalIPsToTest, equals(1500));
+        expect(updated.downloadTestPercentage, equals(0.3));
       });
 
       test('preserves unchanged values', () {

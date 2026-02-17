@@ -54,7 +54,9 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       // Step 1: Get scanner configuration
       final config = await _storage.getScannerConfig();
-      _log.logInfo('Using scanner config: ${config.threads} threads, ${config.testCount} tests');
+      _log.logInfo(
+        'Using scanner config: ${config.threads} threads, ${config.testCount} tests',
+      );
 
       // Step 2: Start progress stream
       final progressStream = _scanner.startProgressStream();
@@ -62,14 +64,17 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!mounted) return;
         setState(() {
           _currentProgress = progress;
-          _statusMessage = progress.message ?? _getStatusForStage(progress.stage);
+          _statusMessage =
+              progress.message ?? _getStatusForStage(progress.stage);
         });
       });
 
       // Step 3: Execute scan
       final scanResult = await _scanner.executeScan(config);
 
-      _log.logOk('Scan completed: ${scanResult.successful} successful, ${scanResult.failed} failed');
+      _log.logOk(
+        'Scan completed: ${scanResult.successful} successful, ${scanResult.failed} failed',
+      );
 
       // Step 4: Save scan results and statistics
       final scanTime = DateTime.now();
@@ -84,11 +89,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // Step 5: Show success message
       if (!mounted) return;
+
+      // Determine message color based on status
+      Color messageColor;
+      switch (scanResult.status) {
+        case ScanStatus.success:
+          messageColor = Colors.green;
+          break;
+        case ScanStatus.partial:
+          messageColor = Colors.orange;
+          break;
+        case ScanStatus.insufficient:
+          messageColor = Colors.deepOrange;
+          break;
+        case ScanStatus.failed:
+          messageColor = Colors.red;
+          break;
+        case ScanStatus.cancelled:
+          messageColor = Colors.blue;
+          break;
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Scan completed! Found ${scanResult.results.length} clean IPs'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
+          content: Text(scanResult.message),
+          backgroundColor: messageColor,
+          duration: const Duration(seconds: 4),
         ),
       );
 
@@ -108,7 +134,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (!mounted) return;
       Navigator.pushNamed(context, '/results', arguments: cleanIPs);
-
     } catch (e, stackTrace) {
       _log.logError('Scan failed', e, stackTrace);
 
@@ -129,6 +154,23 @@ class _HomeScreenState extends State<HomeScreen> {
       _progressSubscription?.cancel();
       _scanner.stopProgressStream();
     }
+  }
+
+  void _stopScan() {
+    _log.logWarn('User requested scan cancellation');
+    _scanner.cancelScan();
+
+    setState(() {
+      _statusMessage = 'Stopping scan...';
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Stopping scan, please wait...'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   String _getStatusForStage(ScanStage stage) {
@@ -207,14 +249,14 @@ class _HomeScreenState extends State<HomeScreen> {
                           _isScanning
                               ? Icons.sync
                               : _lastScanTime != null
-                                  ? Icons.check_circle
-                                  : Icons.cloud_sync,
+                              ? Icons.check_circle
+                              : Icons.cloud_sync,
                           size: 64,
                           color: _isScanning
                               ? Colors.blue
                               : _lastScanTime != null
-                                  ? Colors.green
-                                  : Colors.grey,
+                              ? Colors.green
+                              : Colors.grey,
                         ),
                         const SizedBox(height: 16),
                         Text(
@@ -226,9 +268,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(height: 8),
                           Text(
                             'Last scan: ${_formatDateTime(_lastScanTime!)}',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Colors.grey,
-                                ),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: Colors.grey),
                           ),
                         ],
                       ],
@@ -245,28 +286,84 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          LinearProgressIndicator(
-                            value: _currentProgress!.progress,
-                            minHeight: 8,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            '${_currentProgress!.processedIPs}/${_currentProgress!.totalIPs} IPs processed',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
+                          // Goal Progress (primary)
+                          if (_currentProgress!.targetCleanIPs > 0) ...[
+                            Text(
+                              'Goal: ${_currentProgress!.cleanIPsFound}/${_currentProgress!.targetCleanIPs} clean IPs',
+                              style: Theme.of(context).textTheme.titleMedium,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            LinearProgressIndicator(
+                              value: _currentProgress!.goalProgress,
+                              minHeight: 8,
+                              backgroundColor: Colors.grey[300],
+                              color: _currentProgress!.isGoalMet
+                                  ? Colors.green
+                                  : Colors.blue,
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+
+                          // Batch/Stage Progress (secondary)
+                          if (_currentProgress!.currentBatch > 0) ...[
+                            // Show current stage/substage message
+                            if (_currentProgress!.subStage != null &&
+                                _currentProgress!.subStage!.isNotEmpty) ...[
+                              // During substage (e.g., Pareto download testing), show message only
+                              Text(
+                                'Batch ${_currentProgress!.currentBatch}: ${_currentProgress!.subStage}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 12),
+                            ] else ...[
+                              // During main stage (latency testing), show progress bar
+                              Text(
+                                'Batch ${_currentProgress!.currentBatch}: ${_currentProgress!.processedIPs}/${_currentProgress!.totalIPs} IPs',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              LinearProgressIndicator(
+                                value: _currentProgress!.progress,
+                                minHeight: 6,
+                                backgroundColor: Colors.grey[200],
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                          ] else ...[
+                            // Fallback for non-batch progress
+                            LinearProgressIndicator(
+                              value: _currentProgress!.progress,
+                              minHeight: 8,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '${_currentProgress!.processedIPs}/${_currentProgress!.totalIPs} IPs processed',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+
+                          // Success/Fail Stats
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
                               Text(
-                                '✓ ${_currentProgress!.successfulIPs}',
+                                'Pass: ${_currentProgress!.successfulIPs}',
                                 style: const TextStyle(color: Colors.green),
                               ),
                               Text(
-                                '✗ ${_currentProgress!.failedIPs}',
+                                'Fail: ${_currentProgress!.failedIPs}',
                                 style: const TextStyle(color: Colors.red),
                               ),
+                              if (_currentProgress!.totalIPsTested > 0)
+                                Text(
+                                  'Total: ${_currentProgress!.totalIPsTested}',
+                                  style: TextStyle(color: Colors.grey[700]),
+                                ),
                             ],
                           ),
                         ],
@@ -277,30 +374,56 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (_isScanning && _currentProgress != null)
                   const SizedBox(height: 24),
 
-                // Scan Button
-                SizedBox(
-                  width: 200,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: _isScanning ? null : _startScan,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
+                // Scan/Stop Buttons
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Start Scan Button
+                    SizedBox(
+                      width: _isScanning ? 150 : 200,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: _isScanning ? null : _startScan,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: _isScanning
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Start Scan',
+                                style: TextStyle(fontSize: 18),
+                              ),
+                      ),
                     ),
-                    child: _isScanning
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Text(
-                            'Start Scan',
+
+                    // Stop Button (only visible during scan)
+                    if (_isScanning) ...[
+                      const SizedBox(width: 16),
+                      SizedBox(
+                        width: 150,
+                        height: 56,
+                        child: ElevatedButton(
+                          onPressed: _stopScan,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text(
+                            'Stop',
                             style: TextStyle(fontSize: 18),
                           ),
-                  ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
 
                 const SizedBox(height: 48),
@@ -396,14 +519,11 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 8),
         Text(
           value,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }

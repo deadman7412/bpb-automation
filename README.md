@@ -75,6 +75,35 @@ Download the appropriate version for your platform:
 - Platform-specific tools (Android Studio, Xcode, etc.)
 - See [Development Guide](docs/development.md)
 
+## Testing
+
+### Run All Tests (Recommended for CI)
+```bash
+# Run unit tests only (excludes integration tests)
+flutter test --exclude-tags=integration
+```
+
+### Run Specific Test Suites
+```bash
+# Run only model tests
+flutter test test/models/
+
+# Run only service tests
+flutter test test/services/
+
+# Run integration tests (requires network access)
+flutter test --tags=integration
+```
+
+### Test Categories
+- **Unit Tests** - Fast, isolated tests for models and services (338 tests)
+- **Integration Tests** - Slow, network-dependent tests against real Cloudflare IPs
+  - Tagged with `@Tags(['integration'])`
+  - May fail in CI due to rate limiting or network restrictions
+  - Should be run manually or in separate CI job with proper network access
+
+**Note:** Integration tests use real network requests to Cloudflare and may be rate-limited (HTTP 429). For reliable CI/CD, always use `--exclude-tags=integration`.
+
 ## How It Works
 
 1. Loads Cloudflare IP ranges and expands CIDR notation

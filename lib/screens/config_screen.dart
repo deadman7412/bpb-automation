@@ -16,6 +16,17 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
   ScannerConfig _config = ScannerConfig();
   bool _isLoading = false;
+  String _selectedPreset = 'Default';
+
+  // Define all preset configurations
+  final Map<String, ScannerConfig> _presets = {
+    'Mobile': ScannerConfig.mobile(),
+    'Desktop': ScannerConfig.desktop(),
+    'Fast': ScannerConfig.fast(),
+    'Thorough': ScannerConfig.thorough(),
+    'Emulator': ScannerConfig.emulator(),
+    'Default': ScannerConfig(),
+  };
 
   @override
   void initState() {
@@ -30,8 +41,36 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
     setState(() {
       _config = config;
+      _selectedPreset = _detectPreset(config);
       _isLoading = false;
     });
+  }
+
+  /// Detect which preset matches the current config, or return "Custom"
+  String _detectPreset(ScannerConfig config) {
+    for (final entry in _presets.entries) {
+      if (_configsEqual(config, entry.value)) {
+        return entry.key;
+      }
+    }
+    return 'Custom';
+  }
+
+  /// Compare two configs for equality
+  bool _configsEqual(ScannerConfig a, ScannerConfig b) {
+    return a.threads == b.threads &&
+        a.testCount == b.testCount &&
+        a.downloadCount == b.downloadCount &&
+        a.latencyLimit == b.latencyLimit &&
+        a.speedLimit == b.speedLimit &&
+        a.disableDownload == b.disableDownload &&
+        a.httpingMode == b.httpingMode &&
+        a.downloadTestTime == b.downloadTestTime &&
+        a.testPort == b.testPort &&
+        a.batchSize == b.batchSize &&
+        a.targetCleanIPs == b.targetCleanIPs &&
+        a.minAcceptableIPs == b.minAcceptableIPs &&
+        a.maxTotalIPsToTest == b.maxTotalIPsToTest;
   }
 
   Future<void> _saveConfig() async {
@@ -67,13 +106,26 @@ class _ConfigScreenState extends State<ConfigScreen> {
     );
   }
 
-  void _usePreset(ScannerConfig preset, String name) {
-    setState(() => _config = preset);
-    _log.logInfo('Loaded $name preset configuration');
+  void _usePreset(String presetName) {
+    final preset = _presets[presetName];
+    if (preset == null) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$name preset loaded')),
-    );
+    setState(() {
+      _config = preset;
+      _selectedPreset = presetName;
+    });
+    _log.logInfo('Loaded $presetName preset configuration');
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$presetName preset loaded')));
+  }
+
+  void _updateConfig(ScannerConfig newConfig) {
+    setState(() {
+      _config = newConfig;
+      _selectedPreset = _detectPreset(newConfig);
+    });
   }
 
   @override
@@ -103,71 +155,82 @@ class _ConfigScreenState extends State<ConfigScreen> {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _buildPresetButton(
-                          'Mobile',
-                          Icons.phone_android,
-                          () => _usePreset(ScannerConfig.mobile(), 'Mobile'),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
                         ),
-                        _buildPresetButton(
-                          'Desktop',
-                          Icons.computer,
-                          () => _usePreset(ScannerConfig.desktop(), 'Desktop'),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.tune),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: DropdownButton<String>(
+                                value: _selectedPreset,
+                                isExpanded: true,
+                                underline: const SizedBox(),
+                                items: [
+                                  ..._presets.keys.map(
+                                    (name) => DropdownMenuItem(
+                                      value: name,
+                                      child: Text(name),
+                                    ),
+                                  ),
+                                  const DropdownMenuItem(
+                                    value: 'Custom',
+                                    child: Text(
+                                      'Custom',
+                                      style: TextStyle(
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                onChanged: (value) {
+                                  if (value != null && value != 'Custom') {
+                                    _usePreset(value);
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
                         ),
-                        _buildPresetButton(
-                          'Fast',
-                          Icons.speed,
-                          () => _usePreset(ScannerConfig.fast(), 'Fast'),
-                        ),
-                        _buildPresetButton(
-                          'Thorough',
-                          Icons.security,
-                          () => _usePreset(ScannerConfig.thorough(), 'Thorough'),
-                        ),
-                        _buildPresetButton(
-                          'Emulator',
-                          Icons.phone_iphone,
-                          () => _usePreset(ScannerConfig.emulator(), 'Emulator'),
-                        ),
-                        _buildPresetButton(
-                          'Default',
-                          Icons.restore,
-                          () => _usePreset(ScannerConfig(), 'Default'),
-                        ),
-                      ],
+                      ),
                     ),
                     const SizedBox(height: 24),
 
                     // Important Notice
                     Card(
-                      color: Colors.orange.shade50,
+                      color: Colors.blue.shade50,
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Row(
                           children: [
-                            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 32),
+                            Icon(
+                              Icons.info_outline,
+                              color: Colors.blue.shade700,
+                              size: 32,
+                            ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Important: Max IPs Setting',
+                                    'Goal-Based Scanning',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.orange.shade900,
+                                      color: Colors.blue.shade900,
                                       fontSize: 16,
                                     ),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Setting too many IPs can crash the app, especially on mobile devices and emulators. Keep the IP count low (50-200). '
-                                    'IPs are selected randomly, so each scan tests a different set - you\'ll always discover new working IPs!',
+                                    'Scanner automatically tests batches of IPs until your target clean IP goal is met. '
+                                    'Set your goal (Target Clean IPs) and safety limits (Max Total IPs to Test), then let the scanner find the best IPs for you!',
                                     style: TextStyle(
-                                      color: Colors.orange.shade900,
+                                      color: Colors.blue.shade900,
                                       fontSize: 13,
                                     ),
                                   ),
@@ -196,7 +259,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               _config.threads.toDouble(),
                               10,
                               500,
-                              (value) => setState(() => _config = _config.copyWith(threads: value.toInt())),
+                              (value) => _updateConfig(
+                                _config.copyWith(threads: value.toInt()),
+                              ),
                               'Number of concurrent threads',
                             ),
                             _buildSlider(
@@ -204,7 +269,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               _config.testCount.toDouble(),
                               1,
                               20,
-                              (value) => setState(() => _config = _config.copyWith(testCount: value.toInt())),
+                              (value) => _updateConfig(
+                                _config.copyWith(testCount: value.toInt()),
+                              ),
                               'Number of tests per IP',
                             ),
                             _buildSlider(
@@ -212,16 +279,55 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               _config.downloadCount.toDouble(),
                               1,
                               100,
-                              (value) => setState(() => _config = _config.copyWith(downloadCount: value.toInt())),
+                              (value) => _updateConfig(
+                                _config.copyWith(downloadCount: value.toInt()),
+                              ),
                               'Number of IPs to test for download speed (after latency filtering)',
                             ),
                             _buildSlider(
-                              'Max IPs to Test',
-                              _config.maxIPsToTest.toDouble(),
-                              10,
-                              3000,
-                              (value) => setState(() => _config = _config.copyWith(maxIPsToTest: value.toInt())),
-                              'Maximum IPs to test per scan (random selection changes each scan)',
+                              'Target Clean IPs',
+                              _config.targetCleanIPs.toDouble(),
+                              1,
+                              50,
+                              (value) => _updateConfig(
+                                _config.copyWith(targetCleanIPs: value.toInt()),
+                              ),
+                              'Goal: Number of clean IPs to find (with good latency AND downloads)',
+                            ),
+                            _buildSlider(
+                              'Minimum Acceptable IPs',
+                              _config.minAcceptableIPs.toDouble(),
+                              1,
+                              _config.targetCleanIPs
+                                  .toDouble(), // Dynamic max: can't exceed target
+                              (value) => _updateConfig(
+                                _config.copyWith(
+                                  minAcceptableIPs: value.toInt(),
+                                ),
+                              ),
+                              'Safety net: Minimum clean IPs to accept partial success',
+                            ),
+                            _buildSlider(
+                              'Batch Size',
+                              _config.batchSize.toDouble(),
+                              50,
+                              500,
+                              (value) => _updateConfig(
+                                _config.copyWith(batchSize: value.toInt()),
+                              ),
+                              'IPs per batch (WARNING: high values may crash mobile apps)',
+                            ),
+                            _buildSlider(
+                              'Max Total IPs to Test',
+                              _config.maxTotalIPsToTest.toDouble(),
+                              100,
+                              2000,
+                              (value) => _updateConfig(
+                                _config.copyWith(
+                                  maxTotalIPsToTest: value.toInt(),
+                                ),
+                              ),
+                              'Safety limit: Maximum total IPs across all batches',
                             ),
                           ],
                         ),
@@ -244,7 +350,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               _config.latencyLimit.toDouble(),
                               50,
                               500,
-                              (value) => setState(() => _config = _config.copyWith(latencyLimit: value.toInt())),
+                              (value) => _updateConfig(
+                                _config.copyWith(latencyLimit: value.toInt()),
+                              ),
                               'Maximum acceptable latency',
                             ),
                             _buildSlider(
@@ -252,7 +360,11 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               _config.latencyLowerLimit.toDouble(),
                               10,
                               200,
-                              (value) => setState(() => _config = _config.copyWith(latencyLowerLimit: value.toInt())),
+                              (value) => _updateConfig(
+                                _config.copyWith(
+                                  latencyLowerLimit: value.toInt(),
+                                ),
+                              ),
                               'Minimum latency threshold',
                             ),
                             _buildSlider(
@@ -260,7 +372,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               _config.speedLimit.toDouble(),
                               1,
                               50,
-                              (value) => setState(() => _config = _config.copyWith(speedLimit: value.toInt())),
+                              (value) => _updateConfig(
+                                _config.copyWith(speedLimit: value.toInt()),
+                              ),
                               'Minimum download speed',
                             ),
                           ],
@@ -284,7 +398,11 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               _config.downloadTestTime.toDouble(),
                               2,
                               30,
-                              (value) => setState(() => _config = _config.copyWith(downloadTestTime: value.toInt())),
+                              (value) => _updateConfig(
+                                _config.copyWith(
+                                  downloadTestTime: value.toInt(),
+                                ),
+                              ),
                               'Download test duration',
                             ),
                             _buildSlider(
@@ -292,20 +410,28 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               _config.testPort.toDouble(),
                               80,
                               8443,
-                              (value) => setState(() => _config = _config.copyWith(testPort: value.toInt())),
+                              (value) => _updateConfig(
+                                _config.copyWith(testPort: value.toInt()),
+                              ),
                               'Port for connectivity tests',
                             ),
                             SwitchListTile(
                               title: const Text('Disable Download Test'),
                               subtitle: const Text('Skip download speed tests'),
                               value: _config.disableDownload,
-                              onChanged: (value) => setState(() => _config = _config.copyWith(disableDownload: value)),
+                              onChanged: (value) => _updateConfig(
+                                _config.copyWith(disableDownload: value),
+                              ),
                             ),
                             SwitchListTile(
                               title: const Text('HTTPing Mode'),
-                              subtitle: const Text('Use HTTP ping instead of ICMP'),
+                              subtitle: const Text(
+                                'Use HTTP ping instead of ICMP',
+                              ),
                               value: _config.httpingMode,
-                              onChanged: (value) => setState(() => _config = _config.copyWith(httpingMode: value)),
+                              onChanged: (value) => _updateConfig(
+                                _config.copyWith(httpingMode: value),
+                              ),
                             ),
                           ],
                         ),
@@ -331,17 +457,6 @@ class _ConfigScreenState extends State<ConfigScreen> {
     );
   }
 
-  Widget _buildPresetButton(String label, IconData icon, VoidCallback onPressed) {
-    return ElevatedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon),
-      label: Text(label),
-      style: ElevatedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      ),
-    );
-  }
-
   Widget _buildSlider(
     String label,
     double value,
@@ -350,22 +465,20 @@ class _ConfigScreenState extends State<ConfigScreen> {
     ValueChanged<double> onChanged,
     String helperText,
   ) {
+    // Calculate divisions safely - ensure it's positive
+    final divisionCount = (max - min).toInt();
+    final divisions = divisionCount > 0 ? divisionCount : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
             Text(
               value.toInt().toString(),
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ],
         ),
@@ -373,15 +486,12 @@ class _ConfigScreenState extends State<ConfigScreen> {
           value: value,
           min: min,
           max: max,
-          divisions: (max - min).toInt(),
+          divisions: divisions,
           onChanged: onChanged,
         ),
         Text(
           helperText,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey.shade600,
-          ),
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
         ),
         const SizedBox(height: 8),
       ],

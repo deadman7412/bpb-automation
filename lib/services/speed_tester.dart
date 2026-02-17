@@ -19,22 +19,24 @@ class SpeedTester {
   /// Test download speed for a single IP
   ///
   /// Downloads data from [testUrl] using [ip] and measures speed.
+  /// Optionally accepts [isCancelled] callback to check for cancellation.
   Future<SpeedResult> testSpeed({
     required String ip,
     required int port,
     String testUrl = defaultSpeedTestUrl,
     int downloadBytes = 10000000, // 10 MB default
     Duration timeout = const Duration(seconds: 10),
+    bool Function()? isCancelled,
   }) async {
     // Construct URL with bytes parameter
     final fullUrl = testUrl.endsWith('=')
         ? '$testUrl$downloadBytes'
         : testUrl.contains('?bytes=')
-            ? testUrl.replaceAll(RegExp(r'\?bytes=\d*'), '?bytes=$downloadBytes')
-            : '$testUrl?bytes=$downloadBytes';
+        ? testUrl.replaceAll(RegExp(r'\?bytes=\d*'), '?bytes=$downloadBytes')
+        : '$testUrl?bytes=$downloadBytes';
 
     _logService.logInfo(
-      'Testing download speed for $ip (${downloadBytes ~/ 1000000} MB)',
+      '[INFO] Download test START: $ip:$port (${downloadBytes ~/ 1000000} MB, timeout: ${timeout.inSeconds}s)',
     );
 
     Socket? socket;
@@ -46,31 +48,41 @@ class SpeedTester {
       final host = uri.host;
       final path = uri.path + (uri.query.isNotEmpty ? '?${uri.query}' : '');
 
+      _logService.logInfo(
+        '[INFO] Connecting to $ip:$port (host: $host, https: $isHttps)',
+      );
+
       final stopwatch = Stopwatch()..start();
       int totalBytes = 0;
 
       // Connect to the specific IP
       socket = await Socket.connect(ip, port, timeout: timeout);
+      _logService.logInfo('[INFO] Socket connected to $ip:$port');
 
       // If HTTPS, upgrade to secure socket
       if (isHttps) {
+        _logService.logInfo('[INFO] Upgrading to secure socket for $ip');
         secureSocket = await SecureSocket.secure(
           socket,
           host: host,
-          onBadCertificate: (cert) => true, // Accept any certificate for testing
+          onBadCertificate: (cert) =>
+              true, // Accept any certificate for testing
         ).timeout(timeout);
+        _logService.logInfo('[INFO] Secure socket established for $ip');
       }
 
       final activeSocket = secureSocket ?? socket;
 
       // Send HTTP GET request
-      final request = 'GET $path HTTP/1.1\r\n'
+      final request =
+          'GET $path HTTP/1.1\r\n'
           'Host: $host\r\n'
           'User-Agent: BPB-Automation/1.0\r\n'
           'Accept: */*\r\n'
           'Connection: close\r\n'
           '\r\n';
 
+      _logService.logInfo('[INFO] Sending HTTP request to $ip: GET $path');
       activeSocket.write(request);
       await activeSocket.flush();
 
@@ -79,7 +91,19 @@ class SpeedTester {
       int statusCode = 0;
       final buffer = BytesBuilder();
 
+      _logService.logInfo('[INFO] Waiting for response from $ip...');
       await for (final chunk in activeSocket.timeout(timeout)) {
+        // Check for cancellation
+        if (isCancelled?.call() == true) {
+          _logService.logWarn('[WARN] Download test CANCELLED: $ip');
+          await activeSocket.close();
+          return SpeedResult.failed(
+            ip: ip,
+            testUrl: fullUrl,
+            error: 'Cancelled by user',
+          );
+        }
+
         buffer.add(chunk);
 
         if (!headersParsed) {
@@ -99,6 +123,10 @@ class SpeedTester {
               }
             }
 
+            _logService.logInfo(
+              '[INFO] HTTP response from $ip: Status $statusCode',
+            );
+
             // Start counting bytes after headers
             totalBytes = data.length - headerEnd - 4; // -4 for \r\n\r\n
             headersParsed = true;
@@ -109,6 +137,10 @@ class SpeedTester {
       }
 
       stopwatch.stop();
+
+      _logService.logInfo(
+        '[INFO] Download complete from $ip: $totalBytes bytes in ${stopwatch.elapsedMilliseconds}ms',
+      );
 
       if (statusCode != 200) {
         throw Exception('HTTP $statusCode');
@@ -128,21 +160,25 @@ class SpeedTester {
       );
 
       _logService.logOk(
-        'Speed test complete for $ip - '
+        '[OK] Download test SUCCESS: $ip - '
         '${result.speedMbps.toStringAsFixed(2)} Mbps '
-        '($totalBytes bytes in ${durationSeconds.toStringAsFixed(2)}s)',
+        '(${result.speedMBps.toStringAsFixed(2)} MB/s, $totalBytes bytes in ${durationSeconds.toStringAsFixed(2)}s)',
       );
 
       return result;
     } on SocketException catch (e) {
-      _logService.logWarn('Speed test failed for $ip: ${e.message}');
+      _logService.logWarn(
+        '[WARN] Download test FAILED (SocketException): $ip - ${e.message}',
+      );
       return SpeedResult.failed(
         ip: ip,
         testUrl: fullUrl,
         error: 'Connection failed: ${e.message}',
       );
     } on TimeoutException {
-      _logService.logWarn('Speed test timeout for $ip');
+      _logService.logWarn(
+        '[WARN] Download test FAILED (Timeout): $ip - timeout after ${timeout.inSeconds}s',
+      );
       return SpeedResult.failed(
         ip: ip,
         testUrl: fullUrl,
@@ -150,11 +186,7 @@ class SpeedTester {
       );
     } catch (e) {
       _logService.logWarn('Speed test error for $ip: $e');
-      return SpeedResult.failed(
-        ip: ip,
-        testUrl: fullUrl,
-        error: e.toString(),
-      );
+      return SpeedResult.failed(ip: ip, testUrl: fullUrl, error: e.toString());
     } finally {
       secureSocket?.destroy();
       socket?.destroy();
@@ -182,6 +214,7 @@ class SpeedTester {
     int downloadBytes = 10000000,
     Duration timeout = const Duration(seconds: 10),
     int maxConcurrent = 5,
+    bool Function()? isCancelled,
   }) async* {
     _logService.logInfo(
       'Testing download speed for ${ips.length} IPs with max $maxConcurrent concurrent',
@@ -192,6 +225,12 @@ class SpeedTester {
     final pending = <String, Future<SpeedResult>>{};
 
     while (started < ips.length || pending.isNotEmpty) {
+      // Check for cancellation
+      if (isCancelled?.call() == true) {
+        _logService.logWarn('[WARN] Speed test batch cancelled');
+        return;
+      }
+
       // Start new tasks up to max concurrent
       while (started < ips.length && pending.length < maxConcurrent) {
         final ip = ips[started];
@@ -203,6 +242,7 @@ class SpeedTester {
           testUrl: testUrl,
           downloadBytes: downloadBytes,
           timeout: timeout,
+          isCancelled: isCancelled,
         );
 
         pending[ip] = task;
@@ -216,9 +256,7 @@ class SpeedTester {
         pending.remove(result.ip);
 
         completed++;
-        _logService.logInfo(
-          'Speed test progress: $completed/${ips.length}',
-        );
+        _logService.logInfo('Speed test progress: $completed/${ips.length}');
 
         yield result;
       }
@@ -235,6 +273,7 @@ class SpeedTester {
     int downloadBytes = 10000000,
     Duration timeout = const Duration(seconds: 10),
     int maxConcurrent = 5,
+    bool Function()? isCancelled,
   }) async {
     _logService.logInfo('Starting batch speed test for ${ips.length} IPs');
 
@@ -247,6 +286,7 @@ class SpeedTester {
       downloadBytes: downloadBytes,
       timeout: timeout,
       maxConcurrent: maxConcurrent,
+      isCancelled: isCancelled,
     )) {
       results.add(result);
     }
@@ -261,9 +301,7 @@ class SpeedTester {
       return b.speedMbps.compareTo(a.speedMbps);
     });
 
-    _logService.logOk(
-      'Batch speed test complete: ${results.length} results',
-    );
+    _logService.logOk('Batch speed test complete: ${results.length} results');
 
     return results;
   }

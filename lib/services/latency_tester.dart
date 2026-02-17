@@ -11,11 +11,13 @@ class LatencyTester {
   ///
   /// Connects to [ip]:[port] and measures connection time.
   /// Repeats [count] times and calculates statistics.
+  /// Optionally accepts [isCancelled] callback to check for cancellation.
   Future<LatencyResult> testLatency({
     required String ip,
     required int port,
     required int count,
     Duration timeout = const Duration(seconds: 3),
+    bool Function()? isCancelled,
   }) async {
     _logService.logInfo('Testing latency for $ip:$port ($count attempts)');
 
@@ -24,12 +26,28 @@ class LatencyTester {
     String? error;
 
     for (var i = 0; i < count; i++) {
+      // Check for cancellation
+      if (isCancelled?.call() == true) {
+        _logService.logWarn('Latency test cancelled for $ip:$port');
+        if (latencies.isEmpty) {
+          return LatencyResult.failed(
+            ip: ip,
+            port: port,
+            totalAttempts: count,
+            error: 'Cancelled by user',
+          );
+        }
+        break; // Return partial results if we have some
+      }
+
       try {
         final latency = await _singleLatencyTest(ip, port, timeout);
         latencies.add(latency);
         successCount++;
       } catch (e) {
-        _logService.logWarn('Latency test failed for $ip:$port attempt ${i + 1}: $e');
+        _logService.logWarn(
+          'Latency test failed for $ip:$port attempt ${i + 1}: $e',
+        );
         error ??= e.toString(); // Capture first error
       }
     }
@@ -81,11 +99,7 @@ class LatencyTester {
 
     Socket? socket;
     try {
-      socket = await Socket.connect(
-        ip,
-        port,
-        timeout: timeout,
-      );
+      socket = await Socket.connect(ip, port, timeout: timeout);
 
       stopwatch.stop();
       final latencyMs = stopwatch.elapsedMicroseconds / 1000.0;
@@ -109,6 +123,7 @@ class LatencyTester {
     required int count,
     Duration timeout = const Duration(seconds: 3),
     int maxConcurrent = 10,
+    bool Function()? isCancelled,
   }) async* {
     _logService.logInfo(
       'Testing ${ips.length} IPs with max $maxConcurrent concurrent workers',
@@ -119,6 +134,12 @@ class LatencyTester {
     final pending = <String, Future<LatencyResult>>{};
 
     while (started < ips.length || pending.isNotEmpty) {
+      // Check for cancellation
+      if (isCancelled?.call() == true) {
+        _logService.logWarn('[WARN] Latency test batch cancelled');
+        return;
+      }
+
       // Start new tasks up to max concurrent
       while (started < ips.length && pending.length < maxConcurrent) {
         final ip = ips[started];
@@ -129,6 +150,7 @@ class LatencyTester {
           port: port,
           count: count,
           timeout: timeout,
+          isCancelled: isCancelled,
         );
 
         pending[ip] = task;
@@ -142,9 +164,7 @@ class LatencyTester {
         pending.remove(result.ip);
 
         completed++;
-        _logService.logInfo(
-          'Latency test progress: $completed/${ips.length}',
-        );
+        _logService.logInfo('Latency test progress: $completed/${ips.length}');
 
         yield result;
       }
@@ -160,6 +180,7 @@ class LatencyTester {
     required int count,
     Duration timeout = const Duration(seconds: 3),
     int maxConcurrent = 10,
+    bool Function()? isCancelled,
   }) async {
     _logService.logInfo('Starting batch latency test for ${ips.length} IPs');
 
@@ -171,6 +192,7 @@ class LatencyTester {
       count: count,
       timeout: timeout,
       maxConcurrent: maxConcurrent,
+      isCancelled: isCancelled,
     )) {
       results.add(result);
     }
@@ -185,9 +207,7 @@ class LatencyTester {
       return a.averageLatencyMs.compareTo(b.averageLatencyMs);
     });
 
-    _logService.logOk(
-      'Batch latency test complete: ${results.length} results',
-    );
+    _logService.logOk('Batch latency test complete: ${results.length} results');
 
     return results;
   }
