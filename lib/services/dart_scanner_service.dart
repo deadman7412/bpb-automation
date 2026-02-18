@@ -138,6 +138,8 @@ class DartScannerService {
     int desiredIPCount = 10,
     int phase2TestDepth = 50,
     bool enableIPv6 = false,
+    int maxSamplesPerCIDR = 0, // 0 = use platform default
+    int batchSize = 200,
   }) async {
     // Prevent multiple concurrent scans
     if (_isScanning) {
@@ -166,6 +168,12 @@ class DartScannerService {
     _logService.logInfo('Phase 2 test depth: $phase2TestDepth IPs');
     _logService.logInfo(
       'IPv6 scanning: ${enableIPv6 ? "ENABLED" : "DISABLED"}',
+    );
+    final actualMaxSamples = maxSamplesPerCIDR > 0
+        ? maxSamplesPerCIDR
+        : _getCIDRSamplesForPlatform();
+    _logService.logInfo(
+      'Pool size: $actualMaxSamples samples/CIDR, batch size: $batchSize',
     );
 
     final scanStartTime = DateTime.now();
@@ -227,10 +235,10 @@ class DartScannerService {
       _logService.logInfo('Loading candidate IPs...');
       candidateIPs = enableIPv6
           ? await _ipLoader.loadAllAddresses(
-              maxSamplesPerCIDR: _getCIDRSamplesForPlatform(),
+              maxSamplesPerCIDR: actualMaxSamples,
             )
           : await _ipLoader.loadIPv4Addresses(
-              maxSamplesPerCIDR: _getCIDRSamplesForPlatform(),
+              maxSamplesPerCIDR: actualMaxSamples,
             );
 
       _logService.logOk('Loaded ${candidateIPs.length} candidate IPs');
@@ -243,7 +251,7 @@ class DartScannerService {
         template: selectedConfig,
         candidateIPs: candidateIPs,
         tlsTimeoutSeconds: tlsTimeoutSeconds,
-        maxConcurrency: 200,
+        maxConcurrency: batchSize,
       );
 
       // Filter successful TLS results

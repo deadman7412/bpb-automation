@@ -26,6 +26,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
   int _desiredIPCount = 5;
   int _phase2TestDepth = 50;
   bool _enableIPv6 = false; // Default to OFF
+  int _maxSamplesPerCIDR = 100; // default: ~700 IPs
+  int _batchSize = 200; // default: 200 concurrent connections
   List<XrayConfig>? _cachedConfigs;
 
   @override
@@ -63,6 +65,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _desiredIPCount = params['desiredIPCount'] ?? 5;
       _phase2TestDepth = params['phase2TestDepth'] ?? 50;
       _enableIPv6 = params['enableIPv6'] == 1; // 1 = true, 0/null = false
+      _maxSamplesPerCIDR = params['maxSamplesPerCIDR'] ?? 100;
+      _batchSize = params['scanBatchSize'] ?? 200;
       _cachedConfigs = configs;
       _isLoading = false;
     });
@@ -200,7 +204,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
     await _storage.saveScanParameters(
       desiredIPCount: _desiredIPCount,
       phase2TestDepth: _phase2TestDepth,
-      enableIPv6: _enableIPv6 ? 1 : 0, // Store as 1/0
+      enableIPv6: _enableIPv6 ? 1 : 0,
+      maxSamplesPerCIDR: _maxSamplesPerCIDR,
+      scanBatchSize: _batchSize,
     );
 
     _log.logOk('Configuration saved successfully');
@@ -251,6 +257,26 @@ class _ConfigScreenState extends State<ConfigScreen> {
       ),
     );
     return result ?? false;
+  }
+
+  /// Approximate total IPv4 IPs for a given maxSamplesPerCIDR value.
+  ///
+  /// Based on the actual Cloudflare CIDR ranges in ip.txt:
+  ///   4 × /22  (4 /24 subnets each)
+  ///   2 × /13  (2048 /24 subnets each)
+  ///   1 × /14  (1024 /24 subnets)
+  ///   2 × /18  (64 /24 subnets each)
+  ///   1 × /15  (512 /24 subnets)
+  ///   3 × /20  (16 /24 subnets each)
+  ///   1 × /17  (128 /24 subnets)
+  int _approxTotalIPs(int s) {
+    return 4 * s.clamp(0, 4) +     // /22 × 4
+        2 * s.clamp(0, 2048) +      // /13 × 2
+        s.clamp(0, 1024) +          // /14 × 1
+        2 * s.clamp(0, 64) +        // /18 × 2
+        s.clamp(0, 512) +           // /15 × 1
+        3 * s.clamp(0, 16) +        // /20 × 3
+        s.clamp(0, 128);            // /17 × 1
   }
 
   void _showHelp(String title, String message) {
@@ -453,61 +479,66 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
                             // Cache status indicator
                             if (_cachedConfigs != null)
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.green[50],
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: Colors.green,
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
+                              Builder(
+                                builder: (context) {
+                                  final cs = Theme.of(context).colorScheme;
+                                  return Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: cs.secondaryContainer,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: cs.secondary,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Icon(
-                                          Icons.check_circle,
-                                          color: Colors.green[700],
-                                          size: 20,
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.check_circle,
+                                              color: cs.onSecondaryContainer,
+                                              size: 20,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                'Cached: ${_cachedConfigs!.length} configs ready to use',
+                                                style: TextStyle(
+                                                  color: cs.onSecondaryContainer,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            'Cached: ${_cachedConfigs!.length} configs ready to use',
-                                            style: TextStyle(
-                                              color: Colors.green[900],
-                                              fontWeight: FontWeight.w500,
+                                        const SizedBox(height: 8),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: TextButton.icon(
+                                            onPressed: _viewCachedConfigs,
+                                            icon: const Icon(
+                                              Icons.visibility,
+                                              size: 16,
+                                            ),
+                                            label: const Text(
+                                              'View Cached Configs',
+                                            ),
+                                            style: TextButton.styleFrom(
+                                              foregroundColor: cs.onSecondaryContainer,
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 4,
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 8),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: TextButton.icon(
-                                        onPressed: _viewCachedConfigs,
-                                        icon: const Icon(
-                                          Icons.visibility,
-                                          size: 16,
-                                        ),
-                                        label: const Text(
-                                          'View Cached Configs',
-                                        ),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.green[700],
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  );
+                                },
                               ),
 
                             const SizedBox(height: 12),
@@ -560,7 +591,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     vertical: 6,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.blue[50],
+                                    color: Theme.of(context).colorScheme.primaryContainer,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
@@ -568,7 +599,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.blue[900],
+                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
                                     ),
                                   ),
                                 ),
@@ -627,7 +658,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     vertical: 6,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.green[50],
+                                    color: Theme.of(context).colorScheme.secondaryContainer,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
@@ -635,7 +666,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.green[900],
+                                      color: Theme.of(context).colorScheme.onSecondaryContainer,
                                     ),
                                   ),
                                 ),
@@ -667,51 +698,27 @@ class _ConfigScreenState extends State<ConfigScreen> {
                             ),
                             const SizedBox(height: 24),
 
-                            // IPv6 Toggle
-                            Container(
-                              decoration: BoxDecoration(
-                                color: _enableIPv6
-                                    ? Colors.blue[50]
-                                    : Colors.grey[100],
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: _enableIPv6
-                                      ? Colors.blue[200]!
-                                      : Colors.grey[300]!,
-                                  width: 2,
-                                ),
-                              ),
-                              child: CheckboxListTile(
-                                value: _enableIPv6,
-                                onChanged: (value) {
-                                  setState(() => _enableIPv6 = value ?? false);
-                                },
-                                title: Row(
+                            // IP Pool Size
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
                                   children: [
                                     const Text(
-                                      'Include IPv6 addresses',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500,
-                                      ),
+                                      'IP pool size',
+                                      style: TextStyle(fontSize: 16),
                                     ),
-                                    const SizedBox(width: 4),
                                     IconButton(
                                       icon: const Icon(
                                         Icons.help_outline,
                                         size: 20,
                                       ),
                                       onPressed: () => _showHelp(
-                                        'IPv6 Scanning',
-                                        'Controls whether to include IPv6 addresses in the scan.\n\n'
-                                            'OFF (Recommended): Only scan IPv4 addresses\n'
-                                            '  - Faster scan (~700 IPs)\n'
-                                            '  - Works for most users\n'
-                                            '  - Sufficient for typical networks\n\n'
-                                            'ON: Scan both IPv4 and IPv6 addresses\n'
-                                            '  - Slower scan (~2100 IPs)\n'
-                                            '  - More comprehensive\n'
-                                            '  - Only needed if your network supports IPv6',
+                                        'IP Pool Size',
+                                        'Controls how many Cloudflare IP addresses are loaded and tested in Phase 0 and Phase 1.\n\n'
+                                            'Higher = more IPs tested = better chance of finding clean IPs, but Phase 1 takes longer.\n\n'
+                                            'The actual number loaded is shown in the scan logs.\n\n'
+                                            'Default: 100 per CIDR range (~700 total IPs)',
                                       ),
                                       tooltip: 'What is this?',
                                       padding: EdgeInsets.zero,
@@ -719,25 +726,204 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     ),
                                   ],
                                 ),
-                                subtitle: Padding(
-                                  padding: const EdgeInsets.only(top: 8.0),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.primaryContainer,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
                                   child: Text(
-                                    _enableIPv6
-                                        ? 'Comprehensive scan (IPv4 + IPv6, ~2100 IPs, slower)'
-                                        : 'Fast scan (IPv4 only, ~700 IPs, recommended)',
+                                    '~${_approxTotalIPs(_maxSamplesPerCIDR)} IPs',
                                     style: TextStyle(
-                                      color: _enableIPv6
-                                          ? Colors.blue[700]
-                                          : Colors.grey[700],
-                                      fontWeight: FontWeight.w500,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
                                     ),
                                   ),
                                 ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
+                              ],
+                            ),
+                            Slider(
+                              value: _maxSamplesPerCIDR.toDouble(),
+                              min: 100,
+                              max: 2000,
+                              divisions: 19,
+                              label: '${_maxSamplesPerCIDR} per range',
+                              onChanged: (value) {
+                                setState(() => _maxSamplesPerCIDR = value.round());
+                              },
+                            ),
+                            Text(
+                              _maxSamplesPerCIDR <= 100
+                                  ? 'Default — fast scan, good for most networks'
+                                  : _maxSamplesPerCIDR <= 500
+                                  ? 'Larger pool — more IPs, Phase 1 takes a bit longer'
+                                  : _maxSamplesPerCIDR <= 1000
+                                  ? 'Large pool — recommended for strong networks'
+                                  : 'Maximum pool — exhausts all Cloudflare /24 subnets',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                            ),
+                            const SizedBox(height: 24),
+
+                            // Batch Size (concurrency)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Scan concurrency',
+                                      style: TextStyle(fontSize: 16),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.help_outline,
+                                        size: 20,
+                                      ),
+                                      onPressed: () => _showHelp(
+                                        'Scan Concurrency',
+                                        'How many IPs are tested simultaneously in Phase 0 (TCP) and Phase 1 (TLS).\n\n'
+                                            'Higher = faster scan on good networks.\n'
+                                            'Lower = better for slow or congested networks.\n\n'
+                                            'Default: 200 concurrent connections',
+                                      ),
+                                      tooltip: 'What is this?',
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ],
                                 ),
-                              ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.secondaryContainer,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    '$_batchSize',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(context).colorScheme.onSecondaryContainer,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Slider(
+                              value: _batchSize.toDouble(),
+                              min: 50,
+                              max: 500,
+                              divisions: 9,
+                              label: '$_batchSize concurrent',
+                              onChanged: (value) {
+                                setState(() => _batchSize = value.round());
+                              },
+                            ),
+                            Text(
+                              _batchSize <= 50
+                                  ? 'Conservative — for slow or very noisy networks'
+                                  : _batchSize <= 150
+                                  ? 'Low — suitable for limited-bandwidth connections'
+                                  : _batchSize <= 250
+                                  ? 'Default — good balance for most networks'
+                                  : _batchSize <= 350
+                                  ? 'High — for fast connections and strong hardware'
+                                  : 'Maximum — for desktop on high-speed connections',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                            ),
+                            const SizedBox(height: 24),
+
+                            // IPv6 Toggle
+                            Builder(
+                              builder: (context) {
+                                final cs = Theme.of(context).colorScheme;
+                                return Container(
+                                  decoration: BoxDecoration(
+                                    color: _enableIPv6
+                                        ? cs.primaryContainer
+                                        : cs.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: _enableIPv6
+                                          ? cs.primary
+                                          : cs.outlineVariant,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: CheckboxListTile(
+                                    value: _enableIPv6,
+                                    onChanged: (value) {
+                                      setState(() => _enableIPv6 = value ?? false);
+                                    },
+                                    title: Row(
+                                      children: [
+                                        const Text(
+                                          'Include IPv6 addresses',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.help_outline,
+                                            size: 20,
+                                          ),
+                                          onPressed: () => _showHelp(
+                                            'IPv6 Scanning',
+                                            'Controls whether to include IPv6 addresses in the scan.\n\n'
+                                                'OFF (Recommended): Only scan IPv4 addresses\n'
+                                                '  - Faster scan (~700 IPs)\n'
+                                                '  - Works for most users\n'
+                                                '  - Sufficient for typical networks\n\n'
+                                                'ON: Scan both IPv4 and IPv6 addresses\n'
+                                                '  - Slower scan (~2100 IPs)\n'
+                                                '  - More comprehensive\n'
+                                                '  - Only needed if your network supports IPv6',
+                                          ),
+                                          tooltip: 'What is this?',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                        ),
+                                      ],
+                                    ),
+                                    subtitle: Padding(
+                                      padding: const EdgeInsets.only(top: 8.0),
+                                      child: Text(
+                                        _enableIPv6
+                                            ? 'Comprehensive scan (IPv4 + IPv6, ~2100 IPs, slower)'
+                                            : 'Fast scan (IPv4 only, ~700 IPs, recommended)',
+                                        style: TextStyle(
+                                          color: _enableIPv6
+                                              ? cs.onPrimaryContainer
+                                              : cs.onSurfaceVariant,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),

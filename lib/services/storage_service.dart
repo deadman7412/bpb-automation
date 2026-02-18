@@ -32,6 +32,8 @@ class StorageService {
   static const String _keyDesiredIPCount = 'desired_ip_count';
   static const String _keyPhase2TestDepth = 'phase2_test_depth';
   static const String _keyEnableIPv6 = 'enable_ipv6';
+  static const String _keyMaxSamplesPerCIDR = 'max_samples_per_cidr';
+  static const String _keyScanBatchSize = 'scan_batch_size';
   static const String _keyLastScanResult = 'last_scan_result';
 
   StorageService._internal()
@@ -294,6 +296,8 @@ class StorageService {
     int? desiredIPCount,
     int? phase2TestDepth,
     int? enableIPv6,
+    int? maxSamplesPerCIDR,
+    int? scanBatchSize,
   }) async {
     if (desiredIPCount != null) {
       await _prefs.setInt(_keyDesiredIPCount, desiredIPCount);
@@ -304,18 +308,27 @@ class StorageService {
     if (enableIPv6 != null) {
       await _prefs.setInt(_keyEnableIPv6, enableIPv6);
     }
+    if (maxSamplesPerCIDR != null) {
+      await _prefs.setInt(_keyMaxSamplesPerCIDR, maxSamplesPerCIDR);
+    }
+    if (scanBatchSize != null) {
+      await _prefs.setInt(_keyScanBatchSize, scanBatchSize);
+    }
     _logService.logInfo('Saved scan parameters');
   }
 
   /// Retrieves scan parameters.
   ///
-  /// Returns a map with 'desiredIPCount', 'phase2TestDepth', and 'enableIPv6'.
-  /// Defaults: desiredIPCount=5, phase2TestDepth=50, enableIPv6=0 (off)
+  /// Returns a map with all scan settings.
+  /// Defaults: desiredIPCount=5, phase2TestDepth=50, enableIPv6=0,
+  ///           maxSamplesPerCIDR=100, scanBatchSize=200
   Future<Map<String, int>> getScanParameters() async {
     return {
       'desiredIPCount': _prefs.getInt(_keyDesiredIPCount) ?? 5,
       'phase2TestDepth': _prefs.getInt(_keyPhase2TestDepth) ?? 50,
-      'enableIPv6': _prefs.getInt(_keyEnableIPv6) ?? 0, // Default OFF
+      'enableIPv6': _prefs.getInt(_keyEnableIPv6) ?? 0,
+      'maxSamplesPerCIDR': _prefs.getInt(_keyMaxSamplesPerCIDR) ?? 100,
+      'scanBatchSize': _prefs.getInt(_keyScanBatchSize) ?? 200,
     };
   }
 
