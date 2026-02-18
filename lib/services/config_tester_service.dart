@@ -311,21 +311,62 @@ class ConfigTesterService {
     required Duration timeout,
   }) async {
     final sw = Stopwatch()..start();
+    Socket? rawSocket;
     SecureSocket? socket;
+    Timer? timer;
 
     try {
-      // .timeout() wraps the entire operation (TCP + TLS handshake).
-      // The `timeout` parameter on SecureSocket.connect only covers the TCP
-      // connection phase — without this wrapper, TLS handshakes on noisy
-      // networks can hang indefinitely once TCP is established.
-      socket = await SecureSocket.connect(
-        candidateIP,
-        port,
-        timeout: timeout,
+      // Step 1: TCP connect — Phase 0 pre-filter already verified reachability,
+      // so this should succeed quickly.
+      rawSocket = await Socket.connect(candidateIP, port, timeout: timeout);
+
+      // Step 2: TLS handshake using Completer+Timer so we can explicitly
+      // destroy the raw socket on timeout.
+      //
+      // WHY NOT .timeout(): Future.timeout() abandons the underlying future
+      // without closing the socket. Under high concurrency (200 parallel tests)
+      // timed-out handshakes accumulate as leaked file descriptors, quickly
+      // exhausting macOS's default FD limit (~256). This causes subsequent
+      // batches to fail instantly with EMFILE and prevents Phase 2 from
+      // spawning the Xray process ("Too many open files").
+      //
+      // This pattern ensures rawSocket.destroy() is called on timeout,
+      // aborting the TLS handshake and releasing the FD immediately.
+      final tlsCompleter = Completer<SecureSocket>();
+
+      SecureSocket.secure(
+        rawSocket,
+        host: candidateIP,
         onBadCertificate: (_) => true,
         supportedProtocols: ['h2', 'http/1.1'],
         context: SecurityContext.defaultContext,
-      ).timeout(timeout);
+      ).then((s) {
+        if (!tlsCompleter.isCompleted) {
+          tlsCompleter.complete(s);
+        } else {
+          // Timeout already fired — close the late-arriving socket immediately.
+          s.close().then((_) {}, onError: (_) {});
+        }
+      }, onError: (Object e) {
+        if (!tlsCompleter.isCompleted) {
+          tlsCompleter.completeError(e);
+        }
+      });
+
+      timer = Timer(timeout, () {
+        if (!tlsCompleter.isCompleted) {
+          try {
+            rawSocket?.destroy();
+          } catch (_) {}
+          rawSocket = null;
+          tlsCompleter.completeError(TimeoutException('TLS handshake timeout'));
+        }
+      });
+
+      socket = await tlsCompleter.future;
+      timer.cancel();
+      timer = null;
+      rawSocket = null; // SecureSocket now owns the underlying socket
 
       final latencyMs = sw.elapsedMilliseconds.toDouble();
       sw.stop();
@@ -378,7 +419,13 @@ class ConfigTesterService {
         ),
       );
     } finally {
+      timer?.cancel();
       await socket?.close();
+      // Destroy rawSocket if it was not consumed by SecureSocket (success path
+      // sets rawSocket = null; timeout path also sets it null after destroy).
+      try {
+        rawSocket?.destroy();
+      } catch (_) {}
     }
   }
 
