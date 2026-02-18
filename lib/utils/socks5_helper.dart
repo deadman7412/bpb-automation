@@ -62,7 +62,7 @@ class Socks5Helper {
 
     try {
       _logService.logInfo(
-        '[INFO] Connecting to SOCKS5 proxy at $socksHost:$socksPort',
+        'Connecting to SOCKS5 proxy at $socksHost:$socksPort',
       );
 
       // Connect to SOCKS5 proxy
@@ -72,7 +72,7 @@ class Socks5Helper {
         timeout: Duration(seconds: timeout),
       );
 
-      _logService.logInfo('[INFO] Connected to SOCKS5 proxy');
+      _logService.logInfo('Connected to SOCKS5 proxy');
 
       // Perform SOCKS5 handshake
       await _performHandshake(socket, timeout);
@@ -86,7 +86,7 @@ class Socks5Helper {
 
       return socket;
     } catch (e) {
-      _logService.logError('[ERROR] SOCKS5 connection failed: $e');
+      _logService.logError('SOCKS5 connection failed: $e');
       await socket?.close();
       rethrow;
     }
@@ -105,7 +105,7 @@ class Socks5Helper {
     socket.add(greeting);
     await socket.flush();
 
-    _logService.logInfo('[INFO] Sent SOCKS5 greeting');
+    _logService.logInfo('Sent SOCKS5 greeting');
 
     // Receive server response: [version, method]
     final response = await _readBytes(socket, 2, timeout);
@@ -126,7 +126,7 @@ class Socks5Helper {
       );
     }
 
-    _logService.logInfo('[INFO] SOCKS5 handshake successful (no auth)');
+    _logService.logInfo('SOCKS5 handshake successful (no auth)');
   }
 
   /// Send SOCKS5 connect request
@@ -201,7 +201,7 @@ class Socks5Helper {
     // Read bound address and port
     await _readBytes(socket, addressLength + 2, timeout);
 
-    _logService.logOk('[OK] SOCKS5 CONNECT successful');
+    _logService.logOk('SOCKS5 CONNECT successful');
   }
 
   /// Parse IPv4 address string to bytes

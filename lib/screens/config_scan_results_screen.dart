@@ -50,7 +50,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         '[INFO] Loaded config scan result with ${_result!.workingIPCount} working IPs',
       );
     } else {
-      _log.logWarn('[WARN] No config scan result provided');
+      _log.logWarn('No config scan result provided');
     }
   }
 
@@ -83,9 +83,9 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       });
 
       _showMessage('Updated BPB Panel with ${_result!.workingIPs.length} IPs');
-      _log.logOk('[OK] BPB Panel updated successfully');
+      _log.logOk('BPB Panel updated successfully');
     } catch (e, stackTrace) {
-      _log.logError('[ERROR] Failed to update BPB Panel: $e\n$stackTrace');
+      _log.logError('Failed to update BPB Panel: $e\n$stackTrace');
 
       if (!mounted) return;
 
@@ -136,12 +136,12 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
       if (success) {
         _showMessage('Configs generated and shared successfully');
-        _log.logOk('[OK] ${configs.length} configs generated and shared');
+        _log.logOk('${configs.length} configs generated and shared');
       } else {
         _showMessage('Failed to share configs', isError: true);
       }
     } catch (e, stackTrace) {
-      _log.logError('[ERROR] Failed to generate configs: $e\n$stackTrace');
+      _log.logError('Failed to generate configs: $e\n$stackTrace');
 
       if (!mounted) return;
 

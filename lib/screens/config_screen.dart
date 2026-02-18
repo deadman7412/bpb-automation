@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
-import '../models/scanner_config.dart';
+import '../models/xray_config.dart';
 import '../services/storage_service.dart';
 import '../services/log_service.dart';
+import '../services/subscription_service.dart';
 
+/// Simple configuration screen - just the essentials
+///
+/// User enters their BPB Panel URL and adjusts scan settings.
+/// Config fetching/caching happens automatically during scan.
 class ConfigScreen extends StatefulWidget {
   const ConfigScreen({super.key});
 
@@ -13,16 +18,15 @@ class ConfigScreen extends StatefulWidget {
 class _ConfigScreenState extends State<ConfigScreen> {
   final StorageService _storage = StorageService.instance;
   final LogService _log = LogService.instance;
+  final SubscriptionService _subscription = SubscriptionService.instance;
+  final TextEditingController _urlController = TextEditingController();
 
-  ScannerConfig _config = const ScannerConfig();
   bool _isLoading = false;
-  String _selectedPreset = 'Desktop';
-
-  // Define preset configurations (Mobile, Desktop, Custom)
-  final Map<String, ScannerConfig> _presets = {
-    'Mobile': ScannerConfig.mobile,
-    'Desktop': ScannerConfig.desktop,
-  };
+  bool _saveUrl = false;
+  int _desiredIPCount = 5;
+  int _phase2TestDepth = 50;
+  bool _enableIPv6 = false; // Default to OFF
+  List<XrayConfig>? _cachedConfigs;
 
   @override
   void initState() {
@@ -30,54 +34,128 @@ class _ConfigScreenState extends State<ConfigScreen> {
     _loadConfig();
   }
 
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadConfig() async {
     setState(() => _isLoading = true);
 
-    final config = await _storage.getScannerConfig();
+    final url = await _storage.getSubscriptionUrl();
+    final params = await _storage.getScanParameters();
+    final cachedConfigsJson = await _storage.getCachedConfigs();
+
+    // Convert JSON to XrayConfig objects
+    List<XrayConfig>? configs;
+    if (cachedConfigsJson != null) {
+      configs = cachedConfigsJson
+          .map((json) => XrayConfig.fromJson(json as Map<String, dynamic>))
+          .toList();
+    }
 
     setState(() {
-      _config = config;
-      _selectedPreset = _detectPreset(config);
+      if (url != null && url.isNotEmpty) {
+        _urlController.text = url;
+        _saveUrl = true;
+      }
+      _desiredIPCount = params['desiredIPCount'] ?? 5;
+      _phase2TestDepth = params['phase2TestDepth'] ?? 50;
+      _enableIPv6 = params['enableIPv6'] == 1; // 1 = true, 0/null = false
+      _cachedConfigs = configs;
       _isLoading = false;
     });
   }
 
-  /// Detect which preset matches the current config, or return "Custom"
-  String _detectPreset(ScannerConfig config) {
-    for (final entry in _presets.entries) {
-      if (_configsEqual(config, entry.value)) {
-        return entry.key;
-      }
+  Future<void> _testAndCacheConfigs() async {
+    final url = _urlController.text.trim();
+
+    if (url.isEmpty) {
+      _showError('Please enter a subscription URL first');
+      return;
     }
-    return 'Custom';
-  }
 
-  /// Compare two configs for equality
-  bool _configsEqual(ScannerConfig a, ScannerConfig b) {
-    return a.targetCleanIPs == b.targetCleanIPs &&
-        a.threads == b.threads &&
-        a.maxLatency == b.maxLatency &&
-        a.maxLossRate == b.maxLossRate &&
-        a.minDownloadSpeed == b.minDownloadSpeed &&
-        a.testCount == b.testCount &&
-        a.testPort == b.testPort &&
-        a.downloadTestTime == b.downloadTestTime &&
-        a.downloadBytes == b.downloadBytes &&
-        a.httpingMode == b.httpingMode &&
-        a.maxIPsToTest == b.maxIPsToTest &&
-        a.testAllIPs == b.testAllIPs;
-  }
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      _showError('URL must start with http:// or https://');
+      return;
+    }
 
-  Future<void> _saveConfig() async {
-    final error = _config.validate();
+    setState(() => _isLoading = true);
 
-    if (error != null) {
+    try {
+      _log.logInfo('Testing connection to subscription URL...');
+
+      final configs = await _subscription.fetchConfigs(url);
+
+      if (configs.isEmpty) {
+        setState(() => _isLoading = false);
+        _showError(
+          'No valid configs found in the subscription.\n\nPlease check your URL.',
+        );
+        return;
+      }
+
+      // Cache the configs
+      await _storage.saveCachedConfigs(configs);
+
+      // Auto-save the URL since it's working
+      await _storage.saveSubscriptionUrl(url);
+
+      setState(() {
+        _cachedConfigs = configs;
+        _saveUrl = true; // Auto-check "Remember this URL"
+        _isLoading = false;
+      });
+
+      _log.logOk('Successfully fetched and cached ${configs.length} configs');
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Success! Cached ${configs.length} configs'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      _log.logError('Failed to fetch configs: $e');
+      setState(() => _isLoading = false);
+
       if (!mounted) return;
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Invalid Configuration'),
-          content: Text(error),
+          title: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Connection Failed'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Could not fetch configs from the URL.'),
+              const SizedBox(height: 12),
+              Text(
+                'Error: $e',
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Please check:\n'
+                '• Your internet connection\n'
+                '• The URL is correct\n'
+                '• The URL is accessible',
+              ),
+            ],
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -86,48 +164,209 @@ class _ConfigScreenState extends State<ConfigScreen> {
           ],
         ),
       );
+    }
+  }
+
+  Future<void> _saveConfig() async {
+    final url = _urlController.text.trim();
+
+    // Validate URL format if provided
+    if (url.isNotEmpty &&
+        !url.startsWith('http://') &&
+        !url.startsWith('https://')) {
+      _showError('URL must start with http:// or https://');
       return;
     }
 
-    await _storage.saveScannerConfig(_config);
-    _log.logOk('[OK] Scanner configuration saved');
+    // Warn if no URL provided
+    if (url.isEmpty) {
+      final shouldContinue = await _showConfirmDialog(
+        'No Subscription URL',
+        'You haven\'t entered a subscription URL. You won\'t be able to scan without it.\n\nContinue anyway?',
+      );
+      if (!shouldContinue) return;
+    }
+
+    // Save subscription URL only if checkbox is checked
+    if (_saveUrl && url.isNotEmpty) {
+      await _storage.saveSubscriptionUrl(url);
+      _log.logInfo('Saved subscription URL');
+    }
+    // Note: We don't clear the URL if checkbox is unchecked
+    // This allows users to keep their saved URL even if they
+    // temporarily uncheck the box
+
+    // Save scan parameters
+    await _storage.saveScanParameters(
+      desiredIPCount: _desiredIPCount,
+      phase2TestDepth: _phase2TestDepth,
+      enableIPv6: _enableIPv6 ? 1 : 0, // Store as 1/0
+    );
+
+    _log.logOk('Configuration saved successfully');
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Configuration saved successfully'),
+        content: Text('Configuration saved'),
         backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
       ),
     );
   }
 
-  void _usePreset(String presetName) {
-    final preset = _presets[presetName];
-    if (preset == null) return;
-
-    setState(() {
-      _config = preset;
-      _selectedPreset = presetName;
-    });
-    _log.logInfo('[INFO] Loaded $presetName preset configuration');
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$presetName preset loaded')));
+  void _showError(String message) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Invalid Input'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
-  void _updateConfig(ScannerConfig newConfig) {
-    setState(() {
-      _config = newConfig;
-      _selectedPreset = _detectPreset(newConfig);
-    });
+  Future<bool> _showConfirmDialog(String title, String message) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  void _showHelp(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _viewCachedConfigs() {
+    if (_cachedConfigs == null || _cachedConfigs!.isEmpty) return;
+
+    // Count configs by type
+    final Map<String, int> typeCounts = {};
+    final List<String> endpoints = [];
+
+    for (final config in _cachedConfigs!) {
+      // Count by type
+      final type = config.getProtocol()?.toUpperCase() ?? 'Unknown';
+      typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+
+      // Get first 5 endpoints as examples
+      if (endpoints.length < 5) {
+        final address = config.getServerAddress() ?? 'unknown';
+        final port = config.getServerPort()?.toString() ?? '?';
+        endpoints.add('$address:$port');
+      }
+    }
+
+    // Build type summary
+    final typeSummary = typeCounts.entries
+        .map((e) => '${e.value} ${e.key}')
+        .join(', ');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.storage, color: Colors.green),
+            SizedBox(width: 8),
+            Text('Cached Configs'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Total: ${_cachedConfigs!.length} configs',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('Types: $typeSummary', style: const TextStyle(fontSize: 14)),
+              const SizedBox(height: 16),
+              const Text(
+                'Sample endpoints:',
+                style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              ...endpoints.map(
+                (endpoint) => Padding(
+                  padding: const EdgeInsets.only(left: 8, bottom: 4),
+                  child: Text(
+                    '• $endpoint',
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
+              ),
+              if (_cachedConfigs!.length > 5)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 4),
+                  child: Text(
+                    '... and ${_cachedConfigs!.length - 5} more',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scanner Configuration'),
+        title: const Text('Configuration'),
         actions: [
           IconButton(
             icon: const Icon(Icons.save),
@@ -144,50 +383,143 @@ class _ConfigScreenState extends State<ConfigScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Presets Section
-                    Text(
-                      'Presets',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
+                    // BPB Panel URL Section
                     Card(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        child: Row(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.tune),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: DropdownButton<String>(
-                                value: _selectedPreset,
-                                isExpanded: true,
-                                underline: const SizedBox(),
-                                items: [
-                                  ..._presets.keys.map(
-                                    (name) => DropdownMenuItem(
-                                      value: name,
-                                      child: Text(name),
-                                    ),
+                            Row(
+                              children: [
+                                const Icon(Icons.link, color: Colors.blue),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'BPB Panel URL',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _urlController,
+                              decoration: const InputDecoration(
+                                hintText: 'https://your-bpb-panel.com/sub/...',
+                                border: OutlineInputBorder(),
+                                labelText: 'Subscription URL',
+                                helperText: 'Your BPB Panel subscription link',
+                                helperMaxLines: 2,
+                              ),
+                              keyboardType: TextInputType.url,
+                              autocorrect: false,
+                              maxLines: 3,
+                              minLines: 1,
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Test Connection Button
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: _isLoading
+                                    ? null
+                                    : _testAndCacheConfigs,
+                                icon: _isLoading
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.cloud_download),
+                                label: Text(
+                                  _isLoading
+                                      ? 'Testing...'
+                                      : 'Test & Cache Configs',
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
                                   ),
-                                  const DropdownMenuItem(
-                                    value: 'Custom',
-                                    child: Text(
-                                      'Custom',
-                                      style: TextStyle(
-                                        fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            // Cache status indicator
+                            if (_cachedConfigs != null)
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.green[50],
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.green,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.check_circle,
+                                          color: Colors.green[700],
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Cached: ${_cachedConfigs!.length} configs ready to use',
+                                            style: TextStyle(
+                                              color: Colors.green[900],
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: TextButton.icon(
+                                        onPressed: _viewCachedConfigs,
+                                        icon: const Icon(
+                                          Icons.visibility,
+                                          size: 16,
+                                        ),
+                                        label: const Text(
+                                          'View Cached Configs',
+                                        ),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.green[700],
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                                onChanged: (value) {
-                                  if (value != null && value != 'Custom') {
-                                    _usePreset(value);
-                                  }
-                                },
+                                  ],
+                                ),
                               ),
+
+                            const SizedBox(height: 12),
+                            CheckboxListTile(
+                              value: _saveUrl,
+                              onChanged: (value) {
+                                setState(() => _saveUrl = value ?? false);
+                              },
+                              title: const Text('Remember this URL'),
+                              subtitle: const Text('Save for next time'),
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
                             ),
                           ],
                         ),
@@ -195,313 +527,215 @@ class _ConfigScreenState extends State<ConfigScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Algorithm Notice
+                    // Scan Settings Section
                     Card(
-                      color: Colors.blue.shade50,
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
-                              Icons.info_outline,
-                              color: Colors.blue.shade700,
-                              size: 32,
+                            Row(
+                              children: [
+                                const Icon(Icons.tune, color: Colors.green),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Scan Settings',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Go Scanner Algorithm',
+                            const SizedBox(height: 16),
+
+                            // How many working IPs to find
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Working IPs to find',
+                                  style: TextStyle(fontSize: 16),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue[50],
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    '$_desiredIPCount',
                                     style: TextStyle(
+                                      fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.blue.shade900,
-                                      fontSize: 16,
+                                      color: Colors.blue[900],
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'This scanner uses the proven algorithm from the Go scanner: '
-                                    '(1) Load IPs, (2) Test all for latency, (3) Filter by loss/latency, '
-                                    '(4) Test downloads serially with early exit, (5) Sort by speed. '
-                                    'Set your target clean IPs and quality filters, then let it find the best IPs for you!',
+                                ),
+                              ],
+                            ),
+                            Slider(
+                              value: _desiredIPCount.toDouble(),
+                              min: 1,
+                              max: 20,
+                              divisions: 19,
+                              label: '$_desiredIPCount IPs',
+                              onChanged: (value) {
+                                setState(() => _desiredIPCount = value.round());
+                              },
+                            ),
+                            Text(
+                              'Scan stops after finding this many working IPs',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: Colors.grey[600]),
+                            ),
+                            const SizedBox(height: 24),
+
+                            // How thorough the scan should be
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Scan depth',
+                                      style: TextStyle(fontSize: 16),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.help_outline,
+                                        size: 20,
+                                      ),
+                                      onPressed: () => _showHelp(
+                                        'What is Scan Depth?',
+                                        'The scanner works in 2 phases:\n\n'
+                                            'Phase 1: Quick TLS test on hundreds of IPs (finds candidates)\n\n'
+                                            'Phase 2: Deep proxy test on top candidates (finds working IPs)\n\n'
+                                            'Scan depth controls how many candidates from Phase 1 get tested in Phase 2.\n\n'
+                                            'Higher = more thorough but slower\n'
+                                            'Lower = faster but might miss working IPs',
+                                      ),
+                                      tooltip: 'What is this?',
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ],
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green[50],
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    '$_phase2TestDepth',
                                     style: TextStyle(
-                                      color: Colors.blue.shade900,
-                                      fontSize: 13,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green[900],
                                     ),
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
+                            Slider(
+                              value: _phase2TestDepth.toDouble(),
+                              min: 20,
+                              max: 100,
+                              divisions: 8,
+                              label: '$_phase2TestDepth candidates',
+                              onChanged: (value) {
+                                setState(
+                                  () => _phase2TestDepth = value.round(),
+                                );
+                              },
+                            ),
+                            Text(
+                              _phase2TestDepth < 40
+                                  ? 'Fast scan (may miss some working IPs)'
+                                  : _phase2TestDepth < 70
+                                  ? 'Balanced (recommended)'
+                                  : 'Thorough scan (slower but more reliable)',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                            ),
+                            const SizedBox(height: 24),
 
-                    // Essential Settings
-                    Text(
-                      'Essential Settings',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            _buildSlider(
-                              'Target Clean IPs',
-                              _config.targetCleanIPs.toDouble(),
-                              1,
-                              50,
-                              (value) => _updateConfig(
-                                _config.copyWith(targetCleanIPs: value.toInt()),
-                              ),
-                              'Number of clean IPs to find (scanner stops when reached)',
-                            ),
-                            _buildSlider(
-                              'Threads',
-                              _config.threads.toDouble(),
-                              50,
-                              500,
-                              (value) => _updateConfig(
-                                _config.copyWith(threads: value.toInt()),
-                              ),
-                              'Concurrent threads for latency testing (higher = faster)',
-                            ),
-                            _buildSlider(
-                              'Max Latency (ms)',
-                              _config.maxLatency.toDouble(),
-                              50,
-                              9999,
-                              (value) => _updateConfig(
-                                ScannerConfig(
-                                  targetCleanIPs: _config.targetCleanIPs,
-                                  threads: _config.threads,
-                                  maxLatency: value.toInt(),
-                                  maxLossRate: _config.maxLossRate,
-                                  minDownloadSpeed: _config.minDownloadSpeed,
-                                  testCount: _config.testCount,
-                                  testPort: _config.testPort,
-                                  downloadTestTime: _config.downloadTestTime,
-                                  downloadBytes: _config.downloadBytes,
-                                  testUrl: _config.testUrl,
-                                  httpingMode: _config.httpingMode,
-                                  maxIPsToTest: _config.maxIPsToTest,
-                                  testAllIPs: _config.testAllIPs,
+                            // IPv6 Toggle
+                            Container(
+                              decoration: BoxDecoration(
+                                color: _enableIPv6
+                                    ? Colors.blue[50]
+                                    : Colors.grey[100],
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: _enableIPv6
+                                      ? Colors.blue[200]!
+                                      : Colors.grey[300]!,
+                                  width: 2,
                                 ),
                               ),
-                              'Maximum acceptable latency (IPs above this are filtered out)',
-                            ),
-                            _buildSlider(
-                              'Max Loss Rate (%)',
-                              (_config.maxLossRate * 100).toDouble(),
-                              0,
-                              100,
-                              (value) => _updateConfig(
-                                ScannerConfig(
-                                  targetCleanIPs: _config.targetCleanIPs,
-                                  threads: _config.threads,
-                                  maxLatency: _config.maxLatency,
-                                  maxLossRate: value / 100.0,
-                                  minDownloadSpeed: _config.minDownloadSpeed,
-                                  testCount: _config.testCount,
-                                  testPort: _config.testPort,
-                                  downloadTestTime: _config.downloadTestTime,
-                                  downloadBytes: _config.downloadBytes,
-                                  testUrl: _config.testUrl,
-                                  httpingMode: _config.httpingMode,
-                                  maxIPsToTest: _config.maxIPsToTest,
-                                  testAllIPs: _config.testAllIPs,
+                              child: CheckboxListTile(
+                                value: _enableIPv6,
+                                onChanged: (value) {
+                                  setState(() => _enableIPv6 = value ?? false);
+                                },
+                                title: Row(
+                                  children: [
+                                    const Text(
+                                      'Include IPv6 addresses',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.help_outline,
+                                        size: 20,
+                                      ),
+                                      onPressed: () => _showHelp(
+                                        'IPv6 Scanning',
+                                        'Controls whether to include IPv6 addresses in the scan.\n\n'
+                                            'OFF (Recommended): Only scan IPv4 addresses\n'
+                                            '  - Faster scan (~700 IPs)\n'
+                                            '  - Works for most users\n'
+                                            '  - Sufficient for typical networks\n\n'
+                                            'ON: Scan both IPv4 and IPv6 addresses\n'
+                                            '  - Slower scan (~2100 IPs)\n'
+                                            '  - More comprehensive\n'
+                                            '  - Only needed if your network supports IPv6',
+                                      ),
+                                      tooltip: 'What is this?',
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              'Maximum acceptable packet loss (0% = no loss, 100% = any loss)',
-                            ),
-                            _buildSlider(
-                              'Min Download Speed (MB/s)',
-                              _config.minDownloadSpeed,
-                              0,
-                              100,
-                              (value) => _updateConfig(
-                                ScannerConfig(
-                                  targetCleanIPs: _config.targetCleanIPs,
-                                  threads: _config.threads,
-                                  maxLatency: _config.maxLatency,
-                                  maxLossRate: _config.maxLossRate,
-                                  minDownloadSpeed: value,
-                                  testCount: _config.testCount,
-                                  testPort: _config.testPort,
-                                  downloadTestTime: _config.downloadTestTime,
-                                  downloadBytes: _config.downloadBytes,
-                                  testUrl: _config.testUrl,
-                                  httpingMode: _config.httpingMode,
-                                  maxIPsToTest: _config.maxIPsToTest,
-                                  testAllIPs: _config.testAllIPs,
+                                subtitle: Padding(
+                                  padding: const EdgeInsets.only(top: 8.0),
+                                  child: Text(
+                                    _enableIPv6
+                                        ? 'Comprehensive scan (IPv4 + IPv6, ~2100 IPs, slower)'
+                                        : 'Fast scan (IPv4 only, ~700 IPs, recommended)',
+                                    style: TextStyle(
+                                      color: _enableIPv6
+                                          ? Colors.blue[700]
+                                          : Colors.grey[700],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              'Minimum download speed required (0 = no minimum)',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Advanced Settings
-                    Text(
-                      'Advanced Settings',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            _buildSlider(
-                              'Test Count',
-                              _config.testCount.toDouble(),
-                              1,
-                              10,
-                              (value) => _updateConfig(
-                                ScannerConfig(
-                                  targetCleanIPs: _config.targetCleanIPs,
-                                  threads: _config.threads,
-                                  maxLatency: _config.maxLatency,
-                                  maxLossRate: _config.maxLossRate,
-                                  minDownloadSpeed: _config.minDownloadSpeed,
-                                  testCount: value.toInt(),
-                                  testPort: _config.testPort,
-                                  downloadTestTime: _config.downloadTestTime,
-                                  downloadBytes: _config.downloadBytes,
-                                  testUrl: _config.testUrl,
-                                  httpingMode: _config.httpingMode,
-                                  maxIPsToTest: _config.maxIPsToTest,
-                                  testAllIPs: _config.testAllIPs,
-                                ),
-                              ),
-                              'Number of latency tests per IP (more = more accurate)',
-                            ),
-                            _buildSlider(
-                              'Download Test Time (sec)',
-                              _config.downloadTestTime.toDouble(),
-                              5,
-                              60,
-                              (value) => _updateConfig(
-                                ScannerConfig(
-                                  targetCleanIPs: _config.targetCleanIPs,
-                                  threads: _config.threads,
-                                  maxLatency: _config.maxLatency,
-                                  maxLossRate: _config.maxLossRate,
-                                  minDownloadSpeed: _config.minDownloadSpeed,
-                                  testCount: _config.testCount,
-                                  testPort: _config.testPort,
-                                  downloadTestTime: value.toInt(),
-                                  downloadBytes: _config.downloadBytes,
-                                  testUrl: _config.testUrl,
-                                  httpingMode: _config.httpingMode,
-                                  maxIPsToTest: _config.maxIPsToTest,
-                                  testAllIPs: _config.testAllIPs,
-                                ),
-                              ),
-                              'Timeout for each download test',
-                            ),
-                            _buildSlider(
-                              'Max IPs to Test',
-                              _config.maxIPsToTest.toDouble(),
-                              1000,
-                              20000,
-                              (value) => _updateConfig(
-                                ScannerConfig(
-                                  targetCleanIPs: _config.targetCleanIPs,
-                                  threads: _config.threads,
-                                  maxLatency: _config.maxLatency,
-                                  maxLossRate: _config.maxLossRate,
-                                  minDownloadSpeed: _config.minDownloadSpeed,
-                                  testCount: _config.testCount,
-                                  testPort: _config.testPort,
-                                  downloadTestTime: _config.downloadTestTime,
-                                  downloadBytes: _config.downloadBytes,
-                                  testUrl: _config.testUrl,
-                                  httpingMode: _config.httpingMode,
-                                  maxIPsToTest: value.toInt(),
-                                  testAllIPs: _config.testAllIPs,
-                                ),
-                              ),
-                              'Safety limit: Maximum total IPs to test (prevents infinite scanning)',
-                            ),
-                            _buildSlider(
-                              'Test Port',
-                              _config.testPort.toDouble(),
-                              80,
-                              8443,
-                              (value) => _updateConfig(
-                                ScannerConfig(
-                                  targetCleanIPs: _config.targetCleanIPs,
-                                  threads: _config.threads,
-                                  maxLatency: _config.maxLatency,
-                                  maxLossRate: _config.maxLossRate,
-                                  minDownloadSpeed: _config.minDownloadSpeed,
-                                  testCount: _config.testCount,
-                                  testPort: value.toInt(),
-                                  downloadTestTime: _config.downloadTestTime,
-                                  downloadBytes: _config.downloadBytes,
-                                  testUrl: _config.testUrl,
-                                  httpingMode: _config.httpingMode,
-                                  maxIPsToTest: _config.maxIPsToTest,
-                                  testAllIPs: _config.testAllIPs,
-                                ),
-                              ),
-                              'Port for connectivity tests (443 = HTTPS, 80 = HTTP)',
-                            ),
-                            SwitchListTile(
-                              title: const Text('HTTPing Mode'),
-                              subtitle: const Text(
-                                'Use HTTP ping instead of TCP (slower but more accurate)',
-                              ),
-                              value: _config.httpingMode,
-                              onChanged: (value) => _updateConfig(
-                                ScannerConfig(
-                                  targetCleanIPs: _config.targetCleanIPs,
-                                  threads: _config.threads,
-                                  maxLatency: _config.maxLatency,
-                                  maxLossRate: _config.maxLossRate,
-                                  minDownloadSpeed: _config.minDownloadSpeed,
-                                  testCount: _config.testCount,
-                                  testPort: _config.testPort,
-                                  downloadTestTime: _config.downloadTestTime,
-                                  downloadBytes: _config.downloadBytes,
-                                  testUrl: _config.testUrl,
-                                  httpingMode: value,
-                                  maxIPsToTest: _config.maxIPsToTest,
-                                  testAllIPs: _config.testAllIPs,
-                                ),
-                              ),
-                            ),
-                            SwitchListTile(
-                              title: const Text('Test All IPs'),
-                              subtitle: const Text(
-                                'Test all ~5956 IPs (slower, ~4 min) vs default ~696 IPs (faster, ~30 sec). '
-                                'Default tests 1 random IP per /24 subnet, which is statistically valid due to Cloudflare Anycast.',
-                              ),
-                              value: _config.testAllIPs,
-                              onChanged: (value) => _updateConfig(
-                                ScannerConfig(
-                                  targetCleanIPs: _config.targetCleanIPs,
-                                  threads: _config.threads,
-                                  maxLatency: _config.maxLatency,
-                                  maxLossRate: _config.maxLossRate,
-                                  minDownloadSpeed: _config.minDownloadSpeed,
-                                  testCount: _config.testCount,
-                                  testPort: _config.testPort,
-                                  downloadTestTime: _config.downloadTestTime,
-                                  downloadBytes: _config.downloadBytes,
-                                  testUrl: _config.testUrl,
-                                  httpingMode: _config.httpingMode,
-                                  maxIPsToTest: _config.maxIPsToTest,
-                                  testAllIPs: value,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
                                 ),
                               ),
                             ),
@@ -509,74 +743,28 @@ class _ConfigScreenState extends State<ConfigScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 32),
 
                     // Save Button
-                    ElevatedButton.icon(
-                      onPressed: _saveConfig,
-                      icon: const Icon(Icons.save),
-                      label: const Text('Save Configuration'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.all(16),
+                    SizedBox(
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: _saveConfig,
+                        icon: const Icon(Icons.save),
+                        label: const Text(
+                          'Save Configuration',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
-    );
-  }
-
-  Widget _buildSlider(
-    String label,
-    double value,
-    double min,
-    double max,
-    ValueChanged<double> onChanged,
-    String helperText,
-  ) {
-    // Calculate divisions safely - ensure it's positive
-    final divisionCount = (max - min).toInt();
-    final divisions = divisionCount > 0 ? divisionCount : null;
-
-    // Format value display based on type
-    String valueDisplay;
-    if (label.contains('%')) {
-      valueDisplay = '${value.toInt()}%';
-    } else if (label.contains('MB/s')) {
-      valueDisplay = '${value.toStringAsFixed(1)} MB/s';
-    } else {
-      valueDisplay = value.toInt().toString();
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-            Text(
-              valueDisplay,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-          ],
-        ),
-        Slider(
-          value: value.clamp(min, max),
-          min: min,
-          max: max,
-          divisions: divisions,
-          onChanged: onChanged,
-        ),
-        Text(
-          helperText,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
-        const SizedBox(height: 8),
-      ],
     );
   }
 }

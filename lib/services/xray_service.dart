@@ -53,12 +53,12 @@ class XrayService {
   /// Returns true if initialization successful, false otherwise.
   Future<bool> initialize() async {
     if (_isInitialized) {
-      _logService.logInfo('[INFO] XrayService already initialized');
+      _logService.logInfo('XrayService already initialized');
       return true;
     }
 
     try {
-      _logService.logInfo('[INFO] Initializing XrayService...');
+      _logService.logInfo('Initializing XrayService...');
 
       // Detect platform and get asset path
       final assetPath = _getAssetPath();
@@ -69,8 +69,8 @@ class XrayService {
         return false;
       }
 
-      _logService.logInfo('[INFO] Platform: ${Platform.operatingSystem}');
-      _logService.logInfo('[INFO] Asset path: $assetPath');
+      _logService.logInfo('Platform: ${Platform.operatingSystem}');
+      _logService.logInfo('Asset path: $assetPath');
 
       // Get app documents directory
       final appDir = await getApplicationDocumentsDirectory();
@@ -79,7 +79,7 @@ class XrayService {
       // Create directory if it doesn't exist
       if (!await xrayDir.exists()) {
         await xrayDir.create(recursive: true);
-        _logService.logInfo('[INFO] Created Xray directory: ${xrayDir.path}');
+        _logService.logInfo('Created Xray directory: ${xrayDir.path}');
       }
 
       final binaryPath = path.join(xrayDir.path, binaryFileName);
@@ -92,13 +92,13 @@ class XrayService {
       );
 
       if (needsExtraction) {
-        _logService.logInfo('[INFO] Extracting Xray binary...');
+        _logService.logInfo('Extracting Xray binary...');
         await _extractBinary(assetPath, binaryPath);
         await _writeVersionFile(versionFilePath);
         await _setExecutePermissions(binaryPath);
-        _logService.logOk('[OK] Xray binary extracted successfully');
+        _logService.logOk('Xray binary extracted successfully');
       } else {
-        _logService.logInfo('[INFO] Xray binary already up to date');
+        _logService.logInfo('Xray binary already up to date');
       }
 
       _binaryPath = binaryPath;
@@ -109,8 +109,8 @@ class XrayService {
       );
       return true;
     } catch (e, stackTrace) {
-      _logService.logError('[ERROR] Failed to initialize XrayService: $e');
-      _logService.logError('[ERROR] Stack trace: $stackTrace');
+      _logService.logError('Failed to initialize XrayService: $e');
+      _logService.logError('Stack trace: $stackTrace');
       return false;
     }
   }
@@ -158,14 +158,14 @@ class XrayService {
     // Check if binary exists
     final binaryFile = File(binaryPath);
     if (!await binaryFile.exists()) {
-      _logService.logInfo('[INFO] Binary not found, extraction needed');
+      _logService.logInfo('Binary not found, extraction needed');
       return true;
     }
 
     // Check version file
     final versionFile = File(versionFilePath);
     if (!await versionFile.exists()) {
-      _logService.logInfo('[INFO] Version file not found, extraction needed');
+      _logService.logInfo('Version file not found, extraction needed');
       return true;
     }
 
@@ -199,7 +199,7 @@ class XrayService {
         '[OK] Binary extracted: ${(buffer.lengthInBytes / 1024 / 1024).toStringAsFixed(1)} MB',
       );
     } catch (e) {
-      _logService.logError('[ERROR] Failed to extract binary: $e');
+      _logService.logError('Failed to extract binary: $e');
       rethrow;
     }
   }
@@ -208,7 +208,7 @@ class XrayService {
   Future<void> _writeVersionFile(String versionFilePath) async {
     final file = File(versionFilePath);
     await file.writeAsString(xrayVersion);
-    _logService.logInfo('[INFO] Version file written: $xrayVersion');
+    _logService.logInfo('Version file written: $xrayVersion');
   }
 
   /// Set execute permissions on Unix-based systems
@@ -221,14 +221,14 @@ class XrayService {
     try {
       final result = await Process.run('chmod', ['+x', binaryPath]);
       if (result.exitCode == 0) {
-        _logService.logOk('[OK] Execute permissions set');
+        _logService.logOk('Execute permissions set');
       } else {
         _logService.logWarn(
           '[WARN] Failed to set execute permissions: ${result.stderr}',
         );
       }
     } catch (e) {
-      _logService.logWarn('[WARN] Failed to set execute permissions: $e');
+      _logService.logWarn('Failed to set execute permissions: $e');
     }
   }
 
@@ -237,7 +237,7 @@ class XrayService {
   /// Returns the version string or null if unable to determine.
   Future<String?> getBinaryVersion() async {
     if (_binaryPath == null) {
-      _logService.logWarn('[WARN] Binary path not set, cannot get version');
+      _logService.logWarn('Binary path not set, cannot get version');
       return null;
     }
 
@@ -253,7 +253,7 @@ class XrayService {
       }
       return null;
     } catch (e) {
-      _logService.logWarn('[WARN] Failed to get binary version: $e');
+      _logService.logWarn('Failed to get binary version: $e');
       return null;
     }
   }
@@ -295,7 +295,7 @@ class XrayService {
     String? configPath;
 
     try {
-      _logService.logInfo('[INFO] Testing \$candidateIP with Xray proxy...');
+      _logService.logInfo('Testing \$candidateIP with Xray proxy...');
 
       // Replace address in config
       final testConfig = config.copyWithAddress(candidateIP);
@@ -305,7 +305,7 @@ class XrayService {
 
       // Write config to temp file
       configPath = await _writeConfigToTempFile(configWithInbound);
-      _logService.logInfo('[INFO] Config written to: \$configPath');
+      _logService.logInfo('Config written to: \$configPath');
 
       // Start Xray process
       xrayProcess = await _startXrayProcess(configPath);
@@ -348,8 +348,8 @@ class XrayService {
         proxyTestResult: updatedProxyResult,
       );
     } catch (e, stackTrace) {
-      _logService.logError('[ERROR] Proxy test failed for $candidateIP: $e');
-      _logService.logError('[ERROR] Stack trace: $stackTrace');
+      _logService.logError('Proxy test failed for $candidateIP: $e');
+      _logService.logError('Stack trace: $stackTrace');
 
       return ConfigTestResult(
         ip: candidateIP,
@@ -375,16 +375,16 @@ class XrayService {
 
       // Listen to stdout/stderr for debugging (don't wait for completion)
       process.stdout.listen((data) {
-        _logService.logInfo('[INFO] Xray stdout: ${utf8.decode(data).trim()}');
+        _logService.logInfo('Xray stdout: ${utf8.decode(data).trim()}');
       });
 
       process.stderr.listen((data) {
-        _logService.logWarn('[WARN] Xray stderr: ${utf8.decode(data).trim()}');
+        _logService.logWarn('Xray stderr: ${utf8.decode(data).trim()}');
       });
 
       return process;
     } catch (e) {
-      _logService.logError('[ERROR] Failed to start Xray process: \$e');
+      _logService.logError('Failed to start Xray process: \$e');
       rethrow;
     }
   }
@@ -409,7 +409,7 @@ class XrayService {
         timeout: timeout,
       );
 
-      _logService.logInfo('[INFO] SOCKS5 connection established');
+      _logService.logInfo('SOCKS5 connection established');
 
       // Send HTTP GET request
       final request =
@@ -421,7 +421,7 @@ class XrayService {
       socket.write(request);
       await socket.flush();
 
-      _logService.logInfo('[INFO] HTTP request sent');
+      _logService.logInfo('HTTP request sent');
 
       // Read response with timeout
       final responseBytes = await socket
@@ -435,7 +435,7 @@ class XrayService {
 
       // Check for 204 No Content
       if (response.contains('204') || response.contains('No Content')) {
-        _logService.logOk('[OK] Received 204 No Content response');
+        _logService.logOk('Received 204 No Content response');
         return ProxyTestResult.success(
           latencyMs: 0, // Will be updated by caller
           statusCode: 204,
@@ -450,13 +450,13 @@ class XrayService {
         );
       }
     } on TimeoutException catch (e) {
-      _logService.logError('[ERROR] Proxy connection timeout: $e');
+      _logService.logError('Proxy connection timeout: $e');
       return ProxyTestResult.failure(error: 'Connection timeout');
     } on Socks5Exception catch (e) {
-      _logService.logError('[ERROR] SOCKS5 error: $e');
+      _logService.logError('SOCKS5 error: $e');
       return ProxyTestResult.failure(error: 'SOCKS5 error: ${e.message}');
     } catch (e) {
-      _logService.logError('[ERROR] Proxy connection failed: $e');
+      _logService.logError('Proxy connection failed: $e');
       return ProxyTestResult.failure(error: e.toString());
     } finally {
       await socket?.close();
@@ -491,9 +491,9 @@ class XrayService {
     if (process != null) {
       try {
         process.kill();
-        _logService.logInfo('[INFO] Xray process killed');
+        _logService.logInfo('Xray process killed');
       } catch (e) {
-        _logService.logWarn('[WARN] Failed to kill Xray process: \$e');
+        _logService.logWarn('Failed to kill Xray process: \$e');
       }
     }
 
@@ -503,10 +503,10 @@ class XrayService {
         final file = File(configPath);
         if (await file.exists()) {
           await file.delete();
-          _logService.logInfo('[INFO] Temp config file deleted');
+          _logService.logInfo('Temp config file deleted');
         }
       } catch (e) {
-        _logService.logWarn('[WARN] Failed to delete temp config: \$e');
+        _logService.logWarn('Failed to delete temp config: \$e');
       }
     }
   }
@@ -522,14 +522,14 @@ class XrayService {
 
         if (await binaryDir.exists()) {
           await binaryDir.delete(recursive: true);
-          _logService.logOk('[OK] Xray directory cleaned up');
+          _logService.logOk('Xray directory cleaned up');
         }
       }
 
       _binaryPath = null;
       _isInitialized = false;
     } catch (e) {
-      _logService.logError('[ERROR] Failed to cleanup: \$e');
+      _logService.logError('Failed to cleanup: \$e');
     }
   }
 }

@@ -1,0 +1,340 @@
+import 'package:flutter/material.dart';
+import '../services/storage_service.dart';
+
+/// Main home screen with navigation menu
+///
+/// Provides quick access to:
+/// - Start Scan (launches scan progress screen)
+/// - Settings (app preferences)
+/// - Configuration (scan parameters and subscription URL)
+/// - Results (view last scan results)
+/// - Logs (view scan logs)
+/// - About (app info)
+/// - Debug (developer tools)
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final StorageService _storage = StorageService.instance;
+
+  DateTime? _lastScanTime;
+  String? _subscriptionUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInfo();
+  }
+
+  Future<void> _loadInfo() async {
+    final lastScan = await _storage.getLastScanTime();
+    final url = await _storage.getSubscriptionUrl();
+
+    setState(() {
+      _lastScanTime = lastScan;
+      _subscriptionUrl = url;
+    });
+  }
+
+  void _startScan() {
+    // Check if subscription URL is configured
+    if (_subscriptionUrl == null || _subscriptionUrl!.isEmpty) {
+      _showConfigNeeded();
+      return;
+    }
+
+    // Navigate to scan progress screen
+    Navigator.pushNamed(context, '/scan-progress');
+  }
+
+  void _showConfigNeeded() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Configuration Required'),
+        content: const Text(
+          'Please configure your BPB Panel subscription URL in Configuration before starting a scan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await Navigator.pushNamed(context, '/config');
+              // Reload info when returning from config
+              _loadInfo();
+            },
+            child: const Text('Configure Now'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getTimeSinceLastScan() {
+    if (_lastScanTime == null) return 'Never';
+
+    final now = DateTime.now();
+    final difference = now.difference(_lastScanTime!);
+
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    } else if (difference.inHours < 1) {
+      return '${difference.inMinutes}m ago';
+    } else if (difference.inDays < 1) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    } else {
+      return '${(difference.inDays / 7).floor()}w ago';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('BPB Clean IP Scanner'),
+        centerTitle: true,
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // App Title & Description
+                  Card(
+                    color: Colors.blue[50],
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.cloud_done,
+                            size: 64,
+                            color: Colors.blue[700],
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Clean IP Scanner',
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue[900],
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Find working Cloudflare IPs for your BPB Panel',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: Colors.blue[800]),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Start Scan Button
+                  SizedBox(
+                    height: 64,
+                    child: ElevatedButton.icon(
+                      onPressed: _startScan,
+                      icon: const Icon(Icons.play_arrow, size: 28),
+                      label: const Text(
+                        'Start Scan',
+                        style: TextStyle(fontSize: 20),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Status Card
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Status',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Icon(
+                                _subscriptionUrl != null &&
+                                        _subscriptionUrl!.isNotEmpty
+                                    ? Icons.check_circle
+                                    : Icons.warning,
+                                color:
+                                    _subscriptionUrl != null &&
+                                        _subscriptionUrl!.isNotEmpty
+                                    ? Colors.green
+                                    : Colors.orange,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _subscriptionUrl != null &&
+                                          _subscriptionUrl!.isNotEmpty
+                                      ? 'Ready to scan'
+                                      : 'Configuration needed',
+                                  style: TextStyle(
+                                    color:
+                                        _subscriptionUrl != null &&
+                                            _subscriptionUrl!.isNotEmpty
+                                        ? Colors.green[700]
+                                        : Colors.orange[700],
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Last scan:',
+                                style: TextStyle(color: Colors.grey[600]),
+                              ),
+                              Text(
+                                _getTimeSinceLastScan(),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Quick Actions Grid
+                  Text(
+                    'Quick Actions',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 16),
+
+                  GridView.count(
+                    crossAxisCount: 3,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 16,
+                    crossAxisSpacing: 16,
+                    childAspectRatio: 1.0,
+                    children: [
+                      _buildActionCard(
+                        context,
+                        'Configuration',
+                        Icons.tune,
+                        Colors.blue,
+                        () async {
+                          await Navigator.pushNamed(context, '/config');
+                          // Reload info when returning from config
+                          _loadInfo();
+                        },
+                      ),
+                      _buildActionCard(
+                        context,
+                        'Settings',
+                        Icons.settings,
+                        Colors.orange,
+                        () => Navigator.pushNamed(context, '/settings'),
+                      ),
+                      _buildActionCard(
+                        context,
+                        'Results',
+                        Icons.list_alt,
+                        Colors.green,
+                        () => Navigator.pushNamed(context, '/results'),
+                      ),
+                      _buildActionCard(
+                        context,
+                        'Logs',
+                        Icons.assignment,
+                        Colors.purple,
+                        () => Navigator.pushNamed(context, '/logs'),
+                      ),
+                      _buildActionCard(
+                        context,
+                        'About',
+                        Icons.info,
+                        Colors.teal,
+                        () => Navigator.pushNamed(context, '/about'),
+                      ),
+                      _buildActionCard(
+                        context,
+                        'Debug',
+                        Icons.bug_report,
+                        Colors.red,
+                        () => Navigator.pushNamed(context, '/debug'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionCard(
+    BuildContext context,
+    String label,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 40, color: color),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

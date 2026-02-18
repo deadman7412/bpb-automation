@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/credentials.dart';
-import '../models/scanner_config.dart';
 import 'log_service.dart';
 
 /// Service for managing persistent storage of credentials and preferences.
@@ -24,12 +23,15 @@ class StorageService {
   static const String _keyApiToken = 'cf_api_token';
   static const String _keyAccountId = 'cf_account_id';
   static const String _keyKvNamespaceId = 'cf_kv_namespace_id';
-  static const String _keyScannerConfig = 'scanner_config';
   static const String _keyLastScanTime = 'last_scan_time';
   static const String _keyAutoUpdateEnabled = 'auto_update_enabled';
   static const String _keyAutoUpdateInterval = 'auto_update_interval_hours';
   static const String _keyNumIpsToUse = 'num_ips_to_use';
   static const String _keySubscriptionUrl = 'subscription_url';
+  static const String _keyCachedConfigs = 'cached_configs';
+  static const String _keyDesiredIPCount = 'desired_ip_count';
+  static const String _keyPhase2TestDepth = 'phase2_test_depth';
+  static const String _keyEnableIPv6 = 'enable_ipv6';
 
   StorageService._internal()
     : _secureStorage = const FlutterSecureStorage(
@@ -176,90 +178,6 @@ class StorageService {
     return creds != null && creds.isValid();
   }
 
-  // ==================== Scanner Config ====================
-
-  /// Saves scanner configuration.
-  Future<void> saveScannerConfig(ScannerConfig config) async {
-    final json = jsonEncode(config.toJson());
-    await _prefs.setString(_keyScannerConfig, json);
-  }
-
-  /// Retrieves scanner configuration.
-  ///
-  /// - If user has saved a config: Returns their saved preference
-  /// - If no config saved (first launch): Auto-detects platform and returns appropriate preset
-  ///   - Mobile (Android/iOS): Conservative settings (300ms, 0.2 loss, 2MB/s)
-  ///   - Desktop/Web: Unrestricted settings (9999ms, 1.0 loss, 0MB/s)
-  Future<ScannerConfig> getScannerConfig() async {
-    final json = _prefs.getString(_keyScannerConfig);
-    if (json == null) {
-      // First launch - auto-detect platform and use appropriate preset
-      final config = ScannerConfig.defaultForPlatform();
-      final presetName = ScannerConfig.detectedPresetName();
-      _logService.logInfo(
-        '[INFO] No saved config - auto-detected platform: $presetName',
-      );
-      _logService.logInfo(
-        '[INFO] Using $presetName preset: ${config.threads} threads, ${config.maxLatency}ms latency',
-      );
-      return config;
-    }
-
-    try {
-      final map = jsonDecode(json) as Map<String, dynamic>;
-      final config = ScannerConfig.fromJson(map);
-      _logService.logInfo('[INFO] Loaded saved scanner config from storage');
-      return config;
-    } catch (e) {
-      // If parsing fails, auto-detect platform
-      _logService.logWarn(
-        '[WARN] Failed to parse saved config, using platform default: $e',
-      );
-      return ScannerConfig.defaultForPlatform();
-    }
-  }
-
-  /// Checks if this is the first time loading scanner config (no saved config exists).
-  ///
-  /// Used to determine if we should show the platform auto-detection notification.
-  /// Returns true if no config has been saved yet, false otherwise.
-  Future<bool> isFirstTimeConfig() async {
-    final json = _prefs.getString(_keyScannerConfig);
-    return json == null;
-  }
-
-  // ==================== Scan Results ====================
-
-  static const String _keyLastScanResults = 'last_scan_results';
-
-  /// Saves the last scan results.
-  Future<void> saveLastScanResults(List<Map<String, dynamic>> results) async {
-    final json = jsonEncode(results);
-    await _prefs.setString(_keyLastScanResults, json);
-    _logService.logInfo('Saved ${results.length} scan results to storage');
-  }
-
-  /// Retrieves the last scan results.
-  ///
-  /// Returns null if no results are saved.
-  Future<List<Map<String, dynamic>>?> getLastScanResults() async {
-    final json = _prefs.getString(_keyLastScanResults);
-    if (json == null) return null;
-
-    try {
-      final list = jsonDecode(json) as List<dynamic>;
-      return list.cast<Map<String, dynamic>>();
-    } catch (e) {
-      _logService.logWarn('Failed to parse last scan results: $e');
-      return null;
-    }
-  }
-
-  /// Clears the last scan results.
-  Future<void> clearLastScanResults() async {
-    await _prefs.remove(_keyLastScanResults);
-  }
-
   // ==================== App Preferences ====================
 
   /// Saves the timestamp of the last scan.
@@ -322,7 +240,7 @@ class StorageService {
   /// This URL should point to a BPB Panel subscription endpoint.
   Future<void> saveSubscriptionUrl(String url) async {
     await _prefs.setString(_keySubscriptionUrl, url);
-    _logService.logInfo('[INFO] Saved subscription URL');
+    _logService.logInfo('Saved subscription URL');
   }
 
   /// Retrieves the saved subscription URL.
@@ -330,6 +248,74 @@ class StorageService {
   /// Returns null if no URL has been saved.
   Future<String?> getSubscriptionUrl() async {
     return _prefs.getString(_keySubscriptionUrl);
+  }
+
+  /// Saves cached XrayConfigs to storage.
+  ///
+  /// This allows scans to use pre-validated configs without fetching
+  /// from the network each time.
+  Future<void> saveCachedConfigs(List<dynamic> configs) async {
+    final jsonList = configs.map((c) => c.toJson()).toList();
+    final jsonString = jsonEncode(jsonList);
+    await _prefs.setString(_keyCachedConfigs, jsonString);
+    _logService.logInfo('Saved ${configs.length} cached configs');
+  }
+
+  /// Retrieves cached XrayConfigs from storage.
+  ///
+  /// Returns null if no configs are cached.
+  Future<List<dynamic>?> getCachedConfigs() async {
+    final jsonString = _prefs.getString(_keyCachedConfigs);
+    if (jsonString == null) return null;
+
+    try {
+      final jsonList = jsonDecode(jsonString) as List<dynamic>;
+      // Import XrayConfig here to avoid circular dependency
+      final configs = jsonList.map((json) {
+        // Return raw JSON - caller will convert to XrayConfig
+        return json as Map<String, dynamic>;
+      }).toList();
+      return configs;
+    } catch (e) {
+      _logService.logWarn('Failed to parse cached configs: $e');
+      return null;
+    }
+  }
+
+  /// Clears cached configs from storage.
+  Future<void> clearCachedConfigs() async {
+    await _prefs.remove(_keyCachedConfigs);
+    _logService.logInfo('Cleared cached configs');
+  }
+
+  /// Saves scan parameters (desired IP count and Phase 2 test depth).
+  Future<void> saveScanParameters({
+    int? desiredIPCount,
+    int? phase2TestDepth,
+    int? enableIPv6,
+  }) async {
+    if (desiredIPCount != null) {
+      await _prefs.setInt(_keyDesiredIPCount, desiredIPCount);
+    }
+    if (phase2TestDepth != null) {
+      await _prefs.setInt(_keyPhase2TestDepth, phase2TestDepth);
+    }
+    if (enableIPv6 != null) {
+      await _prefs.setInt(_keyEnableIPv6, enableIPv6);
+    }
+    _logService.logInfo('Saved scan parameters');
+  }
+
+  /// Retrieves scan parameters.
+  ///
+  /// Returns a map with 'desiredIPCount', 'phase2TestDepth', and 'enableIPv6'.
+  /// Defaults: desiredIPCount=5, phase2TestDepth=50, enableIPv6=0 (off)
+  Future<Map<String, int>> getScanParameters() async {
+    return {
+      'desiredIPCount': _prefs.getInt(_keyDesiredIPCount) ?? 5,
+      'phase2TestDepth': _prefs.getInt(_keyPhase2TestDepth) ?? 50,
+      'enableIPv6': _prefs.getInt(_keyEnableIPv6) ?? 0, // Default OFF
+    };
   }
 
   // ==================== Generic Preferences ====================

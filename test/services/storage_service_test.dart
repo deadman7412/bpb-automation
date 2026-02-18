@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bpb_automation/services/storage_service.dart';
 import 'package:bpb_automation/models/credentials.dart';
-import 'package:bpb_automation/models/scanner_config.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -88,67 +87,6 @@ void main() {
 
         expect(retrieved1, equals(testCreds));
         expect(retrieved2, equals(testCreds));
-      });
-    });
-
-    group('Scanner Config', () {
-      const testConfig = ScannerConfig(
-        threads: 300,
-        testCount: 5,
-        maxLatency: 200,
-        minDownloadSpeed: 10.0,
-      );
-
-      test('saveScannerConfig and getScannerConfig work', () async {
-        await storage.saveScannerConfig(testConfig);
-        final retrieved = await storage.getScannerConfig();
-
-        expect(retrieved, equals(testConfig));
-      });
-
-      test('getScannerConfig uses platform default on first launch', () async {
-        // Should return platform-appropriate preset (mobile or desktop)
-        final config = await storage.getScannerConfig();
-
-        // Should match either mobile or desktop preset
-        expect(
-          config == ScannerConfig.mobile || config == ScannerConfig.desktop,
-          isTrue,
-        );
-      });
-
-      test('isFirstTimeConfig returns true when no config saved', () async {
-        final isFirstTime = await storage.isFirstTimeConfig();
-        expect(isFirstTime, isTrue);
-      });
-
-      test('isFirstTimeConfig returns false after config saved', () async {
-        const config = ScannerConfig(targetCleanIPs: 15);
-        await storage.saveScannerConfig(config);
-
-        final isFirstTime = await storage.isFirstTimeConfig();
-        expect(isFirstTime, isFalse);
-      });
-
-      test('scanner config persists across multiple retrievals', () async {
-        await storage.saveScannerConfig(testConfig);
-
-        final retrieved1 = await storage.getScannerConfig();
-        final retrieved2 = await storage.getScannerConfig();
-
-        expect(retrieved1, equals(testConfig));
-        expect(retrieved2, equals(testConfig));
-      });
-
-      test('overwrites previous config when saving new one', () async {
-        const config1 = ScannerConfig(threads: 100);
-        const config2 = ScannerConfig(threads: 200);
-
-        await storage.saveScannerConfig(config1);
-        await storage.saveScannerConfig(config2);
-
-        final retrieved = await storage.getScannerConfig();
-        expect(retrieved.threads, equals(200));
       });
     });
 
@@ -276,18 +214,15 @@ void main() {
 
     group('Clear Operations', () {
       test('clearPreferences removes all preferences', () async {
-        await storage.saveScannerConfig(const ScannerConfig(threads: 100));
         await storage.saveString('test_key', 'test_value');
         await storage.saveAutoUpdateEnabled(true);
 
         await storage.clearPreferences();
 
-        final config = await storage.getScannerConfig();
         final str = await storage.getString('test_key');
         final autoUpdate = await storage.getAutoUpdateEnabled();
 
         // Should return defaults
-        expect(config, equals(const ScannerConfig()));
         expect(str, isNull);
         expect(autoUpdate, isFalse);
       });

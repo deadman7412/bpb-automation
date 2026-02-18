@@ -51,7 +51,7 @@ class ConfigGeneratorService {
     );
 
     if (workingIPs.isEmpty) {
-      _logService.logWarn('[WARN] No working IPs to generate configs for');
+      _logService.logWarn('No working IPs to generate configs for');
       return [];
     }
 
@@ -89,13 +89,13 @@ class ConfigGeneratorService {
 
         configs.add(finalConfig);
 
-        _logService.logInfo('[INFO] Generated config ${i + 1}: $ip');
+        _logService.logInfo('Generated config ${i + 1}: $ip');
       } catch (e) {
-        _logService.logError('[ERROR] Failed to generate config for $ip: $e');
+        _logService.logError('Failed to generate config for $ip: $e');
       }
     }
 
-    _logService.logOk('[OK] Generated ${configs.length} configs successfully');
+    _logService.logOk('Generated ${configs.length} configs successfully');
 
     return configs;
   }
@@ -110,10 +110,10 @@ class ConfigGeneratorService {
   ///
   /// Returns JSON string representation.
   String exportConfigsAsJSON(List<XrayConfig> configs) {
-    _logService.logInfo('[INFO] Exporting ${configs.length} configs as JSON');
+    _logService.logInfo('Exporting ${configs.length} configs as JSON');
 
     if (configs.isEmpty) {
-      _logService.logWarn('[WARN] No configs to export');
+      _logService.logWarn('No configs to export');
       return '[]';
     }
 
@@ -131,7 +131,7 @@ class ConfigGeneratorService {
 
       return jsonString;
     } catch (e) {
-      _logService.logError('[ERROR] Failed to export configs as JSON: $e');
+      _logService.logError('Failed to export configs as JSON: $e');
       return '[]';
     }
   }
@@ -149,10 +149,10 @@ class ConfigGeneratorService {
     List<XrayConfig> configs, {
     String? filename,
   }) async {
-    _logService.logInfo('[INFO] Saving ${configs.length} configs to file');
+    _logService.logInfo('Saving ${configs.length} configs to file');
 
     if (kIsWeb) {
-      _logService.logWarn('[WARN] File save not supported on web platform');
+      _logService.logWarn('File save not supported on web platform');
       return null;
     }
 
@@ -173,11 +173,11 @@ class ConfigGeneratorService {
       final file = File(filePath);
       await file.writeAsString(jsonString);
 
-      _logService.logOk('[OK] Saved configs to: $filePath');
+      _logService.logOk('Saved configs to: $filePath');
 
       return filePath;
     } catch (e) {
-      _logService.logError('[ERROR] Failed to save configs to file: $e');
+      _logService.logError('Failed to save configs to file: $e');
       return null;
     }
   }
@@ -195,10 +195,10 @@ class ConfigGeneratorService {
   ///
   /// Returns true if share was initiated successfully.
   Future<bool> shareConfigs(List<XrayConfig> configs, {String? subject}) async {
-    _logService.logInfo('[INFO] Sharing ${configs.length} configs');
+    _logService.logInfo('Sharing ${configs.length} configs');
 
     if (configs.isEmpty) {
-      _logService.logWarn('[WARN] No configs to share');
+      _logService.logWarn('No configs to share');
       return false;
     }
 
@@ -225,13 +225,13 @@ class ConfigGeneratorService {
           text: 'Generated Xray configs with ${configs.length} working IPs',
         );
 
-        _logService.logOk('[OK] Share dialog opened: ${result.status}');
+        _logService.logOk('Share dialog opened: ${result.status}');
 
         return result.status == ShareResultStatus.success ||
             result.status == ShareResultStatus.dismissed;
       }
     } catch (e) {
-      _logService.logError('[ERROR] Failed to share configs: $e');
+      _logService.logError('Failed to share configs: $e');
       return false;
     }
   }
@@ -248,12 +248,12 @@ class ConfigGeneratorService {
       final success = await downloadConfigsOnWeb(jsonString, fileName);
 
       if (success) {
-        _logService.logOk('[OK] Triggered download: $fileName');
+        _logService.logOk('Triggered download: $fileName');
       }
 
       return success;
     } catch (e) {
-      _logService.logError('[ERROR] Failed to download on web: $e');
+      _logService.logError('Failed to download on web: $e');
       return false;
     }
   }
