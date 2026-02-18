@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import '../models/xray_config.dart';
+import '../models/config_scan_result.dart';
 import '../services/storage_service.dart';
 import '../services/log_service.dart';
 import '../services/dart_scanner_service.dart';
@@ -34,28 +35,68 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
 
   // Progress tracking
   String _currentPhase = 'Initializing...';
+  // Phase 0: TCP pre-filter
+  int _phase0Tested = 0;
+  int _phase0Total = 0;
+  int _phase0Success = 0;
+  // Phase 1: TLS handshake
   int _phase1Tested = 0;
   int _phase1Total = 0;
   int _phase1Success = 0;
+  // Phase 2: Proxy test
   int _phase2Tested = 0;
   int _phase2Total = 0;
   int _phase2Success = 0;
-  double _progressPercent = 0.0;
 
   StreamSubscription<TlsTestProgress>? _progressSubscription;
   StreamSubscription<Phase2Progress>? _phase2ProgressSubscription;
+  StreamSubscription<ConfigScanResult>? _completionSubscription;
+
+  // Elapsed time tracking
+  DateTime? _scanStartTime;
+  Timer? _elapsedTimer;
+  Duration _elapsed = Duration.zero;
 
   @override
   void initState() {
     super.initState();
-    _startScan();
+    if (_scanner.isScanning) {
+      _attachToExistingScan();
+    } else {
+      _startScan();
+    }
   }
 
   @override
   void dispose() {
     _progressSubscription?.cancel();
     _phase2ProgressSubscription?.cancel();
+    _completionSubscription?.cancel();
+    _elapsedTimer?.cancel();
     super.dispose();
+  }
+
+  void _startElapsedTimer() {
+    _scanStartTime = DateTime.now();
+    _elapsed = Duration.zero;
+    _elapsedTimer?.cancel();
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        _elapsed = DateTime.now().difference(_scanStartTime!);
+      });
+    });
+  }
+
+  void _stopElapsedTimer() {
+    _elapsedTimer?.cancel();
+    _elapsedTimer = null;
+  }
+
+  String get _elapsedString {
+    final m = _elapsed.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = _elapsed.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   Future<void> _startScan() async {
@@ -80,6 +121,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       _isScanning = true;
       _currentPhase = 'Loading configs...';
     });
+    _startElapsedTimer();
 
     // Try to load cached configs first
     List<XrayConfig>? configs;
@@ -158,24 +200,32 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     // Now we have configs - start the scan
     setState(() {
       _currentPhase = 'Preparing scan...';
+      _phase0Tested = 0;
+      _phase0Total = 0;
+      _phase0Success = 0;
       _phase1Tested = 0;
       _phase1Total = 0;
       _phase1Success = 0;
       _phase2Tested = 0;
       _phase2Total = 0;
       _phase2Success = 0;
-      _progressPercent = 0.0;
     });
 
-    // Subscribe to Phase 1 progress updates
+    // Subscribe to Phase 0 (TCP) + Phase 1 (TLS) progress updates
     _progressSubscription = _configTester.progressStream.listen((progress) {
       if (!mounted) return;
       setState(() {
-        _currentPhase = 'Phase 1: TLS Testing';
-        _phase1Tested = progress.processedIPs;
-        _phase1Total = progress.totalIPs;
-        _phase1Success = progress.successfulIPs;
-        _progressPercent = progress.progressPercent;
+        if (progress.phase == ScanPhaseType.tcp) {
+          _currentPhase = 'Phase 0: TCP Pre-filter';
+          _phase0Tested = progress.processedIPs;
+          _phase0Total = progress.totalIPs;
+          _phase0Success = progress.successfulIPs;
+        } else {
+          _currentPhase = 'Phase 1: TLS Testing';
+          _phase1Tested = progress.processedIPs;
+          _phase1Total = progress.totalIPs;
+          _phase1Success = progress.successfulIPs;
+        }
       });
     });
 
@@ -204,53 +254,16 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       );
 
       if (!mounted) return;
-
-      await _progressSubscription?.cancel();
-      await _phase2ProgressSubscription?.cancel();
-      _progressSubscription = null;
-      _phase2ProgressSubscription = null;
-
-      if (!mounted) return;
-
-      // Check if we found any working IPs
-      if (result.workingIPCount > 0 || _isCancelling) {
-        setState(() {
-          _currentPhase = _isCancelling ? 'Cancelled' : 'Complete';
-          _isScanning = false;
-          _isCancelling = false;
-        });
-
-        _log.logOk(
-          _isCancelling
-              ? 'Scan cancelled - showing partial results'
-              : 'Config scan completed successfully',
-        );
-
-        // Navigate to results screen (even with partial results from cancelled scan)
-        // ignore: use_build_context_synchronously
-        Navigator.pushReplacementNamed(context, '/results', arguments: result);
-      } else {
-        setState(() {
-          _currentPhase = 'Complete - No working IPs found';
-          _isScanning = false;
-        });
-
-        _showError(
-          'No Working IPs Found',
-          'The scan completed but found no working IPs.\n\n'
-              'Try:\n'
-              '• Increasing scan depth in Configuration\n'
-              '• Running the scan again (network conditions vary)',
-          showRetryButton: true,
-        );
-      }
+      await _handleScanResult(result);
     } catch (e, stackTrace) {
       _log.logError('Config scan error: $e\n$stackTrace');
 
       await _progressSubscription?.cancel();
       await _phase2ProgressSubscription?.cancel();
+      await _completionSubscription?.cancel();
       _progressSubscription = null;
       _phase2ProgressSubscription = null;
+      _completionSubscription = null;
 
       if (!mounted) return;
 
@@ -262,6 +275,143 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       _showError(
         'Scan Error',
         'An error occurred during scanning:\n\n$e',
+        showRetryButton: true,
+      );
+    }
+  }
+
+  /// Attach to a scan that is already running (navigated back then returned).
+  /// Subscribes to progress and completion streams without starting a new scan.
+  void _attachToExistingScan() {
+    _log.logInfo('Attaching to existing scan in progress');
+
+    // Immediately apply last known state for ALL phases so bars appear right away
+    String phase = 'Scan in progress...';
+    int p0tested = 0, p0total = 0, p0success = 0;
+    int p1tested = 0, p1total = 0, p1success = 0;
+    int p2tested = 0, p2total = 0, p2success = 0;
+
+    // Phase 0 (TCP) — always show last TCP snapshot if it exists
+    final lastTcp = _configTester.lastTcpProgress;
+    if (lastTcp != null) {
+      p0tested = lastTcp.processedIPs;
+      p0total = lastTcp.totalIPs;
+      p0success = lastTcp.successfulIPs;
+      phase = 'Phase 0: TCP Pre-filter';
+    }
+
+    // Phase 1 (TLS) — always show last TLS snapshot if it exists
+    final lastTls = _configTester.lastTlsProgress;
+    if (lastTls != null) {
+      p1tested = lastTls.processedIPs;
+      p1total = lastTls.totalIPs;
+      p1success = lastTls.successfulIPs;
+      phase = 'Phase 1: TLS Testing';
+    }
+
+    // Phase 2 — always show last proxy snapshot if it exists
+    final lastP2 = _scanner.lastPhase2Progress;
+    if (lastP2 != null) {
+      p2tested = lastP2.testedIPs;
+      p2total = lastP2.totalIPs;
+      p2success = lastP2.workingIPs;
+      phase = 'Phase 2: Proxy Testing';
+    }
+
+    _startElapsedTimer();
+    setState(() {
+      _isScanning = true;
+      _currentPhase = phase;
+      _phase0Tested = p0tested;
+      _phase0Total = p0total;
+      _phase0Success = p0success;
+      _phase1Tested = p1tested;
+      _phase1Total = p1total;
+      _phase1Success = p1success;
+      _phase2Tested = p2tested;
+      _phase2Total = p2total;
+      _phase2Success = p2success;
+    });
+
+    // Phase 0 (TCP) + Phase 1 (TLS) progress
+    _progressSubscription = _configTester.progressStream.listen((progress) {
+      if (!mounted) return;
+      setState(() {
+        if (progress.phase == ScanPhaseType.tcp) {
+          _currentPhase = 'Phase 0: TCP Pre-filter';
+          _phase0Tested = progress.processedIPs;
+          _phase0Total = progress.totalIPs;
+          _phase0Success = progress.successfulIPs;
+        } else {
+          _currentPhase = 'Phase 1: TLS Testing';
+          _phase1Tested = progress.processedIPs;
+          _phase1Total = progress.totalIPs;
+          _phase1Success = progress.successfulIPs;
+        }
+      });
+    });
+
+    // Phase 2 progress
+    _phase2ProgressSubscription = _scanner.phase2ProgressStream.listen((
+      progress,
+    ) {
+      if (!mounted) return;
+      setState(() {
+        _currentPhase = 'Phase 2: Proxy Testing';
+        _phase2Tested = progress.testedIPs;
+        _phase2Total = progress.totalIPs;
+        _phase2Success = progress.workingIPs;
+      });
+    });
+
+    // Wait for the scan to finish
+    _completionSubscription = _scanner.completionStream.listen((result) {
+      _handleScanResult(result);
+    });
+  }
+
+  /// Handle the final scan result — called from both _startScan and _attachToExistingScan.
+  Future<void> _handleScanResult(ConfigScanResult result) async {
+    _stopElapsedTimer();
+    await _progressSubscription?.cancel();
+    await _phase2ProgressSubscription?.cancel();
+    await _completionSubscription?.cancel();
+    _progressSubscription = null;
+    _phase2ProgressSubscription = null;
+    _completionSubscription = null;
+
+    if (!mounted) return;
+
+    if (result.workingIPCount > 0 || _isCancelling) {
+      setState(() {
+        _currentPhase = _isCancelling ? 'Cancelled' : 'Complete';
+        _isScanning = false;
+        _isCancelling = false;
+      });
+
+      _log.logOk(
+        _isCancelling
+            ? 'Scan cancelled - showing partial results'
+            : 'Config scan completed successfully',
+      );
+
+      // Persist result so results screen can reload it after navigating away
+      await _storage.saveLastScanResult(result.toJson());
+
+      // ignore: use_build_context_synchronously
+      Navigator.pushReplacementNamed(context, '/results', arguments: result);
+    } else {
+      setState(() {
+        _currentPhase = 'Complete - No IPs found';
+        _isScanning = false;
+      });
+
+      _showError(
+        'No IPs Found',
+        'The scan completed but found no usable IPs.\n\n'
+            'Try:\n'
+            '• Increasing scan depth in Configuration\n'
+            '• Running the scan again (network conditions vary)',
         showRetryButton: true,
       );
     }
@@ -368,7 +518,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                 children: [
                   // Info Card
                   Card(
-                    color: Colors.blue[50],
+                    color: Theme.of(context).colorScheme.primaryContainer,
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
@@ -376,13 +526,16 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.info_outline, color: Colors.blue[700]),
+                              Icon(
+                                Icons.info_outline,
+                                color: Theme.of(context).colorScheme.onPrimaryContainer,
+                              ),
                               const SizedBox(width: 8),
                               Text(
                                 'Scan in Progress',
                                 style: Theme.of(context).textTheme.titleMedium
                                     ?.copyWith(
-                                      color: Colors.blue[900],
+                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
                                       fontWeight: FontWeight.bold,
                                     ),
                               ),
@@ -393,7 +546,9 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                             'Testing clean Cloudflare IPs with your BPB configs. '
                             'This may take a few minutes.',
                             style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(color: Colors.blue[900]),
+                                ?.copyWith(
+                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                ),
                           ),
                         ],
                       ),
@@ -403,13 +558,12 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
 
                   // Progress Display
                   Card(
-                    color: Colors.green[50],
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Current Phase
+                          // Current Phase + Elapsed Time
                           Row(
                             children: [
                               if (_isScanning)
@@ -438,10 +592,54 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                                   ).textTheme.titleMedium,
                                 ),
                               ),
+                              if (_elapsed > Duration.zero)
+                                Text(
+                                  _elapsedString,
+                                  style: TextStyle(
+                                    color: Colors.grey[600],
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures()
+                                    ],
+                                  ),
+                                ),
                             ],
                           ),
 
-                          // Phase 1 Progress
+                          // Phase 0: TCP Pre-filter
+                          if (_phase0Total > 0) ...[
+                            const SizedBox(height: 16),
+                            const Divider(),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Phase 0 (TCP):',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  '$_phase0Tested / $_phase0Total checked',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            LinearProgressIndicator(
+                              value: _phase0Total > 0
+                                  ? _phase0Tested / _phase0Total
+                                  : 0,
+                              backgroundColor: Colors.grey[300],
+                              color: Colors.orange,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Reachable: $_phase0Success IPs',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+
+                          // Phase 1: TLS Handshake
                           if (_phase1Total > 0) ...[
                             const SizedBox(height: 16),
                             const Divider(),
@@ -455,7 +653,6 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                                 ),
                                 Text(
                                   '$_phase1Tested / $_phase1Total tested',
-                                  style: TextStyle(color: Colors.grey[700]),
                                 ),
                               ],
                             ),
@@ -469,7 +666,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Success: $_phase1Success IPs',
+                              'Passed TLS: $_phase1Success IPs',
                               style: TextStyle(
                                 color: Colors.green[700],
                                 fontWeight: FontWeight.bold,

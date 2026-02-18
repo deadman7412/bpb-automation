@@ -68,22 +68,31 @@ class ConfigScanResult {
     required Duration scanDuration,
     required XrayConfig templateConfig,
   }) {
-    // Filter working IPs (those with successful proxy tests)
-    final workingResults = allResults
-        .where(
-          (r) =>
-              r.proxyTestResult != null &&
-              r.proxyTestResult!.success &&
-              r.proxyTestResult!.statusCode == 204,
-        )
+    // Prefer proxy-verified IPs (Phase 2 successes)
+    var workingResults = allResults
+        .where((r) => r.proxyTestResult != null && r.proxyTestResult!.success)
         .toList();
 
-    // Sort by proxy latency (fastest first)
-    workingResults.sort((a, b) {
-      final aLatency = a.proxyTestResult?.latencyMs ?? double.infinity;
-      final bLatency = b.proxyTestResult?.latencyMs ?? double.infinity;
-      return aLatency.compareTo(bLatency);
-    });
+    if (workingResults.isNotEmpty) {
+      // Sort by proxy latency (fastest first)
+      workingResults.sort((a, b) {
+        final aLatency = a.proxyTestResult?.latencyMs ?? double.infinity;
+        final bLatency = b.proxyTestResult?.latencyMs ?? double.infinity;
+        return aLatency.compareTo(bLatency);
+      });
+    } else {
+      // TLS fallback: Phase 2 found nothing — use Phase 1 TLS-passing IPs
+      workingResults = allResults
+          .where((r) => r.tlsTestResult != null && r.tlsTestResult!.success)
+          .toList();
+
+      // Sort by TLS latency (fastest first)
+      workingResults.sort((a, b) {
+        final aLatency = a.tlsTestResult?.latencyMs ?? double.infinity;
+        final bLatency = b.tlsTestResult?.latencyMs ?? double.infinity;
+        return aLatency.compareTo(bLatency);
+      });
+    }
 
     final workingIPs = workingResults.map((r) => r.ip).toList();
 
@@ -159,12 +168,7 @@ class ConfigScanResult {
   /// Get average proxy latency for working IPs
   double get averageProxyLatency {
     final workingResults = allResults
-        .where(
-          (r) =>
-              r.proxyTestResult != null &&
-              r.proxyTestResult!.success &&
-              r.proxyTestResult!.statusCode == 204,
-        )
+        .where((r) => r.proxyTestResult != null && r.proxyTestResult!.success)
         .toList();
 
     if (workingResults.isEmpty) return 0.0;
@@ -204,6 +208,47 @@ class ConfigScanResult {
     return 'Found $workingIPCount working IP${workingIPCount > 1 ? 's' : ''} out of $totalTested tested. '
         'Phase 1: $phase1Passed/$totalTested passed (${phase1SuccessRate.toStringAsFixed(1)}%). '
         'Phase 2: $workingIPCount/$phase2Tested passed (${phase2SuccessRate.toStringAsFixed(1)}%).';
+  }
+
+  /// Serializes to JSON. Only working IPs are included in allResults to keep storage compact.
+  Map<String, dynamic> toJson() {
+    final workingIPSet = workingIPs.toSet();
+    final relevantResults = allResults
+        .where((r) => workingIPSet.contains(r.ip))
+        .toList();
+    return {
+      'totalTested': totalTested,
+      'phase1Passed': phase1Passed,
+      'phase2Tested': phase2Tested,
+      'workingIPCount': workingIPCount,
+      'workingIPs': workingIPs,
+      'allResults': relevantResults.map((r) => r.toJson()).toList(),
+      'scanDurationMicroseconds': scanDuration.inMicroseconds,
+      'templateConfig': templateConfig.toJson(),
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+
+  /// Deserializes from JSON.
+  factory ConfigScanResult.fromJson(Map<String, dynamic> json) {
+    final allResultsList = (json['allResults'] as List<dynamic>)
+        .map((r) => ConfigTestResult.fromJson(r as Map<String, dynamic>))
+        .toList();
+    return ConfigScanResult(
+      totalTested: json['totalTested'] as int,
+      phase1Passed: json['phase1Passed'] as int,
+      phase2Tested: json['phase2Tested'] as int,
+      workingIPCount: json['workingIPCount'] as int,
+      workingIPs: (json['workingIPs'] as List<dynamic>).cast<String>(),
+      allResults: allResultsList,
+      scanDuration: Duration(
+        microseconds: json['scanDurationMicroseconds'] as int,
+      ),
+      templateConfig: XrayConfig.fromJson(
+        json['templateConfig'] as Map<String, dynamic>,
+      ),
+      timestamp: DateTime.parse(json['timestamp'] as String),
+    );
   }
 
   @override

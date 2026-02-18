@@ -4,13 +4,20 @@ import '../models/xray_config.dart';
 import '../models/config_test_result.dart';
 import 'log_service.dart';
 
+/// Which scanning phase a [TlsTestProgress] event belongs to.
+enum ScanPhaseType { tcp, tls }
+
 /// Service for testing candidate IPs using Xray configs.
 ///
-/// Implements a two-phase testing approach:
-/// - Phase 1 (TLS Pre-Filter): Fast TLS handshake testing to pre-filter IPs
-/// - Phase 2 (Proxy Test): Real proxy testing with Xray-core (implemented in XrayService)
+/// Phase 0 — TCP port check (1 s, 200 concurrent):
+///   Connects TCP to candidate:443. Eliminates ~70-85 % of candidates.
 ///
-/// This service handles Phase 1 only.
+/// Phase 1 — TLS handshake (3 s, 200 concurrent):
+///   Full TLS handshake. Confirms the IP is a reachable Cloudflare edge.
+///
+/// Cancellation: cancel() fires a Completer that races against every batch
+/// via Future.any. The batch is abandoned immediately; results already
+/// collected (added to a shared list inside each IP lambda) are preserved.
 class ConfigTesterService {
   static final ConfigTesterService _instance = ConfigTesterService._internal();
   static ConfigTesterService get instance => _instance;
@@ -19,47 +26,59 @@ class ConfigTesterService {
 
   final LogService _logService = LogService.instance;
 
-  /// Stream controller for progress updates
+  bool _isCancelled = false;
+  Completer<void> _cancelSignal = Completer<void>();
+
   final StreamController<TlsTestProgress> _progressController =
       StreamController<TlsTestProgress>.broadcast();
 
-  /// Stream of TLS test progress updates
   Stream<TlsTestProgress> get progressStream => _progressController.stream;
 
-  /// Tests multiple IPs with TLS handshake (Phase 1).
-  ///
-  /// This method performs fast TLS pre-filtering to identify candidate IPs
-  /// that can establish TLS connections before running full proxy tests.
-  ///
-  /// Parameters:
-  /// - [template]: XrayConfig to extract connection params (port, SNI, TLS settings)
-  /// - [candidateIPs]: List of IPs to test
-  /// - [timeoutSeconds]: Timeout for each TLS handshake attempt
-  /// - [maxConcurrency]: Maximum concurrent tests (default: 200)
-  /// - [verifyCdn]: Whether to verify Cloudflare CDN via /cdn-cgi/trace
-  ///
-  /// Returns list of ConfigTestResult sorted by latency (fastest first).
+  /// Last emitted progress per phase — lets newly-attached screens show current state.
+  TlsTestProgress? _lastTcpProgress;
+  TlsTestProgress? _lastTlsProgress;
+  TlsTestProgress? get lastTcpProgress => _lastTcpProgress;
+  TlsTestProgress? get lastTlsProgress => _lastTlsProgress;
+
+  /// Stop immediately. The current batch is abandoned via Future.any;
+  /// results already collected are preserved and returned.
+  void cancel() {
+    _isCancelled = true;
+    if (!_cancelSignal.isCompleted) _cancelSignal.complete();
+  }
+
+  /// Reset before each new scan.
+  void resetCancel() {
+    _isCancelled = false;
+    _cancelSignal = Completer<void>();
+    _lastTcpProgress = null;
+    _lastTlsProgress = null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Public API
+  // -------------------------------------------------------------------------
+
   Future<List<ConfigTestResult>> testIPsWithTLS({
     required XrayConfig template,
     required List<String> candidateIPs,
-    int timeoutSeconds = 5,
+    int tlsTimeoutSeconds = 3,
     int maxConcurrency = 200,
-    bool verifyCdn = true,
+    @Deprecated('CDN verification removed') bool verifyCdn = false,
+    @Deprecated('Use tlsTimeoutSeconds') int timeoutSeconds = 3,
   }) async {
     _logService.logInfo(
-      'Starting Phase 1 TLS testing for ${candidateIPs.length} IPs (timeout: ${timeoutSeconds}s, concurrency: $maxConcurrency)',
+      'Starting TLS scan for ${candidateIPs.length} IPs '
+      '(TCP 1 s, TLS ${tlsTimeoutSeconds}s, concurrency: $maxConcurrency)',
     );
 
-    // Validate config
     if (!template.isValid()) {
-      final errors = template.getValidationErrors();
       _logService.logError(
-        'Invalid config template for TLS testing: ${errors.join(", ")}',
+        'Invalid config: ${template.getValidationErrors().join(", ")}',
       );
       return [];
     }
 
-    // Extract connection parameters
     final port = template.getServerPort();
     final sni = template.getSni();
     final isSecure = template.isSecure();
@@ -68,64 +87,167 @@ class ConfigTesterService {
       _logService.logError('Config has no port configured');
       return [];
     }
+    if (!isSecure) _logService.logWarn('Config has no TLS/Reality security');
 
-    if (!isSecure) {
-      _logService.logWarn(
-        'Config has no TLS/Reality security - TLS test may fail',
-      );
-    }
+    _logService.logInfo('port=$port, SNI=$sni, secure=$isSecure');
 
-    _logService.logInfo(
-      'Connection params: port=$port, SNI=$sni, secure=$isSecure',
+    // Phase 0: TCP pre-filter
+    final tcpPassed = await _tcpPreFilter(
+      candidateIPs: candidateIPs,
+      port: port,
+      maxConcurrency: maxConcurrency,
     );
 
-    final results = <ConfigTestResult>[];
-    final timeout = Duration(seconds: timeoutSeconds);
+    if (_isCancelled) return [];
 
-    // Progress tracking
-    int totalIPs = candidateIPs.length;
+    // Phase 1: TLS on survivors
+    return _tlsTest(
+      template: template,
+      candidateIPs: tcpPassed,
+      port: port,
+      sni: sni,
+      tlsTimeoutSeconds: tlsTimeoutSeconds,
+      maxConcurrency: maxConcurrency,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase 0 — TCP
+  // -------------------------------------------------------------------------
+
+  Future<List<String>> _tcpPreFilter({
+    required List<String> candidateIPs,
+    required int port,
+    required int maxConcurrency,
+  }) async {
+    final total = candidateIPs.length;
+    _logService.logInfo('Phase 0 TCP: checking $total IPs on port $port...');
+
+    _emitProgress(TlsTestProgress(
+      phase: ScanPhaseType.tcp,
+      totalIPs: total,
+      processedIPs: 0,
+      successfulIPs: 0,
+      failedIPs: 0,
+    ));
+
+    const tcpTimeout = Duration(seconds: 1);
+    // Shared list — each lambda appends immediately so cancel preserves results
+    final passed = <String>[];
+    int checkedCount = 0;
+
+    final batches = _createBatches(candidateIPs, maxConcurrency);
+    final batchCount = batches.length;
+
+    for (int bi = 0; bi < batchCount; bi++) {
+      if (_isCancelled) break;
+
+      final batch = batches[bi];
+      final batchStart = DateTime.now();
+
+      // Race batch against cancel — on cancel Future.any returns immediately.
+      // Results already appended to `passed` inside each lambda are kept.
+      await Future.any<void>([
+        Future.wait(batch.map((ip) async {
+          try {
+            final s = await Socket.connect(ip, port, timeout: tcpTimeout);
+            await s.close();
+            passed.add(ip);
+          } catch (_) {
+            // unreachable — skip
+          }
+          checkedCount++;
+        })).then((_) {}),
+        _cancelSignal.future,
+      ]);
+
+      if (_isCancelled) break;
+
+      final batchMs = DateTime.now().difference(batchStart).inMilliseconds;
+      _logService.logInfo(
+        'TCP batch ${bi + 1}/$batchCount done in ${batchMs}ms:'
+        ' ${passed.length} reachable ($checkedCount/$total checked)',
+      );
+
+      _emitProgress(TlsTestProgress(
+        phase: ScanPhaseType.tcp,
+        totalIPs: total,
+        processedIPs: checkedCount,
+        successfulIPs: passed.length,
+        failedIPs: checkedCount - passed.length,
+      ));
+    }
+
+    _logService.logOk(
+      'Phase 0 complete: ${passed.length}/$total reachable on port $port',
+    );
+    return passed;
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase 1 — TLS
+  // -------------------------------------------------------------------------
+
+  Future<List<ConfigTestResult>> _tlsTest({
+    required XrayConfig template,
+    required List<String> candidateIPs,
+    required int port,
+    required String? sni,
+    required int tlsTimeoutSeconds,
+    required int maxConcurrency,
+  }) async {
+    if (candidateIPs.isEmpty) return [];
+
+    final total = candidateIPs.length;
+    _logService.logInfo('Phase 1 TLS: $total IPs (timeout: ${tlsTimeoutSeconds}s)');
+
+    final timeout = Duration(seconds: tlsTimeoutSeconds);
+
+    // Shared list — each IP lambda appends as it completes.
+    // When cancel fires, Future.any returns immediately but results already
+    // in this list are preserved (no batch-level discard).
+    final results = <ConfigTestResult>[];
     int processedIPs = 0;
     int successfulIPs = 0;
     int failedIPs = 0;
 
-    // Emit initial progress
-    _emitProgress(
-      TlsTestProgress(
-        totalIPs: totalIPs,
-        processedIPs: 0,
-        successfulIPs: 0,
-        failedIPs: 0,
-        currentIP: null,
-      ),
-    );
+    _emitProgress(TlsTestProgress(
+      phase: ScanPhaseType.tls,
+      totalIPs: total,
+      processedIPs: 0,
+      successfulIPs: 0,
+      failedIPs: 0,
+    ));
 
-    // Process IPs concurrently with limited concurrency
     final batches = _createBatches(candidateIPs, maxConcurrency);
+    final batchCount = batches.length;
 
-    for (final batch in batches) {
-      final batchResults = await Future.wait(
-        batch.map((ip) async {
-          // Emit progress for current IP
-          _emitProgress(
-            TlsTestProgress(
-              totalIPs: totalIPs,
-              processedIPs: processedIPs,
-              successfulIPs: successfulIPs,
-              failedIPs: failedIPs,
-              currentIP: ip,
-            ),
-          );
+    for (int bi = 0; bi < batchCount; bi++) {
+      if (_isCancelled) break;
 
+      final batch = batches[bi];
+      final batchStart = DateTime.now();
+      final startTs = '${batchStart.hour.toString().padLeft(2, '0')}:'
+          '${batchStart.minute.toString().padLeft(2, '0')}:'
+          '${batchStart.second.toString().padLeft(2, '0')}';
+      _logService.logInfo(
+        'Phase 1 batch ${bi + 1}/$batchCount: testing ${batch.length} IPs'
+        ' (started $startTs, timeout ${tlsTimeoutSeconds}s each)',
+      );
+
+      // Race batch against cancel.
+      await Future.any<void>([
+        Future.wait(batch.map((ip) async {
           final result = await _testSingleIPTLS(
             config: template,
             candidateIP: ip,
             port: port,
             sni: sni,
             timeout: timeout,
-            verifyCdn: verifyCdn,
           );
 
-          // Update counters
+          // Append immediately — visible even if the batch is abandoned by cancel
+          results.add(result);
           processedIPs++;
           if (result.tlsPassed) {
             successfulIPs++;
@@ -133,258 +255,172 @@ class ConfigTesterService {
             failedIPs++;
           }
 
-          // Emit progress every 10 IPs or 5%
-          if (processedIPs % 10 == 0 ||
-              (processedIPs / totalIPs * 100) % 5 < 0.1) {
-            _emitProgress(
-              TlsTestProgress(
-                totalIPs: totalIPs,
-                processedIPs: processedIPs,
-                successfulIPs: successfulIPs,
-                failedIPs: failedIPs,
-                currentIP: null,
-              ),
-            );
+          if (processedIPs % 10 == 0 || result.tlsPassed) {
+            _emitProgress(TlsTestProgress(
+              phase: ScanPhaseType.tls,
+              totalIPs: total,
+              processedIPs: processedIPs,
+              successfulIPs: successfulIPs,
+              failedIPs: failedIPs,
+              currentIP: result.tlsPassed ? ip : null,
+            ));
           }
+        })).then((_) {}),
+        _cancelSignal.future,
+      ]);
 
-          return result;
-        }),
+      if (_isCancelled) {
+        _logService.logWarn(
+          'Phase 1 cancelled — ${results.length} results collected, '
+          '$successfulIPs passed TLS so far',
+        );
+        break;
+      }
+
+      final batchMs = DateTime.now().difference(batchStart).inMilliseconds;
+      _logService.logInfo(
+        'Phase 1 batch ${bi + 1}/$batchCount done in ${batchMs}ms:'
+        ' $successfulIPs/$processedIPs passed TLS',
       );
-
-      results.addAll(batchResults);
     }
 
-    // Emit final progress
-    _emitProgress(
-      TlsTestProgress(
-        totalIPs: totalIPs,
-        processedIPs: processedIPs,
-        successfulIPs: successfulIPs,
-        failedIPs: failedIPs,
-        currentIP: null,
-      ),
-    );
+    _emitProgress(TlsTestProgress(
+      phase: ScanPhaseType.tls,
+      totalIPs: total,
+      processedIPs: processedIPs,
+      successfulIPs: successfulIPs,
+      failedIPs: failedIPs,
+    ));
 
-    // Filter successful results and sort by latency
     final successfulResults = results.where((r) => r.tlsPassed).toList()
       ..sort((a, b) => a.finalLatencyMs.compareTo(b.finalLatencyMs));
 
     _logService.logOk(
-      'Phase 1 TLS testing complete: ${successfulResults.length}/${candidateIPs.length} IPs passed (${(successfulResults.length / candidateIPs.length * 100).toStringAsFixed(1)}%)',
+      'Phase 1 TLS complete: ${successfulResults.length}/$total passed'
+      '${_isCancelled ? " (cancelled early)" : ""}',
     );
 
     return successfulResults;
   }
 
-  /// Tests a single IP with TLS handshake.
   Future<ConfigTestResult> _testSingleIPTLS({
     required XrayConfig config,
     required String candidateIP,
     required int port,
     required String? sni,
     required Duration timeout,
-    required bool verifyCdn,
   }) async {
-    final stopwatch = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     SecureSocket? socket;
 
     try {
-      // Attempt TLS connection with SNI
+      // .timeout() wraps the entire operation (TCP + TLS handshake).
+      // The `timeout` parameter on SecureSocket.connect only covers the TCP
+      // connection phase — without this wrapper, TLS handshakes on noisy
+      // networks can hang indefinitely once TCP is established.
       socket = await SecureSocket.connect(
         candidateIP,
         port,
         timeout: timeout,
-        onBadCertificate: (_) =>
-            true, // Accept any certificate (IP-based connection)
+        onBadCertificate: (_) => true,
         supportedProtocols: ['h2', 'http/1.1'],
         context: SecurityContext.defaultContext,
-      );
+      ).timeout(timeout);
 
-      // If SNI is specified, use it (already passed in connect() but log it)
-      if (sni != null) {
-        _logService.logInfo('TLS connected to $candidateIP with SNI: $sni');
-      } else {
-        _logService.logInfo('TLS connected to $candidateIP (no SNI)');
-      }
+      final latencyMs = sw.elapsedMilliseconds.toDouble();
+      sw.stop();
 
-      final latencyMs = stopwatch.elapsedMilliseconds.toDouble();
-
-      // Optionally verify Cloudflare CDN
-      bool cloudflareVerified = false;
-
-      if (verifyCdn) {
-        cloudflareVerified = await _verifyCloudflareCdn(
-          socket,
-          candidateIP,
-          sni ?? candidateIP,
-        );
-      }
-
-      stopwatch.stop();
-
-      // Success
-      final tlsResult = TlsTestResult.success(
-        latencyMs: latencyMs,
-        cloudflareVerified: cloudflareVerified,
-      );
+      _logService.logInfo('TLS ok $candidateIP (${latencyMs.toStringAsFixed(0)}ms)');
 
       return ConfigTestResult.fromTlsTest(
         ip: candidateIP,
         config: config.copyWithAddress(candidateIP),
-        tlsTestResult: tlsResult,
+        tlsTestResult: TlsTestResult.success(latencyMs: latencyMs),
       );
     } on SocketException catch (e) {
-      stopwatch.stop();
-
-      final tlsResult = TlsTestResult.failure(
-        error: 'SocketException: ${e.message}',
-        latencyMs: stopwatch.elapsedMilliseconds.toDouble(),
-      );
-
+      sw.stop();
       return ConfigTestResult.fromTlsTest(
         ip: candidateIP,
         config: config.copyWithAddress(candidateIP),
-        tlsTestResult: tlsResult,
+        tlsTestResult: TlsTestResult.failure(
+          error: e.message,
+          latencyMs: sw.elapsedMilliseconds.toDouble(),
+        ),
       );
-    } on TimeoutException catch (_) {
-      stopwatch.stop();
-
-      final tlsResult = TlsTestResult.failure(
-        error: 'Timeout',
-        latencyMs: timeout.inMilliseconds.toDouble(),
-      );
-
+    } on TimeoutException {
+      sw.stop();
       return ConfigTestResult.fromTlsTest(
         ip: candidateIP,
         config: config.copyWithAddress(candidateIP),
-        tlsTestResult: tlsResult,
+        tlsTestResult: TlsTestResult.failure(
+          error: 'Timeout',
+          latencyMs: timeout.inMilliseconds.toDouble(),
+        ),
       );
     } on HandshakeException catch (e) {
-      stopwatch.stop();
-
-      final tlsResult = TlsTestResult.failure(
-        error: 'HandshakeException: ${e.message}',
-        latencyMs: stopwatch.elapsedMilliseconds.toDouble(),
-      );
-
+      sw.stop();
       return ConfigTestResult.fromTlsTest(
         ip: candidateIP,
         config: config.copyWithAddress(candidateIP),
-        tlsTestResult: tlsResult,
+        tlsTestResult: TlsTestResult.failure(
+          error: e.message,
+          latencyMs: sw.elapsedMilliseconds.toDouble(),
+        ),
       );
     } catch (e) {
-      stopwatch.stop();
-
-      final tlsResult = TlsTestResult.failure(
-        error: 'Unknown error: $e',
-        latencyMs: stopwatch.elapsedMilliseconds.toDouble(),
-      );
-
+      sw.stop();
       return ConfigTestResult.fromTlsTest(
         ip: candidateIP,
         config: config.copyWithAddress(candidateIP),
-        tlsTestResult: tlsResult,
+        tlsTestResult: TlsTestResult.failure(
+          error: e.toString(),
+          latencyMs: sw.elapsedMilliseconds.toDouble(),
+        ),
       );
     } finally {
       await socket?.close();
     }
   }
 
-  /// Verifies that the IP is behind Cloudflare CDN.
-  ///
-  /// Sends HTTP GET to /cdn-cgi/trace and checks for Cloudflare indicators.
-  Future<bool> _verifyCloudflareCdn(
-    SecureSocket socket,
-    String ip,
-    String host,
-  ) async {
-    try {
-      // Send HTTP GET request to /cdn-cgi/trace
-      final request =
-          'GET /cdn-cgi/trace HTTP/1.1\r\n'
-          'Host: $host\r\n'
-          'Connection: close\r\n'
-          '\r\n';
+  // -------------------------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------------------------
 
-      socket.write(request);
-      await socket.flush();
-
-      // Read response with timeout
-      final responseBuffer = StringBuffer();
-      await for (final data in socket.timeout(Duration(seconds: 3))) {
-        responseBuffer.write(String.fromCharCodes(data));
-
-        // Check for Cloudflare indicators in response
-        final response = responseBuffer.toString();
-
-        // Look for "fl=" or "200 OK" in response
-        if (response.contains('fl=') || response.contains('200 OK')) {
-          _logService.logInfo('Cloudflare CDN verified for $ip');
-          return true;
-        }
-
-        // If we've read enough data, stop
-        if (response.length > 2048) break;
-      }
-
-      final response = responseBuffer.toString();
-
-      // Final check
-      if (response.contains('fl=') || response.contains('200 OK')) {
-        return true;
-      }
-
-      _logService.logWarn('Cloudflare CDN verification failed for $ip');
-      return false;
-    } catch (e) {
-      _logService.logWarn('Cloudflare CDN verification error for $ip: $e');
-      return false;
-    }
-  }
-
-  /// Creates batches of IPs for concurrent processing.
   List<List<String>> _createBatches(List<String> ips, int batchSize) {
     final batches = <List<String>>[];
-
     for (int i = 0; i < ips.length; i += batchSize) {
-      final end = (i + batchSize < ips.length) ? i + batchSize : ips.length;
-      batches.add(ips.sublist(i, end));
+      batches.add(ips.sublist(i, (i + batchSize).clamp(0, ips.length)));
     }
-
     return batches;
   }
 
-  /// Emits progress update to stream.
   void _emitProgress(TlsTestProgress progress) {
+    if (progress.phase == ScanPhaseType.tcp) {
+      _lastTcpProgress = progress;
+    } else {
+      _lastTlsProgress = progress;
+    }
     if (!_progressController.isClosed) {
       _progressController.add(progress);
     }
   }
 
-  /// Disposes resources.
   void dispose() {
     _progressController.close();
   }
 }
 
-/// Represents TLS test progress.
+/// Progress event emitted during Phase 0 (TCP) and Phase 1 (TLS).
 class TlsTestProgress {
-  /// Total number of IPs to test
+  final ScanPhaseType phase;
   final int totalIPs;
-
-  /// Number of IPs processed so far
   final int processedIPs;
-
-  /// Number of IPs that passed TLS test
   final int successfulIPs;
-
-  /// Number of IPs that failed TLS test
   final int failedIPs;
-
-  /// Current IP being tested (null if between tests)
   final String? currentIP;
 
   const TlsTestProgress({
+    this.phase = ScanPhaseType.tls,
     required this.totalIPs,
     required this.processedIPs,
     required this.successfulIPs,
@@ -392,23 +428,14 @@ class TlsTestProgress {
     this.currentIP,
   });
 
-  /// Progress percentage (0.0 to 1.0)
   double get progress => totalIPs > 0 ? processedIPs / totalIPs : 0.0;
-
-  /// Progress percentage (0 to 100)
   double get progressPercent => progress * 100;
-
-  /// Success rate (0.0 to 1.0)
   double get successRate =>
       processedIPs > 0 ? successfulIPs / processedIPs : 0.0;
-
-  /// Success rate percentage (0 to 100)
   double get successRatePercent => successRate * 100;
 
   @override
-  String toString() {
-    return 'TlsTestProgress($processedIPs/$totalIPs - ${progressPercent.toStringAsFixed(1)}%, '
-        'success: $successfulIPs, failed: $failedIPs, '
-        'current: $currentIP)';
-  }
+  String toString() =>
+      'TlsTestProgress(${phase.name}: $processedIPs/$totalIPs '
+      '${progressPercent.toStringAsFixed(1)}%, success: $successfulIPs)';
 }

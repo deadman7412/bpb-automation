@@ -32,6 +32,7 @@ class StorageService {
   static const String _keyDesiredIPCount = 'desired_ip_count';
   static const String _keyPhase2TestDepth = 'phase2_test_depth';
   static const String _keyEnableIPv6 = 'enable_ipv6';
+  static const String _keyLastScanResult = 'last_scan_result';
 
   StorageService._internal()
     : _secureStorage = const FlutterSecureStorage(
@@ -316,6 +317,31 @@ class StorageService {
       'phase2TestDepth': _prefs.getInt(_keyPhase2TestDepth) ?? 50,
       'enableIPv6': _prefs.getInt(_keyEnableIPv6) ?? 0, // Default OFF
     };
+  }
+
+  /// Saves the last scan result to storage (compact — only working IP results).
+  Future<void> saveLastScanResult(Map<String, dynamic> resultJson) async {
+    try {
+      final jsonString = jsonEncode(resultJson);
+      await _prefs.setString(_keyLastScanResult, jsonString);
+      _logService.logInfo('Saved last scan result to storage');
+    } catch (e) {
+      _logService.logWarn('Failed to save last scan result: $e');
+    }
+  }
+
+  /// Retrieves the last scan result from storage.
+  ///
+  /// Returns null if no result has been saved or if parsing fails.
+  Future<Map<String, dynamic>?> getLastScanResult() async {
+    try {
+      final jsonString = _prefs.getString(_keyLastScanResult);
+      if (jsonString == null) return null;
+      return jsonDecode(jsonString) as Map<String, dynamic>;
+    } catch (e) {
+      _logService.logWarn('Failed to load last scan result: $e');
+      return null;
+    }
   }
 
   // ==================== Generic Preferences ====================

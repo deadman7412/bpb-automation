@@ -47,10 +47,25 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         _result = args;
       });
       _log.logInfo(
-        '[INFO] Loaded config scan result with ${_result!.workingIPCount} working IPs',
+        'Loaded config scan result with ${_result!.workingIPCount} working IPs',
       );
     } else {
-      _log.logWarn('No config scan result provided');
+      _log.logInfo('No route argument — trying persistent storage');
+      final resultJson = await _storage.getLastScanResult();
+      if (resultJson != null) {
+        try {
+          setState(() {
+            _result = ConfigScanResult.fromJson(resultJson);
+          });
+          _log.logInfo(
+            'Loaded saved scan result with ${_result!.workingIPCount} working IPs',
+          );
+        } catch (e) {
+          _log.logWarn('Failed to parse saved scan result: $e');
+        }
+      } else {
+        _log.logWarn('No config scan result available');
+      }
     }
   }
 
@@ -60,20 +75,22 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       return;
     }
 
+    // Check credentials before showing loading state
+    final credentials = await _storage.getCredentials();
+    if (credentials == null) {
+      if (mounted) _showNoCredentialsDialog();
+      return;
+    }
+
     setState(() {
       _isUpdating = true;
     });
 
     _log.logInfo(
-      '[INFO] Updating BPB Panel with ${_result!.workingIPs.length} working IPs',
+      'Updating BPB Panel with ${_result!.workingIPs.length} working IPs',
     );
 
     try {
-      final credentials = await _storage.getCredentials();
-      if (credentials == null) {
-        throw Exception('No Cloudflare credentials configured');
-      }
-
       await _api.updateCleanIPs(credentials, _result!.workingIPs);
 
       if (!mounted) return;
@@ -95,6 +112,32 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
       _showMessage('Failed to update: $e', isError: true);
     }
+  }
+
+  void _showNoCredentialsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Credentials Required'),
+        content: const Text(
+          'Cloudflare credentials are not configured.\n\n'
+          'Please enter your API token, account ID, and KV namespace ID in Settings.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, '/settings');
+            },
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _downloadConfigs() async {

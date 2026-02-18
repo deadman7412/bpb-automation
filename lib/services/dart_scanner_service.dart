@@ -71,18 +71,35 @@ class DartScannerService {
   Stream<Phase2Progress> get phase2ProgressStream =>
       _phase2ProgressController.stream;
 
+  /// Last emitted Phase 2 progress — lets newly-attached screens show current state.
+  Phase2Progress? _lastPhase2Progress;
+  Phase2Progress? get lastPhase2Progress => _lastPhase2Progress;
+
+  // Completion stream — broadcasts the final result when the scan ends
+  final _completionController =
+      StreamController<ConfigScanResult>.broadcast();
+  Stream<ConfigScanResult> get completionStream =>
+      _completionController.stream;
+
   /// Check if a scan is currently running
   bool get isScanning => _isScanning;
+
+  void _emitPhase2Progress(Phase2Progress p) {
+    _lastPhase2Progress = p;
+    _phase2ProgressController.add(p);
+  }
 
   /// Cancel the current scan
   void cancelScan() {
     _isCancelled = true;
+    _configTester.cancel();
     _logService.logWarn('Scan cancellation requested by user');
   }
 
   /// Dispose resources
   void dispose() {
     _phase2ProgressController.close();
+    _completionController.close();
   }
 
   /// Get CIDR expansion samples per range based on platform
@@ -140,6 +157,7 @@ class DartScannerService {
 
     _isScanning = true;
     _isCancelled = false;
+    _configTester.resetCancel();
 
     _logService.logInfo('===== STARTING CONFIG-BASED SCAN =====');
     _logService.logInfo(
@@ -152,8 +170,15 @@ class DartScannerService {
 
     final scanStartTime = DateTime.now();
 
-    // Use downloadTestTime from default config for timeouts
-    const timeoutSeconds = 10;
+    // Hoisted so the catch block can produce a TLS-fallback result if Phase 2 crashes
+    List<ConfigTestResult> phase1Results = [];
+    List<String> candidateIPs = [];
+    XrayConfig selectedConfig = XrayConfig(outbounds: [], inbounds: [], log: {});
+
+    // Phase 1 TLS timeout (short — TCP pre-filter eliminates slow IPs first)
+    const tlsTimeoutSeconds = 3;
+    // Phase 2 proxy timeout (longer — ECH + fragment + VLESS chain needs time)
+    const timeoutSeconds = 15;
 
     try {
       // Step 1: Initialize Xray service
@@ -165,15 +190,16 @@ class DartScannerService {
       if (configs.isEmpty) {
         _logService.logError('No configs provided');
         _isScanning = false;
-        final emptyConfig = XrayConfig(outbounds: [], inbounds: [], log: {});
-        return ConfigScanResult.failure(
+        final result = ConfigScanResult.failure(
           totalTested: 0,
           phase1Passed: 0,
           phase2Tested: 0,
           allResults: [],
           scanDuration: DateTime.now().difference(scanStartTime),
-          templateConfig: emptyConfig,
+          templateConfig: selectedConfig,
         );
+        _completionController.add(result);
+        return result;
       }
 
       final ipBasedConfigs = configs.where((c) => c.isIpBased()).toList();
@@ -181,22 +207,25 @@ class DartScannerService {
       if (ipBasedConfigs.isEmpty) {
         _logService.logError('No IP-based configs found');
         _isScanning = false;
-        return ConfigScanResult.failure(
+        selectedConfig = configs.first;
+        final result = ConfigScanResult.failure(
           totalTested: 0,
           phase1Passed: 0,
           phase2Tested: 0,
           allResults: [],
           scanDuration: DateTime.now().difference(scanStartTime),
-          templateConfig: configs.first,
+          templateConfig: selectedConfig,
         );
+        _completionController.add(result);
+        return result;
       }
 
-      final selectedConfig = ipBasedConfigs.first;
+      selectedConfig = ipBasedConfigs.first;
       _logService.logOk('Selected config: ${selectedConfig.getDescription()}');
 
       // Step 3: Load candidate IPs
       _logService.logInfo('Loading candidate IPs...');
-      final candidateIPs = enableIPv6
+      candidateIPs = enableIPv6
           ? await _ipLoader.loadAllAddresses(
               maxSamplesPerCIDR: _getCIDRSamplesForPlatform(),
             )
@@ -210,11 +239,11 @@ class DartScannerService {
       _logService.logInfo('===== PHASE 1: TLS HANDSHAKE TESTING =====');
       _logService.logInfo('Testing ${candidateIPs.length} IPs...');
 
-      final phase1Results = await _configTester.testIPsWithTLS(
+      phase1Results = await _configTester.testIPsWithTLS(
         template: selectedConfig,
         candidateIPs: candidateIPs,
-        timeoutSeconds: timeoutSeconds,
-        maxConcurrency: 200, // High concurrency for fast TLS tests
+        tlsTimeoutSeconds: tlsTimeoutSeconds,
+        maxConcurrency: 200,
       );
 
       // Filter successful TLS results
@@ -233,10 +262,21 @@ class DartScannerService {
         'Phase 1 complete: ${phase1Successful.length}/${candidateIPs.length} passed TLS test',
       );
 
+      if (phase1Successful.isNotEmpty) {
+        _logService.logOk('IPs found by TLS test (${phase1Successful.length}):');
+        for (int i = 0; i < phase1Successful.length; i++) {
+          final r = phase1Successful[i];
+          final latency = r.tlsTestResult?.latencyMs.toStringAsFixed(0) ?? '?';
+          final cfTag =
+              r.tlsTestResult?.cloudflareVerified == true ? ' [CF]' : '';
+          _logService.logInfo('  [${i + 1}] ${r.ip} (TLS: ${latency}ms$cfTag)');
+        }
+      }
+
       if (phase1Successful.isEmpty) {
         _logService.logError('No IPs passed Phase 1 TLS testing');
         _isScanning = false;
-        return ConfigScanResult.failure(
+        final result = ConfigScanResult.failure(
           totalTested: candidateIPs.length,
           phase1Passed: 0,
           phase2Tested: 0,
@@ -244,12 +284,13 @@ class DartScannerService {
           scanDuration: DateTime.now().difference(scanStartTime),
           templateConfig: selectedConfig,
         );
+        _completionController.add(result);
+        return result;
       }
 
-      // Step 5: Phase 2 - Proxy Testing (low concurrency)
+      // Step 5: Phase 2 - Proxy Testing (sequential, one by one)
       _logService.logInfo('===== PHASE 2: XRAY PROXY TESTING =====');
 
-      // Determine how many IPs to test in Phase 2
       final phase2Candidates = phase1Successful.take(phase2TestDepth).toList();
       _logService.logInfo(
         'Testing top ${phase2Candidates.length} IPs with Xray proxy...',
@@ -258,40 +299,31 @@ class DartScannerService {
       final phase2Results = <ConfigTestResult>[];
       var workingCount = 0;
 
-      // Emit initial Phase 2 progress
-      _phase2ProgressController.add(
-        Phase2Progress(
-          totalIPs: phase2Candidates.length,
-          testedIPs: 0,
-          workingIPs: 0,
-        ),
-      );
+      _emitPhase2Progress(Phase2Progress(
+        totalIPs: phase2Candidates.length,
+        testedIPs: 0,
+        workingIPs: 0,
+      ));
 
-      // Test IPs one by one (low concurrency to avoid resource exhaustion)
       for (var i = 0; i < phase2Candidates.length; i++) {
         if (_isCancelled) {
           _logService.logWarn('Scan cancelled by user');
           break;
         }
 
-        final candidateResult = phase2Candidates[i];
-        final candidateIP = candidateResult.ip;
+        final candidateIP = phase2Candidates[i].ip;
 
         _logService.logInfo(
           'Testing ${i + 1}/${phase2Candidates.length}: $candidateIP',
         );
 
-        // Emit progress update - testing started
-        _phase2ProgressController.add(
-          Phase2Progress(
-            totalIPs: phase2Candidates.length,
-            testedIPs: i,
-            workingIPs: workingCount,
-            currentIP: candidateIP,
-          ),
-        );
+        _emitPhase2Progress(Phase2Progress(
+          totalIPs: phase2Candidates.length,
+          testedIPs: i,
+          workingIPs: workingCount,
+          currentIP: candidateIP,
+        ));
 
-        // Test IP with Xray proxy
         final proxyResult = await _xrayService.testIPWithProxy(
           config: selectedConfig,
           candidateIP: candidateIP,
@@ -300,66 +332,61 @@ class DartScannerService {
 
         phase2Results.add(proxyResult);
 
-        // Check if IP works
         if (proxyResult.proxyTestResult != null &&
-            proxyResult.proxyTestResult!.success &&
-            proxyResult.proxyTestResult!.statusCode == 204) {
+            proxyResult.proxyTestResult!.success) {
           workingCount++;
           _logService.logOk(
             '$candidateIP works! ($workingCount/$desiredIPCount found)',
           );
 
-          // Emit progress update - IP worked
-          _phase2ProgressController.add(
-            Phase2Progress(
-              totalIPs: phase2Candidates.length,
-              testedIPs: i + 1,
-              workingIPs: workingCount,
-            ),
-          );
+          _emitPhase2Progress(Phase2Progress(
+            totalIPs: phase2Candidates.length,
+            testedIPs: i + 1,
+            workingIPs: workingCount,
+          ));
 
-          // Early exit if we found enough working IPs
           if (workingCount >= desiredIPCount) {
-            _logService.logOk(
-              'Target reached! Found $workingCount working IPs',
-            );
+            _logService.logOk('Target reached! Found $workingCount working IPs');
             break;
           }
         } else {
           _logService.logWarn('$candidateIP failed proxy test');
 
-          // Emit progress update - IP failed
-          _phase2ProgressController.add(
-            Phase2Progress(
-              totalIPs: phase2Candidates.length,
-              testedIPs: i + 1,
-              workingIPs: workingCount,
-            ),
-          );
+          _emitPhase2Progress(Phase2Progress(
+            totalIPs: phase2Candidates.length,
+            testedIPs: i + 1,
+            workingIPs: workingCount,
+          ));
         }
       }
 
-      // Emit final Phase 2 progress
-      _phase2ProgressController.add(
-        Phase2Progress(
-          totalIPs: phase2Candidates.length,
-          testedIPs: phase2Results.length,
-          workingIPs: workingCount,
-        ),
-      );
+      _emitPhase2Progress(Phase2Progress(
+        totalIPs: phase2Candidates.length,
+        testedIPs: phase2Results.length,
+        workingIPs: workingCount,
+      ));
 
-      // Combine Phase 1 and Phase 2 results
+      // Merge Phase 1 TLS results into Phase 2 results so TLS fallback works
+      final phase1ByIP = {for (final r in phase1Results) r.ip: r};
       final allResults = <ConfigTestResult>[];
 
-      // Add Phase 2 results
-      allResults.addAll(phase2Results);
+      for (final p2Result in phase2Results) {
+        final tlsResult = phase1ByIP[p2Result.ip]?.tlsTestResult;
+        final proxyResult = p2Result.proxyTestResult;
+        if (tlsResult != null && proxyResult != null) {
+          allResults.add(ConfigTestResult.fromBothTests(
+            ip: p2Result.ip,
+            config: p2Result.config,
+            tlsTestResult: tlsResult,
+            proxyTestResult: proxyResult,
+          ));
+        } else {
+          allResults.add(p2Result);
+        }
+      }
 
-      // Add Phase 1 only results (not tested in Phase 2)
       final phase2IPs = phase2Results.map((r) => r.ip).toSet();
-      final phase1OnlyResults = phase1Results
-          .where((r) => !phase2IPs.contains(r.ip))
-          .toList();
-      allResults.addAll(phase1OnlyResults);
+      allResults.addAll(phase1Results.where((r) => !phase2IPs.contains(r.ip)));
 
       final scanDuration = DateTime.now().difference(scanStartTime);
 
@@ -376,7 +403,7 @@ class DartScannerService {
 
       _isScanning = false;
 
-      return ConfigScanResult.success(
+      final result = ConfigScanResult.success(
         totalTested: candidateIPs.length,
         phase1Passed: phase1Successful.length,
         phase2Tested: phase2Results.length,
@@ -384,21 +411,46 @@ class DartScannerService {
         scanDuration: scanDuration,
         templateConfig: selectedConfig,
       );
+      _completionController.add(result);
+      return result;
+
     } catch (e, stackTrace) {
       _logService.logError('Config scan failed: $e');
       _logService.logError('Stack trace: $stackTrace');
 
       _isScanning = false;
 
-      final emptyConfig = XrayConfig(outbounds: [], inbounds: [], log: {});
-      return ConfigScanResult.failure(
-        totalTested: 0,
+      // If Phase 1 completed before the crash, use TLS results as fallback
+      final phase1Successful = phase1Results
+          .where((r) => r.tlsTestResult != null && r.tlsTestResult!.success)
+          .toList();
+
+      if (phase1Successful.isNotEmpty) {
+        _logService.logWarn(
+          'Phase 2 crashed — returning ${phase1Successful.length} TLS-only results',
+        );
+        final result = ConfigScanResult.success(
+          totalTested: candidateIPs.length,
+          phase1Passed: phase1Successful.length,
+          phase2Tested: 0,
+          allResults: phase1Results,
+          scanDuration: DateTime.now().difference(scanStartTime),
+          templateConfig: selectedConfig,
+        );
+        _completionController.add(result);
+        return result;
+      }
+
+      final result = ConfigScanResult.failure(
+        totalTested: candidateIPs.length,
         phase1Passed: 0,
         phase2Tested: 0,
-        allResults: [],
+        allResults: phase1Results,
         scanDuration: DateTime.now().difference(scanStartTime),
-        templateConfig: emptyConfig,
+        templateConfig: selectedConfig,
       );
+      _completionController.add(result);
+      return result;
     }
   }
 }

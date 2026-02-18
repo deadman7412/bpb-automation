@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../services/storage_service.dart';
 import '../services/dart_scanner_service.dart';
 
@@ -25,11 +26,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   DateTime? _lastScanTime;
   String? _subscriptionUrl;
+  Timer? _scanStatusTimer;
 
   @override
   void initState() {
     super.initState();
     _loadInfo();
+    // Periodically refresh so the button reacts to scan state changes
+    _scanStatusTimer = Timer.periodic(
+      const Duration(milliseconds: 500),
+      (_) { if (mounted) setState(() {}); },
+    );
+  }
+
+  @override
+  void dispose() {
+    _scanStatusTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadInfo() async {
@@ -43,9 +56,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _startScan() {
-    // Check if a scan is already running
+    // If scan is running, just navigate to it (will attach, not start new)
     if (_scanner.isScanning) {
-      _showScanAlreadyRunning();
+      Navigator.pushNamed(context, '/scan-progress').then((_) => _loadInfo());
       return;
     }
 
@@ -57,43 +70,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Navigate to scan progress screen
     Navigator.pushNamed(context, '/scan-progress').then((_) {
-      // Reload info when returning from scan
       _loadInfo();
     });
-  }
-
-  void _showScanAlreadyRunning() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.warning, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Scan in Progress'),
-          ],
-        ),
-        content: const Text(
-          'A scan is already running. Please wait for it to complete or stop it before starting a new scan.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              Navigator.pushNamed(
-                context,
-                '/scan-progress',
-              ); // Go to scan screen
-            },
-            child: const Text('View Scan'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showConfigNeeded() {
@@ -160,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   // App Title & Description
                   Card(
-                    color: Colors.blue[50],
+                    color: Theme.of(context).colorScheme.primaryContainer,
                     child: Padding(
                       padding: const EdgeInsets.all(20.0),
                       child: Column(
@@ -168,7 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Icon(
                             Icons.cloud_done,
                             size: 64,
-                            color: Colors.blue[700],
+                            color: Theme.of(context).colorScheme.onPrimaryContainer,
                           ),
                           const SizedBox(height: 16),
                           Text(
@@ -176,14 +154,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             style: Theme.of(context).textTheme.headlineSmall
                                 ?.copyWith(
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.blue[900],
+                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
                                 ),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             'Find working Cloudflare IPs for your BPB Panel',
                             style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(color: Colors.blue[800]),
+                                ?.copyWith(
+                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                ),
                             textAlign: TextAlign.center,
                           ),
                         ],
@@ -193,18 +173,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   const SizedBox(height: 24),
 
-                  // Start Scan Button
+                  // Start Scan / View Current Scan Button
                   SizedBox(
                     height: 64,
                     child: ElevatedButton.icon(
                       onPressed: _startScan,
-                      icon: const Icon(Icons.play_arrow, size: 28),
-                      label: const Text(
-                        'Start Scan',
-                        style: TextStyle(fontSize: 20),
+                      icon: Icon(
+                        _scanner.isScanning ? Icons.visibility : Icons.play_arrow,
+                        size: 28,
+                      ),
+                      label: Text(
+                        _scanner.isScanning ? 'View Current Scan' : 'Start Scan',
+                        style: const TextStyle(fontSize: 20),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
+                        backgroundColor: _scanner.isScanning ? Colors.blue : Colors.green,
                         foregroundColor: Colors.white,
                       ),
                     ),
@@ -262,12 +245,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               if (_scanner.isScanning)
                                 TextButton(
-                                  onPressed: () {
-                                    Navigator.pushNamed(
-                                      context,
-                                      '/scan-progress',
-                                    );
-                                  },
+                                  onPressed: () => Navigator.pushNamed(
+                                    context,
+                                    '/scan-progress',
+                                  ).then((_) => _loadInfo()),
                                   child: const Text('View'),
                                 ),
                             ],
