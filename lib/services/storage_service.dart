@@ -29,6 +29,7 @@ class StorageService {
   static const String _keyAutoUpdateEnabled = 'auto_update_enabled';
   static const String _keyAutoUpdateInterval = 'auto_update_interval_hours';
   static const String _keyNumIpsToUse = 'num_ips_to_use';
+  static const String _keySubscriptionUrl = 'subscription_url';
 
   StorageService._internal()
     : _secureStorage = const FlutterSecureStorage(
@@ -314,6 +315,21 @@ class StorageService {
   /// Defaults to 5 if not set.
   Future<int> getNumIpsToUse() async {
     return _prefs.getInt(_keyNumIpsToUse) ?? 5;
+  }
+
+  /// Saves the subscription URL for config-based scanning.
+  ///
+  /// This URL should point to a BPB Panel subscription endpoint.
+  Future<void> saveSubscriptionUrl(String url) async {
+    await _prefs.setString(_keySubscriptionUrl, url);
+    _logService.logInfo('[INFO] Saved subscription URL');
+  }
+
+  /// Retrieves the saved subscription URL.
+  ///
+  /// Returns null if no URL has been saved.
+  Future<String?> getSubscriptionUrl() async {
+    return _prefs.getString(_keySubscriptionUrl);
   }
 
   // ==================== Generic Preferences ====================

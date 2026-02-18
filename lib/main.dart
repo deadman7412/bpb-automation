@@ -4,6 +4,8 @@ import 'screens/settings_screen.dart';
 import 'screens/results_screen.dart';
 import 'screens/logs_screen.dart';
 import 'screens/config_screen.dart';
+import 'screens/config_scan_screen.dart';
+import 'screens/config_scan_results_screen.dart';
 import 'screens/about_screen.dart';
 import 'screens/debug_screen.dart';
 import 'services/storage_service.dart';
@@ -30,10 +32,7 @@ class BPBAutomationApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
         useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          elevation: 2,
-        ),
+        appBarTheme: const AppBarTheme(centerTitle: true, elevation: 2),
         cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(
@@ -55,10 +54,7 @@ class BPBAutomationApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
         useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          elevation: 2,
-        ),
+        appBarTheme: const AppBarTheme(centerTitle: true, elevation: 2),
         cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(
@@ -82,6 +78,8 @@ class BPBAutomationApp extends StatelessWidget {
         '/results': (context) => const ResultsScreen(),
         '/logs': (context) => const LogsScreen(),
         '/config': (context) => const ConfigScreen(),
+        '/config-scan': (context) => const ConfigScanScreen(),
+        '/config-results': (context) => const ConfigScanResultsScreen(),
         '/about': (context) => const AboutScreen(),
         '/debug': (context) => const DebugScreen(),
       },

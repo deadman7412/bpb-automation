@@ -37,6 +37,7 @@ dependencies:
 
   # File system paths
   path_provider: ^2.1.1
+  path: ^1.8.3
 
   # Secure credential storage
   flutter_secure_storage: ^9.0.0
@@ -55,6 +56,9 @@ dependencies:
 
   # Package info for version display
   package_info_plus: ^5.0.1
+
+  # File sharing for config export
+  share_plus: ^7.0.0
 
 dev_dependencies:
   flutter_test:
@@ -85,6 +89,12 @@ flutter:
     - assets/binaries/darwin-arm64/
     - assets/binaries/linux-amd64/
     - assets/binaries/windows-amd64/
+    # Xray-core binaries for config-based scanning
+    - assets/xray-binaries/android-arm64/
+    - assets/xray-binaries/darwin-amd64/
+    - assets/xray-binaries/darwin-arm64/
+    - assets/xray-binaries/linux-amd64/
+    - assets/xray-binaries/windows-amd64/
     # IP lists for Dart scanner
     - assets/ip_lists/
 

@@ -4,10 +4,16 @@ import 'package:bpb_automation/models/scan_progress.dart';
 import 'package:bpb_automation/models/scan_result.dart';
 import 'package:bpb_automation/models/latency_result.dart';
 import 'package:bpb_automation/models/scanner_config.dart';
+import 'package:bpb_automation/models/config_scan_result.dart';
+import 'package:bpb_automation/models/config_test_result.dart';
+import 'package:bpb_automation/models/xray_config.dart';
 import 'package:bpb_automation/services/ip_loader.dart';
 import 'package:bpb_automation/services/latency_tester.dart';
 import 'package:bpb_automation/services/speed_tester.dart';
 import 'package:bpb_automation/services/log_service.dart';
+import 'package:bpb_automation/services/subscription_service.dart';
+import 'package:bpb_automation/services/config_tester_service.dart';
+import 'package:bpb_automation/services/xray_service.dart';
 
 /// Status of a scan operation
 enum ScanStatus {
@@ -69,6 +75,9 @@ class DartScannerService {
   final IPLoader _ipLoader = IPLoader();
   final LatencyTester _latencyTester = LatencyTester();
   final SpeedTester _speedTester = SpeedTester();
+  final SubscriptionService _subscriptionService = SubscriptionService.instance;
+  final ConfigTesterService _configTester = ConfigTesterService.instance;
+  final XrayService _xrayService = XrayService.instance;
 
   /// Stream controller for progress updates
   StreamController<ScanProgress>? _progressController;
@@ -803,4 +812,247 @@ class DartScannerService {
 
   /// Get scanner version
   String get version => '2.0.0-dart-go-algorithm';
+
+  // ========== CONFIG-BASED SCANNING ==========
+
+  /// Execute config-based scan with 2-phase testing
+  ///
+  /// **Phase 1**: Fast TLS handshake testing (concurrent)
+  /// - Tests all candidate IPs with TLS handshake
+  /// - Filters successful IPs
+  /// - Sorts by latency (fastest first)
+  ///
+  /// **Phase 2**: Real proxy testing via Xray-core (low concurrency)
+  /// - Tests top N candidates from Phase 1
+  /// - Actually connects through Xray proxy
+  /// - Tests HTTP connection via SOCKS5
+  /// - Continues until desired IP count found or all tested
+  ///
+  /// Algorithm:
+  /// 1. Fetch subscription configs
+  /// 2. Auto-select IP-based config (or use provided config)
+  /// 3. Load candidate IPs (same as standard scan)
+  /// 4. Phase 1: TLS test all IPs concurrently
+  /// 5. Phase 2: Proxy test top 50-100 IPs with Xray
+  /// 6. Return working IPs sorted by proxy latency
+  ///
+  /// Parameters:
+  /// - [subscriptionUrl]: BPB Panel subscription URL
+  /// - [desiredIPCount]: Target number of working IPs (default: 10)
+  /// - [config]: Scanner configuration (for IP loading and filtering)
+  /// - [phase2TestDepth]: How many Phase 1 successful IPs to test in Phase 2 (default: 50)
+  ///
+  /// Returns [ConfigScanResult] with working IPs and detailed test results.
+  Future<ConfigScanResult> executeConfigScan({
+    required String subscriptionUrl,
+    int desiredIPCount = 10,
+    required ScannerConfig config,
+    int phase2TestDepth = 50,
+  }) async {
+    _logService.logInfo('[INFO] ===== STARTING CONFIG-BASED SCAN =====');
+    _logService.logInfo(
+      '[INFO] Goal: Find $desiredIPCount working IPs using Xray config',
+    );
+    _logService.logInfo('[INFO] Phase 2 test depth: $phase2TestDepth IPs');
+
+    final scanStartTime = DateTime.now();
+    _isCancelled = false;
+
+    try {
+      // Step 1: Initialize Xray service
+      _logService.logInfo('[INFO] Initializing Xray service...');
+      await _xrayService.initialize();
+      _logService.logOk('[OK] Xray service initialized');
+
+      // Step 2: Fetch subscription configs
+      _logService.logInfo('[INFO] Fetching subscription configs...');
+      final configs = await _subscriptionService.fetchConfigs(subscriptionUrl);
+
+      if (configs.isEmpty) {
+        _logService.logError('[ERROR] No valid configs found in subscription');
+        final emptyConfig = XrayConfig(outbounds: [], inbounds: [], log: {});
+        return ConfigScanResult.failure(
+          totalTested: 0,
+          phase1Passed: 0,
+          phase2Tested: 0,
+          allResults: [],
+          scanDuration: DateTime.now().difference(scanStartTime),
+          templateConfig: emptyConfig,
+        );
+      }
+
+      _logService.logOk('[OK] Found ${configs.length} valid configs');
+
+      // Step 3: Select IP-based config
+      final ipBasedConfigs = configs.where((c) => c.isIpBased()).toList();
+
+      if (ipBasedConfigs.isEmpty) {
+        _logService.logError('[ERROR] No IP-based configs found');
+        return ConfigScanResult.failure(
+          totalTested: 0,
+          phase1Passed: 0,
+          phase2Tested: 0,
+          allResults: [],
+          scanDuration: DateTime.now().difference(scanStartTime),
+          templateConfig: configs.first,
+        );
+      }
+
+      final selectedConfig = ipBasedConfigs.first;
+      _logService.logOk(
+        '[OK] Selected config: ${selectedConfig.getDescription()}',
+      );
+
+      // Step 4: Load candidate IPs
+      _logService.logInfo('[INFO] Loading candidate IPs...');
+      final candidateIPs = await _ipLoader.loadAllAddresses(
+        maxSamplesPerCIDR: _getCIDRSamplesForPlatform(),
+      );
+
+      _logService.logOk('[OK] Loaded ${candidateIPs.length} candidate IPs');
+
+      // Step 5: Phase 1 - TLS Testing (concurrent)
+      _logService.logInfo('[INFO] ===== PHASE 1: TLS HANDSHAKE TESTING =====');
+      _logService.logInfo('[INFO] Testing ${candidateIPs.length} IPs...');
+
+      final phase1Results = await _configTester.testIPsWithTLS(
+        template: selectedConfig,
+        candidateIPs: candidateIPs,
+        timeoutSeconds: config.downloadTestTime,
+        maxConcurrency: 200, // High concurrency for fast TLS tests
+      );
+
+      // Filter successful TLS results
+      final phase1Successful = phase1Results
+          .where((r) => r.tlsTestResult != null && r.tlsTestResult!.success)
+          .toList();
+
+      // Sort by TLS latency (fastest first)
+      phase1Successful.sort((a, b) {
+        final aLatency = a.tlsTestResult?.latencyMs ?? double.infinity;
+        final bLatency = b.tlsTestResult?.latencyMs ?? double.infinity;
+        return aLatency.compareTo(bLatency);
+      });
+
+      _logService.logOk(
+        '[OK] Phase 1 complete: ${phase1Successful.length}/${candidateIPs.length} passed TLS test',
+      );
+
+      if (phase1Successful.isEmpty) {
+        _logService.logError('[ERROR] No IPs passed Phase 1 TLS testing');
+        return ConfigScanResult.failure(
+          totalTested: candidateIPs.length,
+          phase1Passed: 0,
+          phase2Tested: 0,
+          allResults: phase1Results,
+          scanDuration: DateTime.now().difference(scanStartTime),
+          templateConfig: selectedConfig,
+        );
+      }
+
+      // Step 6: Phase 2 - Proxy Testing (low concurrency)
+      _logService.logInfo('[INFO] ===== PHASE 2: XRAY PROXY TESTING =====');
+
+      // Determine how many IPs to test in Phase 2
+      final phase2Candidates = phase1Successful.take(phase2TestDepth).toList();
+      _logService.logInfo(
+        '[INFO] Testing top ${phase2Candidates.length} IPs with Xray proxy...',
+      );
+
+      final phase2Results = <ConfigTestResult>[];
+      var workingCount = 0;
+
+      // Test IPs one by one (low concurrency to avoid resource exhaustion)
+      for (var i = 0; i < phase2Candidates.length; i++) {
+        if (_isCancelled) {
+          _logService.logWarn('[WARN] Scan cancelled by user');
+          break;
+        }
+
+        final candidateResult = phase2Candidates[i];
+        final candidateIP = candidateResult.ip;
+
+        _logService.logInfo(
+          '[INFO] Testing ${i + 1}/${phase2Candidates.length}: $candidateIP',
+        );
+
+        // Test IP with Xray proxy
+        final proxyResult = await _xrayService.testIPWithProxy(
+          config: selectedConfig,
+          candidateIP: candidateIP,
+          timeoutSeconds: config.downloadTestTime,
+        );
+
+        phase2Results.add(proxyResult);
+
+        // Check if IP works
+        if (proxyResult.proxyTestResult != null &&
+            proxyResult.proxyTestResult!.success &&
+            proxyResult.proxyTestResult!.statusCode == 204) {
+          workingCount++;
+          _logService.logOk(
+            '[OK] $candidateIP works! ($workingCount/$desiredIPCount found)',
+          );
+
+          // Early exit if we found enough working IPs
+          if (workingCount >= desiredIPCount) {
+            _logService.logOk(
+              '[OK] Target reached! Found $workingCount working IPs',
+            );
+            break;
+          }
+        } else {
+          _logService.logWarn('[WARN] $candidateIP failed proxy test');
+        }
+      }
+
+      // Combine Phase 1 and Phase 2 results
+      final allResults = <ConfigTestResult>[];
+
+      // Add Phase 2 results
+      allResults.addAll(phase2Results);
+
+      // Add Phase 1 only results (not tested in Phase 2)
+      final phase2IPs = phase2Results.map((r) => r.ip).toSet();
+      final phase1OnlyResults = phase1Results
+          .where((r) => !phase2IPs.contains(r.ip))
+          .toList();
+      allResults.addAll(phase1OnlyResults);
+
+      final scanDuration = DateTime.now().difference(scanStartTime);
+
+      _logService.logOk('[OK] ===== CONFIG SCAN COMPLETE =====');
+      _logService.logOk(
+        '[OK] Found $workingCount working IPs in ${scanDuration.inSeconds}s',
+      );
+      _logService.logOk(
+        '[OK] Phase 1: ${phase1Successful.length}/${candidateIPs.length} passed TLS',
+      );
+      _logService.logOk(
+        '[OK] Phase 2: $workingCount/${phase2Results.length} passed proxy test',
+      );
+
+      return ConfigScanResult.success(
+        totalTested: candidateIPs.length,
+        phase1Passed: phase1Successful.length,
+        phase2Tested: phase2Results.length,
+        allResults: allResults,
+        scanDuration: scanDuration,
+        templateConfig: selectedConfig,
+      );
+    } catch (e, stackTrace) {
+      _logService.logError('[ERROR] Config scan failed: $e');
+      _logService.logError('[ERROR] Stack trace: $stackTrace');
+
+      final emptyConfig = XrayConfig(outbounds: [], inbounds: [], log: {});
+      return ConfigScanResult.failure(
+        totalTested: 0,
+        phase1Passed: 0,
+        phase2Tested: 0,
+        allResults: [],
+        scanDuration: DateTime.now().difference(scanStartTime),
+        templateConfig: emptyConfig,
+      );
+    }
+  }
 }

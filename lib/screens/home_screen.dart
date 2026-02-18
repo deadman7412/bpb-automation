@@ -686,6 +686,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
 
+                  const SizedBox(height: 16),
+
+                  // Config-Based Scan Button
+                  if (!_isScanning)
+                    OutlinedButton.icon(
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/config-scan'),
+                      icon: const Icon(Icons.settings_input_antenna),
+                      label: const Text('Config-Based Scan'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(200, 48),
+                      ),
+                    ),
+
                   const SizedBox(height: 48),
 
                   // Quick Stats
