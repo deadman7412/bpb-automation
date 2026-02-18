@@ -30,6 +30,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
   final SubscriptionService _subscription = SubscriptionService.instance;
 
   bool _isScanning = false;
+  bool _isCancelling = false;
 
   // Progress tracking
   String _currentPhase = 'Initializing...';
@@ -42,6 +43,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
   double _progressPercent = 0.0;
 
   StreamSubscription<TlsTestProgress>? _progressSubscription;
+  StreamSubscription<Phase2Progress>? _phase2ProgressSubscription;
 
   @override
   void initState() {
@@ -52,6 +54,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
   @override
   void dispose() {
     _progressSubscription?.cancel();
+    _phase2ProgressSubscription?.cancel();
     super.dispose();
   }
 
@@ -176,6 +179,19 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       });
     });
 
+    // Subscribe to Phase 2 progress updates
+    _phase2ProgressSubscription = _scanner.phase2ProgressStream.listen((
+      progress,
+    ) {
+      if (!mounted) return;
+      setState(() {
+        _currentPhase = 'Phase 2: Proxy Testing';
+        _phase2Tested = progress.testedIPs;
+        _phase2Total = progress.totalIPs;
+        _phase2Success = progress.workingIPs;
+      });
+    });
+
     _log.logInfo('Starting config scan');
 
     try {
@@ -190,20 +206,27 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       if (!mounted) return;
 
       await _progressSubscription?.cancel();
+      await _phase2ProgressSubscription?.cancel();
       _progressSubscription = null;
+      _phase2ProgressSubscription = null;
 
       if (!mounted) return;
 
       // Check if we found any working IPs
-      if (result.workingIPCount > 0) {
+      if (result.workingIPCount > 0 || _isCancelling) {
         setState(() {
-          _currentPhase = 'Complete';
+          _currentPhase = _isCancelling ? 'Cancelled' : 'Complete';
           _isScanning = false;
+          _isCancelling = false;
         });
 
-        _log.logOk('Config scan completed successfully');
+        _log.logOk(
+          _isCancelling
+              ? 'Scan cancelled - showing partial results'
+              : 'Config scan completed successfully',
+        );
 
-        // Navigate to results screen
+        // Navigate to results screen (even with partial results from cancelled scan)
         // ignore: use_build_context_synchronously
         Navigator.pushReplacementNamed(context, '/results', arguments: result);
       } else {
@@ -225,7 +248,9 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       _log.logError('Config scan error: $e\n$stackTrace');
 
       await _progressSubscription?.cancel();
+      await _phase2ProgressSubscription?.cancel();
       _progressSubscription = null;
+      _phase2ProgressSubscription = null;
 
       if (!mounted) return;
 
@@ -293,14 +318,14 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
   }
 
   void _stopScan() {
+    // Mark as cancelling
+    setState(() {
+      _isCancelling = true;
+      _currentPhase = 'Stopping scan...';
+    });
+
     // Cancel the scan
     _scanner.cancelScan();
-
-    // Update UI
-    setState(() {
-      _isScanning = false;
-      _currentPhase = 'Scan cancelled by user';
-    });
 
     _log.logWarn('User cancelled scan from progress screen');
 
@@ -308,11 +333,13 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Scan cancelled'),
+        content: Text('Stopping scan - will show results found so far'),
         backgroundColor: Colors.orange,
         duration: Duration(seconds: 2),
       ),
     );
+
+    // Scanner will complete shortly and navigate to results
   }
 
   @override

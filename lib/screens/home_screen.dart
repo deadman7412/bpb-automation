@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/storage_service.dart';
+import '../services/dart_scanner_service.dart';
 
 /// Main home screen with navigation menu
 ///
@@ -20,6 +21,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storage = StorageService.instance;
+  final DartScannerService _scanner = DartScannerService.instance;
 
   DateTime? _lastScanTime;
   String? _subscriptionUrl;
@@ -41,6 +43,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _startScan() {
+    // Check if a scan is already running
+    if (_scanner.isScanning) {
+      _showScanAlreadyRunning();
+      return;
+    }
+
     // Check if subscription URL is configured
     if (_subscriptionUrl == null || _subscriptionUrl!.isEmpty) {
       _showConfigNeeded();
@@ -48,7 +56,44 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // Navigate to scan progress screen
-    Navigator.pushNamed(context, '/scan-progress');
+    Navigator.pushNamed(context, '/scan-progress').then((_) {
+      // Reload info when returning from scan
+      _loadInfo();
+    });
+  }
+
+  void _showScanAlreadyRunning() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Scan in Progress'),
+          ],
+        ),
+        content: const Text(
+          'A scan is already running. Please wait for it to complete or stop it before starting a new scan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pushNamed(
+                context,
+                '/scan-progress',
+              ); // Go to scan screen
+            },
+            child: const Text('View Scan'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showConfigNeeded() {
@@ -182,33 +227,49 @@ class _HomeScreenState extends State<HomeScreen> {
                           Row(
                             children: [
                               Icon(
-                                _subscriptionUrl != null &&
-                                        _subscriptionUrl!.isNotEmpty
-                                    ? Icons.check_circle
-                                    : Icons.warning,
-                                color:
-                                    _subscriptionUrl != null &&
-                                        _subscriptionUrl!.isNotEmpty
-                                    ? Colors.green
-                                    : Colors.orange,
+                                _scanner.isScanning
+                                    ? Icons.sync
+                                    : (_subscriptionUrl != null &&
+                                              _subscriptionUrl!.isNotEmpty
+                                          ? Icons.check_circle
+                                          : Icons.warning),
+                                color: _scanner.isScanning
+                                    ? Colors.blue
+                                    : (_subscriptionUrl != null &&
+                                              _subscriptionUrl!.isNotEmpty
+                                          ? Colors.green
+                                          : Colors.orange),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  _subscriptionUrl != null &&
-                                          _subscriptionUrl!.isNotEmpty
-                                      ? 'Ready to scan'
-                                      : 'Configuration needed',
+                                  _scanner.isScanning
+                                      ? 'Scan in progress'
+                                      : (_subscriptionUrl != null &&
+                                                _subscriptionUrl!.isNotEmpty
+                                            ? 'Ready to scan'
+                                            : 'Configuration needed'),
                                   style: TextStyle(
-                                    color:
-                                        _subscriptionUrl != null &&
-                                            _subscriptionUrl!.isNotEmpty
-                                        ? Colors.green[700]
-                                        : Colors.orange[700],
+                                    color: _scanner.isScanning
+                                        ? Colors.blue[700]
+                                        : (_subscriptionUrl != null &&
+                                                  _subscriptionUrl!.isNotEmpty
+                                              ? Colors.green[700]
+                                              : Colors.orange[700]),
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
+                              if (_scanner.isScanning)
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.pushNamed(
+                                      context,
+                                      '/scan-progress',
+                                    );
+                                  },
+                                  child: const Text('View'),
+                                ),
                             ],
                           ),
                           const SizedBox(height: 8),
