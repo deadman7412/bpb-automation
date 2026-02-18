@@ -227,7 +227,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
             const SizedBox(height: 8),
             Text(
               value,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: color,
               ),
@@ -325,7 +325,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                   crossAxisCount: 2,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: 1.5,
+                  childAspectRatio: 1.2,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
                   children: [

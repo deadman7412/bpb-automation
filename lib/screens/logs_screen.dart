@@ -14,25 +14,6 @@ class LogsScreen extends StatefulWidget {
 class _LogsScreenState extends State<LogsScreen> {
   final LogService _log = LogService.instance;
   LogLevel? _filterLevel;
-  bool _autoScroll = true;
-  final ScrollController _scrollController = ScrollController();
-  int _previousLogCount = 0;
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  void _scrollToBottom() {
-    if (_autoScroll && _scrollController.hasClients) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-        }
-      });
-    }
-  }
 
   Color _getLogColor(LogLevel level) {
     switch (level) {
@@ -95,22 +76,17 @@ class _LogsScreenState extends State<LogsScreen> {
     try {
       final exported = _log.exportLogs();
 
-      // Get the appropriate directory based on platform
       final Directory directory;
       if (Platform.isAndroid) {
-        // On Android, use external storage directory
         directory = (await getExternalStorageDirectory())!;
       } else if (Platform.isIOS) {
-        // On iOS, use documents directory
         directory = await getApplicationDocumentsDirectory();
       } else {
-        // On desktop (macOS, Windows, Linux), use downloads directory
         directory =
             await getDownloadsDirectory() ??
             await getApplicationDocumentsDirectory();
       }
 
-      // Create filename with timestamp
       final timestamp = DateTime.now()
           .toIso8601String()
           .replaceAll(':', '-')
@@ -118,12 +94,10 @@ class _LogsScreenState extends State<LogsScreen> {
       final filename = 'bpb_automation_logs_$timestamp.txt';
       final file = File('${directory.path}/$filename');
 
-      // Write logs to file
       await file.writeAsString(exported);
 
       if (!mounted) return;
 
-      // Show success message with file path
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Logs exported to:\n${file.path}'),
@@ -164,15 +138,12 @@ class _LogsScreenState extends State<LogsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final logs = _filterLevel != null
+    final allLogs = _filterLevel != null
         ? _log.getLogsByLevel(_filterLevel!)
         : _log.getLogs();
 
-    // Auto-scroll to bottom when new logs arrive
-    if (logs.length != _previousLogCount) {
-      _previousLogCount = logs.length;
-      _scrollToBottom();
-    }
+    // Show newest first
+    final logs = allLogs.reversed.toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -184,70 +155,25 @@ class _LogsScreenState extends State<LogsScreen> {
             onPressed: () => _showFilterDialog(),
           ),
           IconButton(
-            icon: Icon(
-              _autoScroll
-                  ? Icons.arrow_downward
-                  : Icons.arrow_downward_outlined,
-            ),
-            tooltip: 'Auto-scroll',
-            onPressed: () {
-              setState(() => _autoScroll = !_autoScroll);
-            },
+            icon: const Icon(Icons.copy),
+            tooltip: 'Copy all logs',
+            onPressed: _copyLogsToClipboard,
           ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            tooltip: 'More options',
-            onSelected: (value) {
-              switch (value) {
-                case 'export':
-                  _exportLogs();
-                  break;
-                case 'copy':
-                  _copyLogsToClipboard();
-                  break;
-                case 'clear':
-                  _clearLogs();
-                  break;
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'export',
-                child: Row(
-                  children: [
-                    Icon(Icons.save_alt),
-                    SizedBox(width: 12),
-                    Text('Export to File'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'copy',
-                child: Row(
-                  children: [
-                    Icon(Icons.copy),
-                    SizedBox(width: 12),
-                    Text('Copy to Clipboard'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'clear',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline),
-                    SizedBox(width: 12),
-                    Text('Clear Logs'),
-                  ],
-                ),
-              ),
-            ],
+          IconButton(
+            icon: const Icon(Icons.save_alt),
+            tooltip: 'Export to file',
+            onPressed: _exportLogs,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Clear logs',
+            onPressed: _clearLogs,
           ),
         ],
       ),
       body: Column(
         children: [
-          // Filter Chips
+          // Active filter chip
           if (_filterLevel != null)
             Container(
               padding: const EdgeInsets.all(8),
@@ -268,7 +194,7 @@ class _LogsScreenState extends State<LogsScreen> {
               ),
             ),
 
-          // Log Count
+          // Log count bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
@@ -289,29 +215,17 @@ class _LogsScreenState extends State<LogsScreen> {
                     context,
                   ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
                 ),
-                if (_autoScroll)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.autorenew,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Auto-scroll',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ],
+                Text(
+                  'Newest first',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
+                ),
               ],
             ),
           ),
 
-          // Logs List
+          // Logs list - newest at top, no scroll controller needed
           Expanded(
             child: logs.isEmpty
                 ? Center(
@@ -332,7 +246,6 @@ class _LogsScreenState extends State<LogsScreen> {
                     ),
                   )
                 : ListView.builder(
-                    controller: _scrollController,
                     itemCount: logs.length,
                     padding: const EdgeInsets.all(8),
                     itemBuilder: (context, index) {

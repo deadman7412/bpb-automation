@@ -1,390 +1,210 @@
 # Scanner Configuration Guide
 
-This document explains the Cloudflare IP Scanner parameters and how to configure them in the app.
+This document explains the scan parameters available in the Configuration screen and how to tune them for your network.
 
 ## Overview
 
-The Cloudflare Clean IP Scanner tests latency and download speeds across multiple Cloudflare IPs to find the fastest, most reliable connections for your network.
+The scanner tests Cloudflare IPs using your actual BPB Panel Xray configs. It runs in three phases:
 
-## Default Configuration
+1. **Phase 1 (TLS)** — Concurrent TLS handshake test on all candidates
+2. **Phase 2 (Proxy)** — Live Xray proxy test on the top Phase 1 results
+3. **Results** — Top working IPs saved to BPB Panel
 
-The app comes with sensible defaults that work well for most users:
+## Configuration Screen Parameters
 
+### BPB Subscription URL (Required)
+
+Your BPB Panel subscription URL. The app appends `?app=xray` to fetch Xray-format configs.
+
+**Example:**
 ```
-Threads: 200
-Test Count: 4
-Download Test Count: 10
-Latency Upper Limit: 200ms
-Latency Lower Limit: 40ms
-Speed Limit: 5 MB/s
-Number of IPs to Use: 10
+https://your-worker.workers.dev/sub/UUID
 ```
 
-## Basic Settings (Main UI)
+Tap **Fetch & Verify** to validate the URL before scanning. The app downloads the config and shows which protocol and SNI it will use for testing.
 
-### Number of Clean IPs
-- **What it does**: How many IPs to save in your BPB Panel
-- **Default**: 10
-- **Recommended**: 5-15
-- **Why**: More IPs provide redundancy, but too many can slow config loading
+### Desired IP Count
 
-## Advanced Settings (Advanced Menu)
-
-### Threads (-n)
-- **What it does**: Number of concurrent latency tests
-- **Default**: 200
-- **Range**: 1-1000
-- **Impact**:
-  - Higher = Faster scanning
-  - Too high = May trigger ISP throttling
-- **Recommended**:
-  - Mobile: 100-200
-  - WiFi: 200-400
-  - VPS: 200-500
-
-### Test Count (-t)
-- **What it does**: Number of tests per IP
-- **Default**: 4
-- **Range**: 1-10
-- **Impact**:
-  - Higher = More accurate results
-  - Higher = Slower scanning
-- **Recommended**: 3-5
-
-### Download Test Count (-dn)
-- **What it does**: How many IPs to download-test (fastest latency)
-- **Default**: 10
-- **Range**: 0-100 (0 = disable download test)
-- **Impact**:
-  - Tests actual throughput
-  - Most time-consuming part
-- **Recommended**: 10-20
-
-### Latency Upper Limit (-tl)
-- **What it does**: Maximum acceptable latency (milliseconds)
-- **Default**: 200
-- **Range**: 1-1000
-- **Impact**: IPs slower than this are filtered out
-- **Recommended**:
-  - Excellent connection: 100-150ms
-  - Good connection: 150-200ms
-  - Acceptable: 200-300ms
-
-### Latency Lower Limit (-tll)
-- **What it does**: Minimum latency threshold (milliseconds)
-- **Default**: 40
-- **Range**: 1-500
-- **Impact**: IPs faster than this are excluded (suspiciously fast)
-- **Recommended**: 30-50ms
-
-### Speed Limit (-sl)
-- **What it does**: Minimum quality score threshold
+- **What it does**: How many working IPs to save after the scan
 - **Default**: 5
-- **Range**: 0.1-100
-- **Impact**: IPs with quality scores below this are filtered out
-- **Note**: Quality score is EWMA-based sustained throughput, not raw Mbps
+- **Recommended**: 3–10
+- **Notes**: More IPs give BPB Panel more fallbacks, but a small number is enough for good reliability
+
+### Phase 2 Test Depth
+
+- **What it does**: How many Phase 1 passing IPs to test with the real Xray proxy (Phase 2)
+- **Default**: 50
+- **Recommended**: 20–100
+- **Notes**:
+  - Higher = more Phase 2 tests = better chance of finding working IPs, but slower scan
+  - Lower = faster scan, but you may miss good IPs that failed Phase 1 narrowly
+  - Set to 0 to skip Phase 2 entirely (results based on TLS latency only)
+
+### Enable IPv6
+
+- **What it does**: Include IPv6 Cloudflare IPs in the candidate pool
+- **Default**: Off
+- **When to enable**: If your network has native IPv6 connectivity
+- **Notes**: IPv6 support on your network is required; enabling on an IPv4-only network results in all IPv6 IPs failing Phase 1
+
+### Max Samples per CIDR
+
+- **What it does**: Maximum number of IPs to sample from each Cloudflare CIDR range
+- **Default**: 100
+- **Range**: 10–500
+- **Notes**:
+  - Each sample is from a different /24 subnet (for IPv4), ensuring routing diversity
+  - Higher = larger IP pool = more coverage, but slower Phase 1
+  - Typical total pool size: 600–800 IPs with default settings
+
+### Batch Size
+
+- **What it does**: How many concurrent TLS connections to run during Phase 1
+- **Default**: 200
 - **Recommended**:
-  - Fast connection: 10-20
-  - Normal: 5-10
-  - Slow: 1-5
+  - Mobile (4G/5G): 100–150
+  - Home WiFi: 200–300
+  - VPS: 300–500
+- **Notes**: Higher = faster Phase 1, but excessive concurrency may trigger ISP throttling or socket limits
 
-**Understanding Quality Score:**
-- Based on EWMA (Exponentially Weighted Moving Average)
-- Measures sustained throughput quality, not peak speed
-- Favors consistent performance over brief bursts
-- More reliable indicator for BPB Panel stability
-- Roughly correlates with MB/s but is dimensionless
+## Scan Phases in Detail
 
-### Disable Download Test (-dd)
-- **What it does**: Skip speed testing, sort by latency only
-- **Default**: false (enabled)
-- **When to enable**:
-  - Quick scans needed
-  - Limited bandwidth
-  - Latency more important than speed
-- **Impact**: Much faster scanning (30-60 seconds vs 3-5 minutes)
+### Phase 1: TLS Handshake Test
 
-### HTTP Mode (-httping)
-- **What it does**: Use HTTP protocol instead of TCP
-- **Default**: false (TCP mode)
-- **When to enable**:
-  - TCP blocked by firewall
-  - More accurate HTTP-specific testing
-- **Impact**:
-  - 2-second timeout (vs 1-second TCP)
-  - Higher resource usage
-  - Reduce threads if enabled (try 100-150)
-
-## Scanning Process
-
-### Phase 1: IP Loading
 ```
-[INFO] Loading IP addresses from CIDR ranges...
-[INFO] IPv4: Subnet-aware sampling (one IP per /24 subnet)
-[INFO] IPv6: Pure random sampling
-[OK] Loaded 2096 IPs (696 IPv4, 1400 IPv6)
+[INFO] Phase 1: Testing 743 IPs for TLS connectivity...
+[INFO] Phase 1 progress: 250/743 (33.6%) — success: 62, failed: 188
+[INFO] Phase 1 progress: 500/743 (67.3%) — success: 121, failed: 379
+[OK] Phase 1 complete: 152 IPs passed TLS handshake
 ```
 
-**Key Feature - Subnet Diversity:**
-- IPv4 IPs selected from different /24 subnets for routing diversity
-- Each subnet connects through different Cloudflare PoPs
-- Results in better IP quality for BPB Panel
+**What happens per IP:**
+1. TCP connect to `ip:443` (1-second timeout)
+2. TLS handshake using the SNI hostname from your config
+3. Success = valid TLS connection established
+4. Measures handshake latency
 
-**Duration**: < 1 second
+**Results:** Sorted by TLS latency (fastest first). Top `phase2TestDepth` IPs advance.
 
-### Phase 2: Latency Testing
+**Typical duration:** 10–30 seconds
+
+### Phase 2: Live Proxy Test
+
 ```
-[INFO] Starting latency tests...
-[INFO] Testing 1000 IPs with 200 threads...
-[INFO] Progress: 250/1000 (25%)
-[INFO] Progress: 500/1000 (50%)
-[INFO] Progress: 750/1000 (75%)
-[OK] Latency testing complete: 234 IPs passed filters
-```
-
-**Test Method:**
-- TCP socket connection to port 443
-- 1 second timeout (aggressive)
-- 2 attempts per IP
-- Measures connection establishment time
-
-**Duration**: 10-30 seconds (depending on threads)
-
-### Phase 3: Speed Testing
-```
-[INFO] Starting download tests...
-[INFO] Testing top 10 IPs for speed...
-[INFO] Testing: 104.21.48.77 -> Quality: 12.5
-[INFO] Testing: 172.67.156.23 -> Quality: 15.2
-[OK] Speed testing complete
+[INFO] Phase 2: Testing top 50 IPs with real Xray proxy...
+[INFO] Testing 104.21.48.77... OK (latency: 142ms, status: 204)
+[INFO] Testing 172.67.156.23... OK (latency: 188ms, status: 204)
+[INFO] Testing 198.41.212.1... FAIL (timeout)
+[OK] Phase 2 complete: 8 working IPs found
 ```
 
-**Test Method:**
-- Download from speed.cloudflare.com
-- EWMA sampling every 100ms
-- Quality score = EWMA / (timeout / 120)
-- Measures sustained throughput quality
+**What happens per IP:**
+1. Xray-core binary is started with the candidate IP substituted into the outbound config
+2. HTTP GET request is sent to `connectivitycheck.gstatic.com/generate_204` through the Xray SOCKS5 proxy
+3. Success = **HTTP 204** response received
+4. Measures full proxy round-trip latency
 
-**Duration**: 2-5 minutes (depending on download test count)
+**Results:** Sorted by proxy latency (fastest first). Top `desiredIPCount` IPs are saved.
 
-### Phase 4: Sorting & Results
-```
-[OK] Scan complete!
-[INFO] Found 10 clean IPs
-[INFO] Top IP: 172.67.156.23 (Quality: 15.2, Latency: 85ms, Loss: 0%)
-```
+**Typical duration:** 5–15 seconds per IP. For 50 IPs, expect 5–10 minutes.
 
-**Sorting Priority:**
-1. Loss rate (lower is better) - MOST IMPORTANT
-2. Latency (lower is better)
-3. Quality score (higher is better)
+**Note:** Phase 2 requires the Xray-core binary to be available for your platform. On Web, Phase 2 is skipped and Phase 1 results are used.
 
 ## Result Interpretation
 
-### CSV Output Format (Legacy)
+After the scan, the Results screen shows:
+
+| Field | Meaning |
+|-------|---------|
+| Phase 1 Tested | Total candidate IPs tested for TLS |
+| Phase 1 Passed | IPs with successful TLS handshake |
+| Phase 2 Tested | IPs tested with live Xray proxy |
+| Working IPs | IPs that returned HTTP 204 via proxy |
+
+Each working IP shows its **proxy latency** (round-trip time through Xray, lower = better).
+
+## Tuning for Your Network
+
+### Fast Scan (fewer results, faster)
 ```
-IP Address,Sent,Received,Loss Rate,Avg Latency,Quality Score
-172.67.156.23,2,2,0.00%,85.2,15.2
-104.21.48.77,2,2,0.00%,92.1,12.5
-...
+Phase 2 Test Depth: 20
+Batch Size: 300
+Max Samples per CIDR: 50
 ```
+Expected time: 2–4 minutes
 
-**Column Meanings:**
-- **IP Address**: Cloudflare CDN IP
-- **Sent**: Connection attempts during latency test
-- **Received**: Successful connections
-- **Loss Rate**: Percentage of failed connections (0% is best)
-- **Avg Latency**: Average TCP connection time in milliseconds (lower is better)
-- **Quality Score**: EWMA-based sustained throughput metric (higher is better)
-
-### Understanding Quality Score
-
-**What It Is:**
-- Exponentially Weighted Moving Average (EWMA) of download throughput
-- Measures **sustained** performance, not peak speed
-- Dimensionless metric (not Mbps)
-- Normalized across different test durations
-
-**Why It's Better Than Raw Speed:**
-- Filters out brief speed bursts that don't represent real performance
-- 80% weight to historical average, 20% to new samples
-- More reliable predictor of BPB Panel connection quality
-- Matches Go scanner's proven methodology
-
-**Rough Conversion:**
-- Quality Score ~10 ≈ ~10 MB/s sustained
-- But score emphasizes consistency over peaks
-- An IP with score 12 may outperform one with score 15 if more consistent
-
-### IP Selection Logic
-1. Filter IPs by latency (within configured limits)
-2. **Sort by loss rate FIRST** (0% loss prioritized)
-3. Then sort by latency (lower is better)
-4. Run download tests on top N by latency
-5. Calculate EWMA quality scores
-6. **Final sort: loss rate → latency → quality score**
-7. Take top N IPs for BPB Panel
-
-## Network-Specific Recommendations
-
-### Mobile Data (4G/5G)
+### Balanced Scan (default)
 ```
-Threads: 100-150
-Latency Limit: 250ms
-Speed Limit: 5 MB/s
-Download Tests: 10
+Phase 2 Test Depth: 50
+Batch Size: 200
+Max Samples per CIDR: 100
+```
+Expected time: 5–10 minutes
+
+### Thorough Scan (better results, slower)
+```
+Phase 2 Test Depth: 100
+Batch Size: 200
+Max Samples per CIDR: 200
+```
+Expected time: 15–30 minutes
+
+### Mobile Data
+```
+Batch Size: 100       (reduce concurrency on mobile)
+Phase 2 Test Depth: 30
 ```
 
-### Home WiFi
-```
-Threads: 200-300
-Latency Limit: 200ms
-Speed Limit: 10 MB/s
-Download Tests: 15
-```
+### No Working IPs Found
 
-### VPS/Server
-```
-Threads: 300-500
-Latency Limit: 150ms
-Speed Limit: 20 MB/s
-Download Tests: 20
-```
+If Phase 2 finds 0 working IPs:
+1. Verify your subscription URL is valid (use Fetch & Verify)
+2. Check the config protocol is VLESS/WS — Reality configs may not work for all networks
+3. Increase Phase 2 Test Depth (try 100)
+4. Try scanning at a different time (ISP routing changes)
+5. Check if Xray proxy actually works on your network using a standalone Xray client
 
-### Restricted Networks (Firewall/Proxy)
-```
-Threads: 100
-HTTP Mode: Enabled
-Latency Limit: 300ms
-Download Tests: 5
-```
+### Phase 1 Finds 0 IPs
 
-## Troubleshooting
-
-### Scan Takes Too Long
-- Reduce thread count
-- Reduce download test count
-- Enable "Disable Download Test"
-- Increase latency limit (fewer IPs to test)
-
-### No IPs Found
-- Increase latency upper limit (try 300-500ms)
-- Decrease speed limit (try 1-3 MB/s)
-- Check internet connection
-- Try HTTP mode if TCP is blocked
-
-### Inaccurate Results
-- Increase test count (try 5-8)
-- Run scan during off-peak hours
-- Disable other network-heavy apps
-- Try different times of day
-
-### ISP Throttling
-- Reduce thread count (try 50-100)
-- Enable HTTP mode
-- Add delays between tests (future feature)
-
-## Performance Tips
-
-### Quick Scan (1-2 minutes)
-```
-Threads: 300
-Test Count: 3
-Disable Download: Yes
-```
-
-### Accurate Scan (5-10 minutes)
-```
-Threads: 200
-Test Count: 5
-Download Tests: 20
-```
-
-### Balanced Scan (3-5 minutes)
-```
-Threads: 200
-Test Count: 4
-Download Tests: 10
-```
+If Phase 1 finds no TLS successes:
+1. Check your internet connection
+2. Confirm port 443 is not blocked on your network
+3. Try reducing Batch Size (some ISPs throttle high-concurrency connections)
 
 ## IP Database
 
-The scanner tests IPs from built-in lists:
-- `ip.txt` - IPv4 Cloudflare ranges
-- `ipv6.txt` - IPv6 Cloudflare ranges (if enabled)
+The scanner tests IPs from bundled lists:
+- `assets/ip_lists/ip.txt` — IPv4 Cloudflare CIDR ranges
+- `assets/ip_lists/ipv6.txt` — IPv6 Cloudflare CIDR ranges
 
-These are bundled with the app and updated periodically.
-
-## Scheduling Recommendations
-
-### How Often to Scan
-
-- **Heavy Users**: Every 6-12 hours
-- **Normal Users**: Every 24 hours
-- **Light Users**: Weekly or on-demand
-
-### Best Times to Scan
-
-- Off-peak hours (2AM-6AM local time)
-- When you experience slowdowns
-- After ISP maintenance
-- When changing networks (home/mobile/work)
-
-## Advanced Use Cases
-
-### Multiple ISPs
-Run scans on each network separately:
-1. Scan on mobile data -> Save results as "Mobile"
-2. Scan on home WiFi -> Save results as "Home"
-3. Manual switching based on current network
-
-### Testing Specific IP Ranges
-Future feature: Custom IP list input
-
-### Continuous Monitoring
-Future feature: Background scanning with notifications
-
-## Command-Line Equivalent
-
-For reference, the app runs commands similar to:
-
-```bash
-# Basic scan
-./CloudflareScanner -n 200 -t 4 -dn 10 -tl 200 -o result.csv
-
-# Fast scan (no download test)
-./CloudflareScanner -n 300 -t 3 -dd -tl 200 -o result.csv
-
-# Accurate scan
-./CloudflareScanner -n 200 -t 5 -dn 20 -tl 150 -sl 10 -o result.csv
-
-# HTTP mode
-./CloudflareScanner -httping -n 150 -t 4 -dn 10 -tl 250 -o result.csv
-```
+These are sourced from Cloudflare's published IP ranges and updated with each app release.
 
 ## Resource Usage
 
 ### Network Bandwidth
-- Latency test: Minimal (<1 MB total)
-- Download test: ~10-50 MB per scan
-- Total: 10-50 MB per scan
+- Phase 1: Minimal (TLS handshakes only, < 1 MB total)
+- Phase 2: Small (one HTTP 204 request per IP, < 5 MB total)
 
 ### Battery Impact (Mobile)
-- Quick scan: ~1-2% battery
-- Full scan: ~3-5% battery
-- Recommendation: Run while charging for scheduled scans
+- Scan: moderate CPU + network during Phase 1 and Phase 2
+- Recommendation: plug in device for long scans
 
 ### CPU Usage
-- Moderate during scanning
-- Minimal when idle
-- No background activity unless scheduled
+- Phase 1: High concurrency, moderate CPU
+- Phase 2: One Xray process at a time, low–moderate CPU
 
-## Future Enhancements
+## Scheduling Recommendations
 
-Planned features:
-- Custom IP lists
-- Scan profiles (Quick/Balanced/Thorough)
-- Comparison mode (before/after)
-- Historical trends
-- Automatic optimization based on network type
-- IPv6 support toggle
+### How Often to Scan
+- Heavy users: Every 6–12 hours
+- Normal users: Every 1–2 days
+- Light users: Weekly or on-demand
+
+### When to Re-scan
+- After switching networks (mobile data to WiFi and vice versa)
+- When proxy connection becomes slow
+- After ISP maintenance
+
+### Best Times
+- Off-peak hours (2 AM–6 AM local time)
+- When device is charging and idle

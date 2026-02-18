@@ -4,24 +4,23 @@ Cross-platform application for automatically scanning and updating clean Cloudfl
 
 ## Overview
 
-BPB Automation helps you find the fastest Cloudflare IPs for your network and automatically updates your BPB Panel configuration via Cloudflare Workers KV API.
+BPB Automation helps you find working Cloudflare IPs for your network and automatically updates your BPB Panel configuration via Cloudflare Workers KV API.
+
+The app fetches your BPB Panel's Xray subscription configs, then runs a 3-phase scan to find IPs that actually work as a proxy on your network.
 
 ## Key Features
 
-- **Pure Dart IP scanner** - Native implementation, no binary dependencies
+- **Config-based scanning** - Uses your actual BPB Panel Xray configs to test real proxy connectivity
+- **3-phase verification** - TCP pre-filter, TLS handshake, and live Xray proxy test
 - **Subnet-aware IP selection** - One IP per /24 subnet for maximum routing diversity
-- **EWMA quality scoring** - Sustained throughput measurement, not peak speed
-- **Loss-rate-first sorting** - Prioritizes connection stability over raw speed
-- Scan for clean Cloudflare IPs from your actual network
-- TCP latency testing (1s aggressive timeout) + HTTPS download speed testing
-- Automatic BPB Panel settings update via API
+- **Bundled Xray-core** - No external installation required; binary is bundled per platform
+- Scan from your actual network (mobile ISP, home internet, etc.)
+- Automatic BPB Panel settings update via Cloudflare Workers KV API
 - Cross-platform support: Android, iOS, macOS, Linux, Windows, Web
 - Offline-first design (no hosting required)
-- No sandboxing issues (works on all platforms including macOS)
 - Secure credential storage
 - User-friendly interface (no terminal needed)
-- Real-time progress tracking with detailed statistics
-- Advanced scanner configuration options
+- Real-time scan progress tracking
 
 ## Supported Platforms
 
@@ -39,68 +38,54 @@ BPB Automation helps you find the fastest Cloudflare IPs for your network and au
 Download the appropriate version for your platform from the [latest release](https://github.com/YOUR_USERNAME/bpb-automation/releases/latest):
 
 #### Android
-```bash
-# Download and install APK
-# BPB-Automation-Android-Universal.apk
+```
+Download and install APK:
+BPB-Automation-Android-arm64.apk
 ```
 
 #### macOS
-```bash
-# Download and mount DMG
-# BPB-Automation-macOS.dmg
+```
+Download and mount DMG:
+BPB-Automation-macOS.dmg
 ```
 
 #### Linux
 
 **Ubuntu/Debian (.deb package)**
 ```bash
-# Download BPB-Automation-Linux-x64.deb
 sudo dpkg -i BPB-Automation-Linux-x64.deb
-
-# If you encounter dependency issues:
-sudo apt-get install -f
-```
-
-**Fedora/RHEL/CentOS (.rpm package)**
-```bash
-# Download BPB-Automation-Linux-x64.rpm
-sudo rpm -i BPB-Automation-Linux-x64.rpm
-
-# Or with dnf:
-sudo dnf install BPB-Automation-Linux-x64.rpm
+sudo apt-get install -f   # fix any dependency issues
 ```
 
 **Manual Installation (tar.gz)**
 ```bash
-# Download BPB-Automation-Linux-x64.tar.gz
 tar -xzf BPB-Automation-Linux-x64.tar.gz
 cd bundle
 ./bpb_automation
 ```
 
-**Note:** For .deb and .rpm packages, a desktop entry is automatically created and the application is available in your application menu. For manual installation, you can launch from terminal or create a desktop shortcut manually.
-
 #### Windows
-```bash
-# Download and extract
-# BPB-Automation-Windows-x64.zip
+```
+Download and extract:
+BPB-Automation-Windows-x64.zip
 ```
 
 ### Setup
 
 1. Install the app
-2. Run your first scan (no credentials needed for scanning)
-3. Get your Cloudflare credentials (see [Cloudflare Setup Guide](docs/cloudflare-setup.md))
-4. Enter credentials in app settings
-5. Update BPB Panel with clean IPs
+2. Open **Configuration** and enter your BPB Panel subscription URL
+3. (Optional) Get your Cloudflare credentials — see [Cloudflare Setup Guide](docs/cloudflare-setup.md)
+4. Enter credentials in **Settings** (only needed for the auto-update feature)
+5. Tap **Start Scan**
+6. After scan completes, tap **Update BPB Panel** to apply the results
 
-**Note:** Cloudflare credentials are only required for updating BPB Panel. You can scan and view clean IPs without credentials.
+**Note:** Cloudflare credentials are only required for updating BPB Panel. You can scan and copy IPs without credentials.
 
 ## Documentation
 
 - [User Guide](docs/user-guide.md) - Complete usage instructions
 - [Cloudflare Setup](docs/cloudflare-setup.md) - How to get credentials
-- [Scanner Configuration](docs/scanner-configuration.md) - Scanner parameters explained
+- [Scanner Configuration](docs/scanner-configuration.md) - Scan parameters explained
 - [Development Guide](docs/development.md) - For developers
 - [Deployment Guide](docs/deployment.md) - Building and distributing
 
@@ -108,9 +93,7 @@ cd bundle
 
 ### For Users
 - Internet connection
-
-**For Scanning Only:**
-- No additional requirements
+- BPB Panel subscription URL (for scanning)
 
 **For BPB Panel Updates:**
 - Cloudflare account with BPB Panel installed
@@ -126,93 +109,86 @@ cd bundle
 
 ### Run All Tests (Recommended for CI)
 ```bash
-# Run unit tests only (excludes integration tests)
 flutter test --exclude-tags=integration
 ```
 
 ### Run Specific Test Suites
 ```bash
-# Run only model tests
+# Model tests
 flutter test test/models/
 
-# Run only service tests
+# Service tests
 flutter test test/services/
 
-# Run integration tests (requires network access)
+# Integration tests (requires network access)
 flutter test --tags=integration
 ```
 
 ### Test Categories
-- **Unit Tests** - Fast, isolated tests for models and services (338 tests)
-- **Integration Tests** - Slow, network-dependent tests against real Cloudflare IPs
+- **Unit Tests** - Fast, isolated tests for models and services
+- **Integration Tests** - Network-dependent tests against real Cloudflare IPs
   - Tagged with `@Tags(['integration'])`
-  - May fail in CI due to rate limiting or network restrictions
-  - Should be run manually or in separate CI job with proper network access
+  - May fail in CI due to network restrictions
+  - Should be run manually or in a separate CI job
 
-**Note:** Integration tests use real network requests to Cloudflare and may be rate-limited (HTTP 429). For reliable CI/CD, always use `--exclude-tags=integration`.
+**Note:** For reliable CI/CD, always use `--exclude-tags=integration`.
 
 ## How It Works
 
-### Scanner Algorithm (Aligned with Go Scanner)
+### Scan Algorithm (v3)
 
-1. **IP Loading with Subnet Diversity**
-   - Loads Cloudflare IP ranges from CIDR notation
-   - IPv4: Selects one random IP per /24 subnet (ensures routing diversity)
-   - IPv6: Pure random sampling across /32 ranges
-   - Result: IPs connect through different Cloudflare edge servers
+#### Step 1: Config Fetch
 
-2. **Latency Testing**
-   - TCP socket connection to port 443
-   - Aggressive 1-second timeout (matches Go scanner)
-   - 2 attempts per IP
-   - Measures connection establishment time
+The app fetches your BPB Panel's Xray subscription URL (with `?app=xray`) and parses the JSON list of Xray configs. One config is selected as the template for testing (VLESS/WebSocket configs are preferred). The SNI hostname and port are extracted from the config.
 
-3. **Speed Testing (EWMA Quality Score)**
-   - Downloads from speed.cloudflare.com
-   - Samples speed every 100ms using EWMA (Exponentially Weighted Moving Average)
-   - Calculates sustained throughput quality (not peak speed)
-   - Normalization factor: timeout/120 (matches Go scanner)
+#### Step 2: IP Pool Generation
 
-4. **Multi-Criteria Sorting**
-   - Priority 1: Loss rate (lower is better) - MOST IMPORTANT
-   - Priority 2: Latency (lower is better)
-   - Priority 3: Quality score (higher is better)
+- Loads Cloudflare IP ranges from bundled `ip.txt` (and `ipv6.txt` if IPv6 is enabled)
+- **IPv4**: Subnet-aware sampling — one random IP per /24 subnet, up to `maxSamplesPerCIDR` per CIDR range
+- **IPv6**: Pure random sampling across the CIDR host portion
+- Result: A diverse set of candidate IPs connecting through different Cloudflare edge nodes
 
-5. **BPB Panel Update**
-   - Updates Workers KV via Cloudflare API
-   - Only modifies cleanIPs field (preserves other settings)
-   - Your proxy connection uses the new optimized IPs
+#### Step 3: Phase 1 — TLS Handshake Test
 
-**Why This Algorithm Works Better:**
-- Different /24 subnets = different network routes to your ISP
-- EWMA quality score filters out inconsistent IPs with brief speed bursts
-- Loss-rate-first sorting prioritizes connection stability
-- Result: More reliable BPB Panel connections
+Each candidate IP is tested for a working TLS connection:
 
-**Technical Implementation:**
-- Pure Dart - no external binaries or sandboxing issues
-- TCP socket connections for latency measurement
-- Raw HTTPS with manual HTTP protocol for speed testing
-- Configurable concurrency (1-1000 threads)
-- EWMA-based quality scoring (alpha=0.2)
+1. TCP connection to port 443 (1-second timeout)
+2. TLS handshake using the SNI hostname from the config
+3. IPs that complete a successful handshake pass Phase 1
+4. Results sorted by TLS latency (fastest first)
+5. Top `phase2TestDepth` IPs advance to Phase 2
 
-## Why Use This App
+This phase runs concurrently (`batchSize` connections at a time, default 200).
 
-- **Better IP Quality** - Subnet-aware selection ensures routing diversity
-- **More Reliable** - EWMA scoring favors sustained performance over peaks
-- **Network-Specific** - Tests from your actual network (mobile ISP, WiFi)
-- **No VPS Required** - Runs directly on your device
-- **Automated Updates** - No manual CSV editing or configuration
-- **Secure** - All data stays local, encrypted credentials
-- **Clean IPs Specific to You** - Optimized for your location and ISP routing
+#### Step 4: Phase 2 — Live Proxy Test
+
+Each Phase 1 candidate is tested with a real Xray proxy connection:
+
+1. The bundled Xray-core binary is started with a config substituting the candidate IP
+2. An HTTP request is made through the SOCKS5 proxy to `connectivitycheck.gstatic.com/generate_204`
+3. Only **HTTP 204** responses count as a working IP
+4. Results sorted by proxy latency (fastest first)
+5. Top `desiredIPCount` working IPs are saved
+
+This phase tests actual proxy connectivity on your network, so results are specific to your ISP and location.
+
+#### Step 5: BPB Panel Update
+
+The top working IPs are written to your BPB Panel's Workers KV `cleanIPs` field via the Cloudflare API. All other KV settings are preserved.
+
+### Why This Approach
+
+- **Real-world verification**: Phase 2 uses actual Xray proxy connections, not just latency pings — an IP must actually work as a proxy to pass
+- **Subnet diversity**: /24 subnet-aware IPv4 selection ensures IPs route through different Cloudflare edge servers, giving better redundancy
+- **Network-specific**: Testing happens on your device from your network, so results are optimal for your ISP
 
 ## Security & Privacy
 
-- Credentials encrypted with platform keychain
+- Credentials encrypted with platform keychain (Android Keystore, iOS Keychain, etc.)
 - No cloud storage or third-party services
 - No analytics or tracking
-- Only connects to Cloudflare API
-- All network requests user-initiated
+- Only connects to Cloudflare API and your BPB Panel subscription URL
+- All network requests are user-initiated
 
 ## Contributing
 
@@ -224,35 +200,29 @@ To be determined.
 
 ## Credits
 
-- [Cloudflare-Clean-IP-Scanner](https://github.com/bia-pain-bache/Cloudflare-Clean-IP-Scanner) - Algorithm aligned with Go scanner implementation
-  - Subnet-aware IPv4 selection (one IP per /24 subnet)
-  - EWMA quality scoring methodology
-  - Loss-rate-first sorting priority
 - [BPB-Worker-Panel](https://github.com/bia-pain-bache/BPB-Worker-Panel) - Panel software
 - IP lists sourced from Cloudflare's official IP ranges
-- EWMA implementation inspired by github.com/VividCortex/ewma
 
 ## Support
 
 For issues and questions:
 - Check [User Guide](docs/user-guide.md)
 - Review [Troubleshooting](docs/user-guide.md#troubleshooting)
-- See logs in app (Settings > View Logs)
+- See logs in app (Logs screen)
 
 ## Roadmap
 
 - [x] Core scanning functionality
 - [x] Cloudflare API integration
 - [x] Multi-platform support
+- [x] Config-based 3-phase Xray scanning
 - [ ] Scheduled auto-scans
 - [ ] Multi-account support
 - [ ] Custom IP lists
-- [ ] Cloud backup (optional)
 - [ ] In-app updates
 
 ## Version
 
-Current: 1.0.0 (Initial Release)
+Current: 3.0.0
 
 See CHANGELOG.md for version history.
-

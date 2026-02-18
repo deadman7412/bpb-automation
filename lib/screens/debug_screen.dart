@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import '../services/log_service.dart';
 import '../services/storage_service.dart';
 import '../services/cloudflare_api_service.dart';
+import '../services/xray_service.dart';
 
 class DebugScreen extends StatefulWidget {
   const DebugScreen({super.key});
@@ -49,7 +52,48 @@ class _DebugScreenState extends State<DebugScreen> {
                       _buildInfoRow('Platform', Platform.operatingSystem),
                       _buildInfoRow('OS Version', Platform.operatingSystemVersion),
                       _buildInfoRow('Locale', Platform.localeName),
-                      _buildInfoRow('Number of Processors', Platform.numberOfProcessors.toString()),
+                      _buildInfoRow('Processors', Platform.numberOfProcessors.toString()),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Xray Binary Diagnostics Card
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.terminal, color: Colors.purple),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Xray Binary Diagnostics',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _isRunningTest ? null : _testXrayBinary,
+                        icon: const Icon(Icons.search),
+                        label: const Text('Check Xray Setup'),
+                      ),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        onPressed: _isRunningTest ? null : _fixXrayBinary,
+                        icon: const Icon(Icons.build),
+                        label: const Text('Fix Xray Permissions'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -92,6 +136,43 @@ class _DebugScreenState extends State<DebugScreen> {
                         onPressed: _isRunningTest ? null : _testNetworkConnectivity,
                         icon: const Icon(Icons.wifi_find),
                         label: const Text('Full Network Test'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Storage Debug Card
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.storage, color: Colors.orange),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Storage Debug',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _testCredentialsStorage,
+                        icon: const Icon(Icons.key),
+                        label: const Text('Test Credentials Storage'),
+                      ),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        onPressed: _showStorageInfo,
+                        icon: const Icon(Icons.info),
+                        label: const Text('Show Storage Info'),
                       ),
                     ],
                   ),
@@ -159,43 +240,6 @@ class _DebugScreenState extends State<DebugScreen> {
                 ),
               const SizedBox(height: 16),
 
-              // Storage Debug Card
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.storage, color: Colors.orange),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Storage Debug',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        onPressed: _testCredentialsStorage,
-                        icon: const Icon(Icons.key),
-                        label: const Text('Test Credentials Storage'),
-                      ),
-                      const SizedBox(height: 8),
-                      ElevatedButton.icon(
-                        onPressed: _showStorageInfo,
-                        icon: const Icon(Icons.info),
-                        label: const Text('Show Storage Info'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-
               // Quick Actions Card
               Card(
                 child: Padding(
@@ -245,18 +289,16 @@ class _DebugScreenState extends State<DebugScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
-          Expanded(
-            child: Text(value),
-          ),
+          Expanded(child: Text(value)),
         ],
       ),
     );
   }
 
   Color _getResultColor(String result) {
-    if (result.contains('[OK]') || result.contains('✓') || result.contains('Success')) {
+    if (result.contains('[OK]') || result.contains('Success')) {
       return Colors.green;
-    } else if (result.contains('[ERROR]') || result.contains('✗') || result.contains('Failed')) {
+    } else if (result.contains('[ERROR]') || result.contains('Failed')) {
       return Colors.red;
     } else if (result.contains('[WARN]') || result.contains('Warning')) {
       return Colors.orange;
@@ -265,34 +307,28 @@ class _DebugScreenState extends State<DebugScreen> {
     }
   }
 
+  /// Run all async work, collect results in a local list, then single setState.
   Future<void> _testDNSResolution() async {
     setState(() {
       _isRunningTest = true;
       _testResults.clear();
-      _testResults.add('[INFO] Testing DNS resolution...');
     });
 
-    final testDomains = [
-      'api.cloudflare.com',
-      'google.com',
-      '1.1.1.1',
-    ];
+    final results = <String>['[INFO] Testing DNS resolution...'];
 
-    for (final domain in testDomains) {
+    for (final domain in ['api.cloudflare.com', 'google.com', '1.1.1.1']) {
       try {
         final addresses = await InternetAddress.lookup(domain);
-        setState(() {
-          _testResults.add('[OK] $domain resolved to: ${addresses.first.address}');
-        });
+        results.add('[OK] $domain -> ${addresses.first.address}');
       } catch (e) {
-        setState(() {
-          _testResults.add('[ERROR] Failed to resolve $domain: $e');
-        });
+        results.add('[ERROR] Failed to resolve $domain: $e');
       }
     }
 
+    results.add('[INFO] DNS test complete');
+
     setState(() {
-      _testResults.add('[INFO] DNS test completed');
+      _testResults.addAll(results);
       _isRunningTest = false;
     });
   }
@@ -301,59 +337,47 @@ class _DebugScreenState extends State<DebugScreen> {
     setState(() {
       _isRunningTest = true;
       _testResults.clear();
-      _testResults.add('[INFO] Testing Cloudflare API...');
     });
 
+    final results = <String>['[INFO] Testing Cloudflare API...'];
+
     try {
-      // Check if credentials exist
       final hasCredentials = await _storage.hasCredentials();
-      setState(() {
-        _testResults.add('[INFO] Has credentials: $hasCredentials');
-      });
+      results.add('[INFO] Has credentials: $hasCredentials');
 
       if (!hasCredentials) {
+        results.add('[WARN] No credentials stored - configure in Settings');
         setState(() {
-          _testResults.add('[WARN] No credentials stored. Please configure in Settings.');
+          _testResults.addAll(results);
           _isRunningTest = false;
         });
         return;
       }
 
-      // Get credentials
       final credentials = await _storage.getCredentials();
-      setState(() {
-        _testResults.add('[INFO] Account ID: ${credentials?.accountId ?? "null"}');
-        _testResults.add('[INFO] KV Namespace ID: ${credentials?.kvNamespaceId ?? "null"}');
-        _testResults.add('[INFO] API Token length: ${credentials?.apiToken.length ?? 0}');
-      });
+      results.add('[INFO] Account ID: ${credentials?.accountId ?? "null"}');
+      results.add('[INFO] KV Namespace ID: ${credentials?.kvNamespaceId ?? "null"}');
+      results.add('[INFO] API Token length: ${credentials?.apiToken.length ?? 0}');
 
-      // Test API connectivity
       if (credentials != null) {
-        setState(() {
-          _testResults.add('[INFO] Attempting to validate credentials...');
-        });
-
+        results.add('[INFO] Validating credentials...');
         final isValid = await _cloudflareAPI.validateCredentials(credentials);
         if (isValid) {
-          setState(() {
-            _testResults.add('[OK] ✓ Cloudflare API is reachable');
-            _testResults.add('[OK] ✓ Credentials are valid');
-          });
+          results.add('[OK] Cloudflare API reachable');
+          results.add('[OK] Credentials are valid');
         } else {
-          setState(() {
-            _testResults.add('[ERROR] ✗ Credentials validation failed');
-          });
+          results.add('[ERROR] Credentials validation failed');
         }
       }
     } catch (e, stackTrace) {
-      setState(() {
-        _testResults.add('[ERROR] Cloudflare API test failed: $e');
-        _testResults.add('[ERROR] Stack: ${stackTrace.toString().split('\n').take(3).join('\n')}');
-      });
+      results.add('[ERROR] Cloudflare API test failed: $e');
+      results.add('[ERROR] ${stackTrace.toString().split('\n').take(2).join(' ')}');
     }
 
+    results.add('[INFO] Cloudflare API test complete');
+
     setState(() {
-      _testResults.add('[INFO] Cloudflare API test completed');
+      _testResults.addAll(results);
       _isRunningTest = false;
     });
   }
@@ -362,93 +386,93 @@ class _DebugScreenState extends State<DebugScreen> {
     setState(() {
       _isRunningTest = true;
       _testResults.clear();
-      _testResults.add('[INFO] Running full network diagnostics...');
     });
 
-    // Test 1: DNS Resolution
-    _testResults.add('\n[INFO] === Test 1: DNS Resolution ===');
-    await _testDNSResolution();
+    final results = <String>['[INFO] Running full network diagnostics...'];
 
-    // Test 2: HTTP/HTTPS Connectivity
-    setState(() {
-      _testResults.add('\n[INFO] === Test 2: HTTP/HTTPS Connectivity ===');
-    });
+    // DNS
+    results.add('[INFO] === Test 1: DNS Resolution ===');
+    for (final domain in ['api.cloudflare.com', 'google.com', '1.1.1.1']) {
+      try {
+        final addresses = await InternetAddress.lookup(domain);
+        results.add('[OK] $domain -> ${addresses.first.address}');
+      } catch (e) {
+        results.add('[ERROR] $domain: $e');
+      }
+    }
 
-    final testUrls = [
-      'https://api.cloudflare.com',
-      'https://www.google.com',
-      'https://1.1.1.1',
-    ];
-
-    for (final url in testUrls) {
+    // HTTP
+    results.add('[INFO] === Test 2: HTTP Connectivity ===');
+    for (final url in ['https://api.cloudflare.com', 'https://www.google.com']) {
       try {
         final client = HttpClient();
         final request = await client.getUrl(Uri.parse(url));
         request.headers.add('User-Agent', 'BPB-Automation/1.0');
         final response = await request.close().timeout(const Duration(seconds: 5));
-
-        setState(() {
-          _testResults.add('[OK] $url: HTTP ${response.statusCode}');
-        });
-
+        results.add('[OK] $url: HTTP ${response.statusCode}');
         await response.drain();
         client.close();
       } catch (e) {
-        setState(() {
-          _testResults.add('[ERROR] $url: $e');
-        });
+        results.add('[ERROR] $url: $e');
       }
     }
 
-    // Test 3: Cloudflare API
-    setState(() {
-      _testResults.add('\n[INFO] === Test 3: Cloudflare API ===');
-    });
-    await _testCloudflareAPI();
+    // Cloudflare API
+    results.add('[INFO] === Test 3: Cloudflare API ===');
+    try {
+      final hasCredentials = await _storage.hasCredentials();
+      if (hasCredentials) {
+        final credentials = await _storage.getCredentials();
+        if (credentials != null) {
+          final isValid = await _cloudflareAPI.validateCredentials(credentials);
+          results.add(isValid
+              ? '[OK] Credentials valid'
+              : '[ERROR] Credentials invalid');
+        }
+      } else {
+        results.add('[WARN] No credentials stored');
+      }
+    } catch (e) {
+      results.add('[ERROR] API test failed: $e');
+    }
+
+    results.add('[INFO] === Full network test complete ===');
 
     setState(() {
-      _testResults.add('\n[INFO] === Full network test completed ===');
+      _testResults.addAll(results);
       _isRunningTest = false;
     });
   }
 
   Future<void> _testCredentialsStorage() async {
-    setState(() {
-      _testResults.clear();
-      _testResults.add('[INFO] Testing credentials storage...');
-    });
+    final results = <String>['[INFO] Testing credentials storage...'];
 
     try {
       final hasCredentials = await _storage.hasCredentials();
-      setState(() {
-        _testResults.add('[INFO] Has credentials: $hasCredentials');
-      });
+      results.add('[INFO] Has credentials: $hasCredentials');
 
       if (hasCredentials) {
         final credentials = await _storage.getCredentials();
-        setState(() {
-          _testResults.add('[OK] Successfully retrieved credentials');
-          _testResults.add('[INFO] Account ID: ${credentials?.accountId}');
-          _testResults.add('[INFO] KV Namespace ID: ${credentials?.kvNamespaceId}');
-          _testResults.add('[INFO] API Token length: ${credentials?.apiToken.length}');
-        });
+        results.add('[OK] Successfully retrieved credentials');
+        results.add('[INFO] Account ID: ${credentials?.accountId}');
+        results.add('[INFO] KV Namespace ID: ${credentials?.kvNamespaceId}');
+        results.add('[INFO] API Token length: ${credentials?.apiToken.length}');
       } else {
-        setState(() {
-          _testResults.add('[WARN] No credentials stored');
-        });
+        results.add('[WARN] No credentials stored');
       }
     } catch (e) {
-      setState(() {
-        _testResults.add('[ERROR] Failed to test credentials: $e');
-      });
+      results.add('[ERROR] Failed to test credentials: $e');
     }
+
+    setState(() {
+      _testResults
+        ..clear()
+        ..addAll(results);
+    });
   }
 
   Future<void> _showStorageInfo() async {
-    setState(() {
-      _testResults.clear();
-      _testResults.add('[INFO] Storage Information:');
-    });
+    final results = <String>['[INFO] Storage Information:'];
 
     try {
       final isInitialized = _storage.isInitialized;
@@ -458,31 +482,214 @@ class _DebugScreenState extends State<DebugScreen> {
       final autoUpdateInterval = await _storage.getAutoUpdateInterval();
       final numIpsToUse = await _storage.getNumIpsToUse();
 
-      setState(() {
-        _testResults.add('[INFO] Storage initialized: $isInitialized');
-        _testResults.add('[INFO] Has credentials: $hasCredentials');
-        _testResults.add('[INFO] Last scan: ${lastScanTime ?? "Never"}');
-        _testResults.add('[INFO] Auto-update enabled: $autoUpdateEnabled');
-        _testResults.add('[INFO] Auto-update interval: $autoUpdateInterval hours');
-        _testResults.add('[INFO] Number of IPs to use: $numIpsToUse');
-      });
+      results.add('[INFO] Storage initialized: $isInitialized');
+      results.add('[INFO] Has credentials: $hasCredentials');
+      results.add('[INFO] Last scan: ${lastScanTime ?? "Never"}');
+      results.add('[INFO] Auto-update enabled: $autoUpdateEnabled');
+      results.add('[INFO] Auto-update interval: $autoUpdateInterval hours');
+      results.add('[INFO] IPs to use: $numIpsToUse');
     } catch (e) {
-      setState(() {
-        _testResults.add('[ERROR] Failed to get storage info: $e');
-      });
+      results.add('[ERROR] Failed to get storage info: $e');
     }
-  }
 
-  void _clearResults() {
     setState(() {
-      _testResults.clear();
+      _testResults
+        ..clear()
+        ..addAll(results);
     });
   }
 
-  Future<void> _copyResultsToClipboard() async {
-    final text = _testResults.join('\n');
-    await Clipboard.setData(ClipboardData(text: text));
+  Future<String> _getXrayBinaryPath() async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final binaryFileName = Platform.isWindows ? 'xray.exe' : 'xray';
+    return path.join(appDir.path, 'xray', binaryFileName);
+  }
 
+  Future<void> _testXrayBinary() async {
+    setState(() {
+      _isRunningTest = true;
+      _testResults.clear();
+    });
+
+    final results = <String>['[INFO] === Xray Binary Diagnostics ==='];
+
+    try {
+      final binaryPath = await _getXrayBinaryPath();
+      results.add('[INFO] Path: $binaryPath');
+
+      // 1. File exists
+      final binaryFile = File(binaryPath);
+      final exists = await binaryFile.exists();
+      if (!exists) {
+        results.add('[ERROR] Binary not found - run a scan to extract it');
+        setState(() {
+          _testResults.addAll(results);
+          _isRunningTest = false;
+        });
+        return;
+      }
+      results.add('[OK] Binary file exists');
+
+      // 2. File size
+      final stat = await binaryFile.stat();
+      final sizeMb = (stat.size / 1024 / 1024).toStringAsFixed(1);
+      results.add('[INFO] Size: ${sizeMb}MB');
+      if (stat.size < 1024 * 1024) {
+        results.add('[WARN] Binary seems too small - may be corrupt');
+      }
+
+      // 3. Execute permissions
+      if (!Platform.isWindows) {
+        final lsResult = await Process.run('ls', ['-la', binaryPath]);
+        if (lsResult.exitCode == 0) {
+          final perms = (lsResult.stdout as String).split(' ').first;
+          results.add('[INFO] Permissions: $perms');
+          results.add(perms.contains('x')
+              ? '[OK] Execute permission set'
+              : '[ERROR] Execute permission NOT set - use Fix button');
+        }
+      }
+
+      // 4. Quarantine attribute (macOS)
+      if (Platform.isMacOS) {
+        final xattrResult = await Process.run('xattr', ['-l', binaryPath]);
+        final xattrOutput = xattrResult.stdout as String;
+        if (xattrOutput.contains('com.apple.quarantine')) {
+          results.add('[ERROR] Quarantine attribute detected - blocks execution');
+          results.add('[INFO] Use the Fix button to remove it');
+        } else {
+          results.add('[OK] No quarantine attribute');
+        }
+      }
+
+      // 5. Run binary
+      results.add('[INFO] Testing binary execution...');
+      try {
+        final versionResult = await Process.run(binaryPath, ['version'])
+            .timeout(const Duration(seconds: 5));
+        if (versionResult.exitCode == 0) {
+          results.add('[OK] Binary executes successfully');
+          final versionLine = (versionResult.stdout as String)
+              .split('\n')
+              .firstWhere((l) => l.contains('Xray'), orElse: () => '');
+          if (versionLine.isNotEmpty) {
+            results.add('[OK] ${versionLine.trim()}');
+          }
+        } else {
+          results.add('[ERROR] Binary exited with code ${versionResult.exitCode}');
+          final stderr = (versionResult.stderr as String).trim();
+          if (stderr.isNotEmpty) results.add('[INFO] stderr: $stderr');
+        }
+      } catch (e) {
+        results.add('[ERROR] Failed to run binary: $e');
+        if (Platform.isMacOS) {
+          results.add('[INFO] Use the Fix button to remove quarantine and set permissions');
+        }
+      }
+
+      // 6. Version file
+      final appDir = await getApplicationDocumentsDirectory();
+      final versionFilePath = path.join(appDir.path, 'xray', '.xray_version');
+      final versionFile = File(versionFilePath);
+      if (await versionFile.exists()) {
+        final installedVersion = (await versionFile.readAsString()).trim();
+        results.add('[INFO] Installed: $installedVersion  Bundled: ${XrayService.xrayVersion}');
+        results.add(installedVersion == XrayService.xrayVersion
+            ? '[OK] Version up to date'
+            : '[WARN] Version mismatch - will re-extract on next scan');
+      } else {
+        results.add('[WARN] Version file not found');
+      }
+    } catch (e) {
+      results.add('[ERROR] Diagnostics failed: $e');
+    }
+
+    results.add('[INFO] === Xray diagnostics complete ===');
+
+    setState(() {
+      _testResults.addAll(results);
+      _isRunningTest = false;
+    });
+  }
+
+  Future<void> _fixXrayBinary() async {
+    setState(() {
+      _isRunningTest = true;
+      _testResults.clear();
+    });
+
+    final results = <String>['[INFO] === Fixing Xray Binary ==='];
+
+    try {
+      final binaryPath = await _getXrayBinaryPath();
+      final binaryFile = File(binaryPath);
+
+      if (!await binaryFile.exists()) {
+        results.add('[ERROR] Binary not found at: $binaryPath');
+        results.add('[INFO] Run a scan first to extract the binary');
+        setState(() {
+          _testResults.addAll(results);
+          _isRunningTest = false;
+        });
+        return;
+      }
+
+      // Fix execute permissions
+      if (!Platform.isWindows) {
+        final chmodResult = await Process.run('chmod', ['+x', binaryPath]);
+        results.add(chmodResult.exitCode == 0
+            ? '[OK] Execute permissions set (chmod +x)'
+            : '[ERROR] chmod failed: ${chmodResult.stderr}');
+      }
+
+      // Remove quarantine attribute on macOS
+      if (Platform.isMacOS) {
+        final xattrResult = await Process.run('xattr', [
+          '-d', 'com.apple.quarantine', binaryPath,
+        ]);
+        if (xattrResult.exitCode == 0) {
+          results.add('[OK] Quarantine attribute removed');
+        } else {
+          final stderr = (xattrResult.stderr as String).trim();
+          results.add(stderr.isEmpty
+              ? '[INFO] Quarantine attribute was not present'
+              : '[WARN] xattr: $stderr');
+        }
+      }
+
+      // Verify
+      results.add('[INFO] Verifying fix...');
+      try {
+        final versionResult = await Process.run(binaryPath, ['version'])
+            .timeout(const Duration(seconds: 5));
+        if (versionResult.exitCode == 0) {
+          results.add('[OK] Binary executes successfully');
+        } else {
+          results.add('[ERROR] Binary still fails (exit ${versionResult.exitCode})');
+          results.add('[INFO] stderr: ${(versionResult.stderr as String).trim()}');
+        }
+      } catch (e) {
+        results.add('[ERROR] Binary still fails: $e');
+        results.add('[INFO] Try running the app again - the fix takes effect on restart');
+      }
+    } catch (e) {
+      results.add('[ERROR] Fix failed: $e');
+    }
+
+    results.add('[INFO] === Fix complete ===');
+
+    setState(() {
+      _testResults.addAll(results);
+      _isRunningTest = false;
+    });
+  }
+
+  void _clearResults() {
+    setState(() => _testResults.clear());
+  }
+
+  Future<void> _copyResultsToClipboard() async {
+    await Clipboard.setData(ClipboardData(text: _testResults.join('\n')));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -501,27 +708,18 @@ class _DebugScreenState extends State<DebugScreen> {
     debugInfo.writeln('OS Version: ${Platform.operatingSystemVersion}');
     debugInfo.writeln('Locale: ${Platform.localeName}');
     debugInfo.writeln('Processors: ${Platform.numberOfProcessors}');
-
     debugInfo.writeln('\n=== Storage Info ===');
     debugInfo.writeln('Initialized: ${_storage.isInitialized}');
     debugInfo.writeln('Has credentials: ${await _storage.hasCredentials()}');
     debugInfo.writeln('Last scan: ${await _storage.getLastScanTime()}');
-
     debugInfo.writeln('\n=== Test Results ===');
-    if (_testResults.isNotEmpty) {
-      debugInfo.writeln(_testResults.join('\n'));
-    } else {
-      debugInfo.writeln('No tests run yet');
-    }
-
+    debugInfo.writeln(_testResults.isEmpty ? 'No tests run yet' : _testResults.join('\n'));
     debugInfo.writeln('\n=== Recent Logs ===');
-    final logs = _log.getLogs();
-    for (final log in logs) {
+    for (final log in _log.getLogs()) {
       debugInfo.writeln(log.format());
     }
 
     await Clipboard.setData(ClipboardData(text: debugInfo.toString()));
-
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(

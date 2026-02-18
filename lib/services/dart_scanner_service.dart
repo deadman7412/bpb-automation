@@ -5,7 +5,6 @@ import 'package:bpb_automation/models/config_test_result.dart';
 import 'package:bpb_automation/models/xray_config.dart';
 import 'package:bpb_automation/services/ip_loader.dart';
 import 'package:bpb_automation/services/log_service.dart';
-import 'package:bpb_automation/services/subscription_service.dart';
 import 'package:bpb_automation/services/config_tester_service.dart';
 import 'package:bpb_automation/services/xray_service.dart';
 
@@ -57,7 +56,6 @@ class DartScannerService {
 
   final LogService _logService = LogService.instance;
   final IPLoader _ipLoader = IPLoader();
-  final SubscriptionService _subscriptionService = SubscriptionService.instance;
   final ConfigTesterService _configTester = ConfigTesterService.instance;
   final XrayService _xrayService = XrayService.instance;
 

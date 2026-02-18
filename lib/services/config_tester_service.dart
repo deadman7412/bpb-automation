@@ -235,6 +235,9 @@ class ConfigTesterService {
         ' (started $startTs, timeout ${tlsTimeoutSeconds}s each)',
       );
 
+      // Per-batch error tally for diagnostics
+      final batchErrors = <String, int>{};
+
       // Race batch against cancel.
       await Future.any<void>([
         Future.wait(batch.map((ip) async {
@@ -253,6 +256,8 @@ class ConfigTesterService {
             successfulIPs++;
           } else {
             failedIPs++;
+            final errKey = result.tlsTestResult?.error ?? 'unknown';
+            batchErrors[errKey] = (batchErrors[errKey] ?? 0) + 1;
           }
 
           if (processedIPs % 10 == 0 || result.tlsPassed) {
@@ -282,6 +287,15 @@ class ConfigTesterService {
         'Phase 1 batch ${bi + 1}/$batchCount done in ${batchMs}ms:'
         ' $successfulIPs/$processedIPs passed TLS',
       );
+
+      // Log error breakdown so we can see WHY IPs are failing
+      if (batchErrors.isNotEmpty) {
+        final sorted = batchErrors.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        for (final e in sorted.take(5)) {
+          _logService.logInfo('  [batch errors] ${e.value}x ${e.key}');
+        }
+      }
     }
 
     _emitProgress(TlsTestProgress(
@@ -311,41 +325,47 @@ class ConfigTesterService {
     required Duration timeout,
   }) async {
     final sw = Stopwatch()..start();
-    Socket? rawSocket;
-    SecureSocket? socket;
+    RawSocket? rawSocket;
+    RawSecureSocket? secureSocket;
     Timer? timer;
 
     try {
-      // Step 1: TCP connect — Phase 0 pre-filter already verified reachability,
-      // so this should succeed quickly.
-      rawSocket = await Socket.connect(candidateIP, port, timeout: timeout);
+      // Step 1: TCP connect.
+      rawSocket = await RawSocket.connect(candidateIP, port, timeout: timeout);
 
-      // Step 2: TLS handshake using Completer+Timer so we can explicitly
-      // destroy the raw socket on timeout.
+      // Step 2: TLS handshake via RawSecureSocket + Completer + Timer.
       //
-      // WHY NOT .timeout(): Future.timeout() abandons the underlying future
-      // without closing the socket. Under high concurrency (200 parallel tests)
-      // timed-out handshakes accumulate as leaked file descriptors, quickly
-      // exhausting macOS's default FD limit (~256). This causes subsequent
-      // batches to fail instantly with EMFILE and prevents Phase 2 from
-      // spawning the Xray process ("Too many open files").
+      // WHY RawSecureSocket instead of SecureSocket:
+      // SecureSocket.secure(socket) calls socket._detachRaw() synchronously
+      // before the handshake starts. After detach, the original `socket` object
+      // no longer references the OS file descriptor — calling destroy() on it is
+      // a no-op. This caused EMFILE (error 24) after a few batches because every
+      // timed-out handshake leaked an FD until GC ran.
       //
-      // This pattern ensures rawSocket.destroy() is called on timeout,
-      // aborting the TLS handshake and releasing the FD immediately.
-      final tlsCompleter = Completer<SecureSocket>();
+      // RawSecureSocket.secure(rawSocket) does NOT detach/invalidate rawSocket.
+      // It holds a direct reference to the same RawSocket object. Calling
+      // rawSocket.close() in the timer therefore closes the actual OS FD,
+      // aborting the in-progress handshake and releasing the descriptor.
+      //
+      // WHY sni, not candidateIP as host:
+      // RFC 6066 forbids IP addresses in the TLS SNI extension. Cloudflare edge
+      // nodes stall or reject the handshake when they receive an IP as SNI,
+      // producing ~176 timeouts per 200-IP batch. Using the domain from the
+      // config (e.g. the VLESS URL host) is the correct value.
+      final tlsCompleter = Completer<RawSecureSocket>();
 
-      SecureSocket.secure(
+      RawSecureSocket.secure(
         rawSocket,
-        host: candidateIP,
+        host: sni ?? candidateIP,
+        context: SecurityContext.defaultContext,
         onBadCertificate: (_) => true,
         supportedProtocols: ['h2', 'http/1.1'],
-        context: SecurityContext.defaultContext,
       ).then((s) {
         if (!tlsCompleter.isCompleted) {
           tlsCompleter.complete(s);
         } else {
-          // Timeout already fired — close the late-arriving socket immediately.
-          s.close().then((_) {}, onError: (_) {});
+          // Timer already fired — close the late-arriving socket immediately.
+          s.close();
         }
       }, onError: (Object e) {
         if (!tlsCompleter.isCompleted) {
@@ -355,18 +375,20 @@ class ConfigTesterService {
 
       timer = Timer(timeout, () {
         if (!tlsCompleter.isCompleted) {
+          // rawSocket.close() releases the actual OS FD here because
+          // RawSecureSocket holds a direct reference (not a detached copy).
           try {
-            rawSocket?.destroy();
+            rawSocket?.close();
           } catch (_) {}
           rawSocket = null;
           tlsCompleter.completeError(TimeoutException('TLS handshake timeout'));
         }
       });
 
-      socket = await tlsCompleter.future;
+      secureSocket = await tlsCompleter.future;
       timer.cancel();
       timer = null;
-      rawSocket = null; // SecureSocket now owns the underlying socket
+      rawSocket = null; // RawSecureSocket now owns the RawSocket
 
       final latencyMs = sw.elapsedMilliseconds.toDouble();
       sw.stop();
@@ -380,6 +402,12 @@ class ConfigTesterService {
       );
     } on SocketException catch (e) {
       sw.stop();
+      if (sw.elapsedMilliseconds < 50) {
+        _logService.logInfo(
+          'TLS instant-fail $candidateIP (${sw.elapsedMilliseconds}ms): '
+          '[${e.osError?.errorCode ?? "?"}] ${e.message}',
+        );
+      }
       return ConfigTestResult.fromTlsTest(
         ip: candidateIP,
         config: config.copyWithAddress(candidateIP),
@@ -410,6 +438,10 @@ class ConfigTesterService {
       );
     } catch (e) {
       sw.stop();
+      _logService.logInfo(
+        'TLS unknown error $candidateIP (${sw.elapsedMilliseconds}ms):'
+        ' ${e.runtimeType}: $e',
+      );
       return ConfigTestResult.fromTlsTest(
         ip: candidateIP,
         config: config.copyWithAddress(candidateIP),
@@ -420,11 +452,9 @@ class ConfigTesterService {
       );
     } finally {
       timer?.cancel();
-      await socket?.close();
-      // Destroy rawSocket if it was not consumed by SecureSocket (success path
-      // sets rawSocket = null; timeout path also sets it null after destroy).
+      await secureSocket?.close();
       try {
-        rawSocket?.destroy();
+        rawSocket?.close();
       } catch (_) {}
     }
   }
@@ -482,7 +512,10 @@ class TlsTestProgress {
   double get successRatePercent => successRate * 100;
 
   @override
-  String toString() =>
-      'TlsTestProgress(${phase.name}: $processedIPs/$totalIPs '
-      '${progressPercent.toStringAsFixed(1)}%, success: $successfulIPs)';
+  String toString() {
+    final ipPart = currentIP != null ? ', current: $currentIP' : '';
+    return 'TlsTestProgress(${phase.name}: $processedIPs/$totalIPs '
+        '${progressPercent.toStringAsFixed(1)}%, success: $successfulIPs, '
+        'failed: $failedIPs$ipPart)';
+  }
 }

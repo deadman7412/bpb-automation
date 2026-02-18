@@ -68,12 +68,20 @@ class ConfigScanResult {
     required Duration scanDuration,
     required XrayConfig templateConfig,
   }) {
-    // Prefer proxy-verified IPs (Phase 2 successes)
-    var workingResults = allResults
-        .where((r) => r.proxyTestResult != null && r.proxyTestResult!.success)
-        .toList();
+    final hasProxyResults = allResults.any((r) => r.proxyTestResult != null);
+    List<ConfigTestResult> workingResults;
 
-    if (workingResults.isNotEmpty) {
+    if (hasProxyResults) {
+      // Phase 2 ran — only HTTP 204 counts as a working IP
+      workingResults = allResults
+          .where(
+            (r) =>
+                r.proxyTestResult != null &&
+                r.proxyTestResult!.success &&
+                r.proxyTestResult!.statusCode == 204,
+          )
+          .toList();
+
       // Sort by proxy latency (fastest first)
       workingResults.sort((a, b) {
         final aLatency = a.proxyTestResult?.latencyMs ?? double.infinity;
@@ -81,7 +89,7 @@ class ConfigScanResult {
         return aLatency.compareTo(bLatency);
       });
     } else {
-      // TLS fallback: Phase 2 found nothing — use Phase 1 TLS-passing IPs
+      // TLS fallback: Phase 2 was not run — use Phase 1 TLS-passing IPs
       workingResults = allResults
           .where((r) => r.tlsTestResult != null && r.tlsTestResult!.success)
           .toList();

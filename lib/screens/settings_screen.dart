@@ -344,7 +344,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                       // Help Section
                       Card(
-                        color: Colors.blue.shade50,
+                        color: Theme.of(context).colorScheme.primaryContainer,
                         child: Padding(
                           padding: const EdgeInsets.all(16.0),
                           child: Column(
@@ -352,13 +352,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(Icons.info_outline, color: Colors.blue.shade700),
+                                  Icon(
+                                    Icons.info_outline,
+                                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                  ),
                                   const SizedBox(width: 8),
                                   Text(
                                     'How to get credentials',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.blue.shade900,
+                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
                                     ),
                                   ),
                                 ],
@@ -372,7 +375,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 '5. Click Save to store credentials securely',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.blue.shade900,
+                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
                                 ),
                               ),
                             ],

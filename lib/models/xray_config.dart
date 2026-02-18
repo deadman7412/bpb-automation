@@ -197,6 +197,14 @@ class XrayConfig {
   ///
   /// This replaces any existing inbounds with a simple SOCKS5 proxy
   /// on 127.0.0.1:10808 for testing purposes.
+  ///
+  /// Geo routing rules (geosite:/geoip:) are always stripped for test configs
+  /// because the bundled Xray binary does not include geosite.dat/geoip.dat.
+  ///
+  /// FUTURE: When VPN mode is added, geosite.dat and geoip.dat can be
+  /// downloaded from https://github.com/v2fly/domain-list-community/releases
+  /// and cached next to the binary. At that point, withStrippedGeoRules()
+  /// can be made optional and skipped when the .dat files are present.
   XrayConfig withTestInbound() {
     final testInbound = {
       'port': 10808,
@@ -212,6 +220,116 @@ class XrayConfig {
       outbounds: outbounds,
       routing: routing,
       dns: dns,
+      policy: policy,
+      stats: stats,
+      api: api,
+      remarks: remarks,
+    ).withStrippedGeoRules();
+  }
+
+  /// Returns a copy of this config stripped for proxy connectivity testing.
+  ///
+  /// The BPB subscription configs contain geosite:/geoip: references in
+  /// three places:
+  ///
+  ///   dns.hosts     - keys like "geosite:category-ads-all" (ad blocking)
+  ///   dns.servers   - objects with geosite: domain filters and geoip: IPs
+  ///                   (split DNS for IR/CN/RU)
+  ///   routing.rules - domain/ip fields with geosite:/geoip: entries
+  ///
+  /// All three require geosite.dat/geoip.dat on disk, which the bundled
+  /// Xray binary does not ship with. For connectivity testing none of this
+  /// is needed - system DNS resolves fine and all traffic goes through the
+  /// outbound regardless of geo rules.
+  ///
+  /// Strategy:
+  /// - dns: dropped entirely (system DNS is sufficient for testing)
+  /// - routing: geosite:/geoip: entries stripped from rules; rules that
+  ///   become empty after stripping are dropped; rules with inboundTag /
+  ///   network / port / etc. (non-geo criteria) are kept intact
+  ///
+  /// FUTURE - Export configs: use the original unmodified config so users
+  /// get full split-DNS and ad-blocking in their chosen app (which bundles
+  /// its own geo data files).
+  ///
+  /// FUTURE - VPN mode: download geosite.dat + geoip.dat from the official
+  /// v2fly releases and cache them next to the binary. Once present, this
+  /// stripping can be skipped and the full config passed through unchanged.
+  XrayConfig withStrippedGeoRules() {
+    // --- Drop DNS entirely ---
+    // The dns section uses geosite: as map keys in dns.hosts AND as domain
+    // filters in dns.servers - both require geosite.dat. For testing,
+    // system DNS is sufficient.
+
+    // --- Strip routing rules ---
+    Map<String, dynamic>? strippedRouting = routing;
+    if (routing != null) {
+      final rules = routing!['rules'];
+      if (rules is List) {
+        final strippedRules = <Map<String, dynamic>>[];
+
+        for (final rule in rules) {
+          if (rule is! Map<String, dynamic>) {
+            strippedRules.add(rule as Map<String, dynamic>);
+            continue;
+          }
+
+          final updatedRule = Map<String, dynamic>.from(rule);
+
+          // Strip geosite: entries from domain field
+          if (updatedRule['domain'] is List) {
+            final filtered = (updatedRule['domain'] as List)
+                .where((d) => d is! String || !d.startsWith('geosite:'))
+                .toList();
+            if (filtered.isEmpty) {
+              updatedRule.remove('domain');
+            } else {
+              updatedRule['domain'] = filtered;
+            }
+          }
+
+          // Strip geoip: entries from ip field
+          if (updatedRule['ip'] is List) {
+            final filtered = (updatedRule['ip'] as List)
+                .where((ip) => ip is! String || !ip.startsWith('geoip:'))
+                .toList();
+            if (filtered.isEmpty) {
+              updatedRule.remove('ip');
+            } else {
+              updatedRule['ip'] = filtered;
+            }
+          }
+
+          // Drop the rule entirely if it has no matching criteria left.
+          // Rules that rely only on inboundTag (dns-in, remote-dns, etc.)
+          // are also safe to keep - those inbounds don't exist in the test
+          // config so the rules simply never match.
+          final hasMatchCriteria = updatedRule.containsKey('domain') ||
+              updatedRule.containsKey('ip') ||
+              updatedRule.containsKey('port') ||
+              updatedRule.containsKey('network') ||
+              updatedRule.containsKey('source') ||
+              updatedRule.containsKey('user') ||
+              updatedRule.containsKey('inboundTag') ||
+              updatedRule.containsKey('protocol') ||
+              updatedRule.containsKey('attrs');
+
+          if (hasMatchCriteria) {
+            strippedRules.add(updatedRule);
+          }
+        }
+
+        strippedRouting = Map<String, dynamic>.from(routing!);
+        strippedRouting['rules'] = strippedRules;
+      }
+    }
+
+    return XrayConfig(
+      log: log,
+      inbounds: inbounds,
+      outbounds: outbounds,
+      routing: strippedRouting,
+      dns: null, // dropped - see comment above
       policy: policy,
       stats: stats,
       api: api,

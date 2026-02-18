@@ -751,7 +751,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               min: 100,
                               max: 2000,
                               divisions: 19,
-                              label: '${_maxSamplesPerCIDR} per range',
+                              label: '$_maxSamplesPerCIDR per range',
                               onChanged: (value) {
                                 setState(() => _maxSamplesPerCIDR = value.round());
                               },

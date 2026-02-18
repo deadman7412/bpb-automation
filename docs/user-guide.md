@@ -5,17 +5,18 @@ Complete guide for using BPB Automation.
 ## What This App Does
 
 BPB Automation helps you:
-- Find the fastest Cloudflare IPs for your network
-- Automatically update your BPB Panel configuration
-- Keep your proxy connection optimal
-- Work from any device (mobile, desktop)
+- Find Cloudflare IPs that actually work as a proxy on your network
+- Automatically update your BPB Panel configuration with the best IPs
+- Keep your proxy connection optimal without manual IP hunting
+
+The app fetches your BPB Panel's Xray subscription configs and tests real proxy connectivity on your device, so results are specific to your ISP and location.
 
 ## Installation
 
 ### Android
 
 1. Download `bpb-automation.apk`
-2. Enable "Install from Unknown Sources" in Settings
+2. Enable "Install from Unknown Sources" in Settings > Security
 3. Open APK file and install
 4. Launch app
 
@@ -30,428 +31,302 @@ BPB Automation helps you:
 1. Download `.dmg` file
 2. Open DMG
 3. Drag app to Applications folder
-4. Launch (may need to allow in Security & Privacy settings)
+4. Launch (may need to allow in System Settings > Privacy & Security)
 
 ### Linux
 
-**AppImage:**
 ```bash
+# AppImage
 chmod +x bpb-automation.AppImage
 ./bpb-automation.AppImage
-```
 
-**DEB Package:**
-```bash
-sudo dpkg -i bpb-automation_1.0.0_amd64.deb
+# DEB Package
+sudo dpkg -i bpb-automation_3.0.0_amd64.deb
 ```
 
 ### Windows
 
-1. Download `bpb-automation-setup.exe`
-2. Run installer
-3. Follow installation wizard
-4. Launch from Start Menu or Desktop shortcut
+1. Download `bpb-automation-setup.exe` or zip
+2. Run installer or extract zip
+3. Launch from Start Menu or extracted folder
 
 ## First-Time Setup
 
-### Quick Start (Scan Only)
-
-**Want to just scan for clean IPs?** You can start immediately:
+### Step 1: Enter Your Subscription URL
 
 1. Open app
-2. Tap "Start Scan"
-3. Wait for scan to complete (3-5 minutes)
-4. View and copy clean IP results
+2. Tap **Configuration**
+3. Enter your BPB Panel subscription URL in the URL field
+4. Tap **Fetch & Verify** to confirm it works
+5. Adjust scan parameters if needed (defaults work well for most users)
+6. Tap **Save**
 
-No credentials needed for scanning!
-
-### Full Setup (Scan + Auto-Update)
-
-**Want to automatically update BPB Panel?** You'll need Cloudflare credentials:
-
-#### Step 1: Get Cloudflare Credentials
-
-You need three pieces of information. See [Cloudflare Setup Guide](cloudflare-setup.md) for detailed instructions.
-
-**Quick Summary:**
-
-1. **Account ID**: Found in Cloudflare Dashboard under Account Details
-2. **KV Namespace ID**: Found in Workers & Pages > KV section
-3. **API Token**: Create at Profile > API Tokens with Workers KV Edit permission
-
-#### Step 2: Enter Credentials in App
-
-1. Open app
-2. Go to Settings (gear icon)
-3. Enter:
-   - Cloudflare API Token
-   - Account ID
-   - KV Namespace ID
-4. Tap "Save"
-5. App will validate credentials
-
-If validation succeeds, you'll see:
+Your URL should look like:
 ```
-[OK] Credentials validated successfully
+https://your-worker.workers.dev/sub/YOUR-UUID
 ```
 
-If validation fails:
-```
-[ERROR] Invalid credentials. Please check and try again.
-```
+### Step 2: Get Cloudflare Credentials (Optional)
+
+You only need credentials if you want the app to automatically update your BPB Panel. If you prefer to copy IPs manually, skip this step.
+
+See [Cloudflare Setup Guide](cloudflare-setup.md) for detailed instructions.
+
+You need three values:
+1. **API Token** — Create at Cloudflare Profile > API Tokens (Workers KV Edit permission)
+2. **Account ID** — Found in the Cloudflare Dashboard sidebar
+3. **KV Namespace ID** — Found in Workers & Pages > KV
+
+### Step 3: Enter Credentials (Optional)
+
+1. Tap **Settings**
+2. Enter your Cloudflare API Token, Account ID, and KV Namespace ID
+3. Tap **Save**
 
 ## Basic Usage
 
 ### Running a Scan
 
-1. Open app
-2. Main screen shows "Start Scan" button
-3. Tap "Start Scan"
-4. Wait for scan to complete (3-5 minutes)
-5. Review results
-6. (Optional) Tap "Update BPB" to update your panel
+1. Open app — main screen shows your status and last scan time
+2. Tap **Start Scan**
+3. The scan runs in two phases:
+   - **Phase 1 (TLS)**: Tests all candidate IPs for TLS connectivity (10–30 seconds)
+   - **Phase 2 (Proxy)**: Tests the best Phase 1 IPs with a real Xray proxy connection (several minutes)
+4. When complete, you are taken to the Results screen
 
-**Note:** You can scan without credentials. Credentials are only required for the "Update BPB" feature.
+**You can leave the app during a scan.** Tap **View Current Scan** from the home screen to return.
 
 ### Understanding Results
 
-After scan completes, you'll see:
+The Results screen shows:
 
 ```
-[OK] Scan complete
-[INFO] Found 10 clean IPs
-[INFO] Top IP: 172.67.156.23 (Quality: 15.2, Latency: 85ms, Loss: 0%)
+Found 5 Working IPs
+Scan completed in 342 seconds
+
+Scan Statistics:
+  Phase 1 Tested: 743
+  Phase 1 Passed: 152
+  Phase 2 Tested: 50
+  Working IPs: 5
 ```
 
-**IP List shows:**
-- IP Address
-- Quality Score (EWMA-based sustained throughput)
-- Latency (ms)
-- Loss Rate (%)
+Each working IP shows its **proxy latency** — the round-trip time through the Xray proxy. Lower is faster. IPs are already sorted best-first.
 
-**What is Quality Score?**
-- Measures sustained download performance, not peak speed
-- Based on EWMA (Exponentially Weighted Moving Average)
-- Higher is better (typical range: 5-20)
-- More reliable than raw speed for BPB Panel connections
-- Favors consistent throughput over brief bursts
-
-**Indicators:**
-- **Green**: Excellent (0% loss, low latency, high quality)
-- **Yellow**: Good (some packet loss or higher latency)
-- **Red**: Acceptable (works but not optimal)
-
-**Sorting Priority:**
-1. Loss rate (0% is best) - MOST IMPORTANT
-2. Latency (lower is better)
-3. Quality score (higher is better)
+A working IP means: a real Xray proxy connection was made through this IP from your device, and the proxy responded correctly (HTTP 204). The result is specific to your current network.
 
 ### Updating BPB Panel
 
 After scan:
-1. Review IP list
-2. Tap "Update BPB Panel"
-3. Wait for confirmation
-4. See success message:
+1. Review the working IP list on the Results screen
+2. Tap **Update BPB Panel**
+3. Wait for confirmation:
    ```
-   [OK] BPB Panel updated successfully
-   [INFO] 10 clean IPs saved
+   Updated BPB Panel with 5 IPs
    ```
 
-Your BPB Panel now uses the new clean IPs.
+Your BPB Panel now uses the new IPs.
 
-## Advanced Features
+### Copying IPs Manually
 
-### Advanced Scanner Settings
+If you do not have credentials configured, or prefer manual update:
+1. On the Results screen, tap the copy icon next to any IP to copy it
+2. Tap the copy icon in the "Working IPs" header to copy all IPs at once
+3. Paste into your BPB Panel's clean IP field manually
 
-Go to Settings > Advanced Configuration
+### Downloading Configs
 
-**Threads**: How many IPs to test simultaneously
-- Default: 200
-- Mobile: 100-150
-- Fast WiFi: 300-400
+The Results screen also has a **Download Configs** button. This generates Xray config files with the working IPs substituted in, and shares them via the platform share sheet (or downloads them on web/desktop). Useful if you want to use the configs directly in an Xray client.
 
-**Latency Limit**: Maximum acceptable latency
-- Default: 200ms
-- Fast connection: 150ms
-- Slow connection: 300ms
+## Screens
 
-**Download Test Count**: How many IPs to speed test
-- Default: 10
-- Quick scan: 5
-- Thorough scan: 20
+### Home Screen
 
-**Disable Download Test**: Skip speed testing
-- Enable for quick scans (30 seconds)
-- Results sorted by latency only
+- **Start Scan** / **View Current Scan** — start a new scan or return to the in-progress one
+- Status card — shows current state and time since last scan
+- Quick actions grid — fast navigation to Configuration, Settings, Results, Logs, About, Debug
 
-See [Scanner Configuration Guide](scanner-configuration.md) for details.
+### Configuration Screen
 
-### Viewing Logs
+Where you set your BPB Panel subscription URL and scan parameters. See [Scanner Configuration Guide](scanner-configuration.md) for parameter details.
 
-1. Go to Settings > View Logs
-2. See all scan history
-3. Check for errors
-4. Export logs (long press)
+### Settings Screen
 
-**Log Format:**
-```
-[2025-02-15 14:30:45] [INFO] Starting IP scan...
-[2025-02-15 14:31:12] [OK] Scan completed
-[2025-02-15 14:31:15] [INFO] Updating Cloudflare KV...
-[2025-02-15 14:31:18] [OK] Update successful
-```
+Where you enter Cloudflare API credentials (API token, account ID, KV namespace ID). Credentials are stored encrypted on your device.
 
-### Scheduled Scans (Coming Soon)
+### Scan Progress Screen
 
-Future feature:
-- Auto-scan every 6/12/24 hours
-- Background operation
-- Notifications on update
+Live view of the running scan:
+- Phase 1 progress bar with IP counts
+- Phase 2 progress with current IP being tested
+- Cancel button
+
+### Results Screen
+
+Displayed after scan completes (or tap **Results** from the home screen to see the last result):
+- Summary card with working IP count and scan duration
+- Stat cards: Phase 1/Phase 2 counts
+- Working IP list with proxy latency per IP
+- Update BPB Panel button
+- Download Configs button
+- Info button (shows protocol, SNI, success rates, timestamp)
+
+### Logs Screen
+
+Full log history with all scan events. Use the copy button to export logs.
 
 ## Best Practices
 
-### When to Scan
+### Always Scan on the Network You Will Use
 
-**Important:** Always scan from the network you'll actually use!
+The scanner tests IPs from your device on your current network. IPs that work on mobile data may not be optimal on home WiFi, and vice versa.
 
-- When connection is slow
-- After changing networks (WiFi to mobile data)
-- Once daily for heavy users
-- Weekly for light users
+- Using mobile data: scan on mobile data
+- Using home WiFi: scan on home WiFi
+- Using a VPS: scan on the VPS
+
+### How Often to Scan
+
+- Heavy usage: Every 6–12 hours
+- Normal usage: Every 1–2 days
+- Light usage: Weekly or when connection becomes slow
+
+### When to Re-scan
+
+- After switching networks
+- When the proxy feels slow
 - After ISP maintenance
-
-**Why Network Matters:**
-- Scanner selects IPs with best routing to YOUR network
-- Different networks get different Cloudflare edge servers
-- IPs are optimized per /24 subnet for routing diversity
-- Mobile data IPs won't work optimally on WiFi and vice versa
-
-### Where to Scan
-
-Scan from the network you'll actually use:
-- Mobile data: Scan on mobile data
-- Home WiFi: Scan on home WiFi
-- Work network: Scan on work network
-
-Clean IPs differ by network, so scan where you'll use the proxy.
-
-### How Often to Update
-
-- Heavy usage: Daily
-- Normal usage: 2-3 times per week
-- Light usage: Weekly or as needed
-
-### Optimal Scan Times
-
-- Off-peak hours (2AM-6AM)
-- When network is idle
-- Not while streaming/downloading
 
 ## Troubleshooting
 
-### Scan Fails
+### No Working IPs Found
 
-**Problem**: Scan doesn't complete or finds no IPs
+**Phase 2 returns 0 working IPs:**
+1. Verify your subscription URL in Configuration — tap Fetch & Verify
+2. Check that Xray actually works on your network (test with a standalone client)
+3. Increase Phase 2 Test Depth (default 50; try 100)
+4. Try scanning at a different time
 
-**Solutions**:
+**Phase 1 returns 0 IPs:**
 1. Check internet connection
-2. Try increasing latency limit to 300-500ms
-3. Decrease quality score limit to 1-3
-4. Enable "HTTP Mode" in Advanced Settings
-5. Reduce threads to 100
-
-**Understanding Quality Score Limits:**
-- Default limit: 5
-- If no IPs found, lower to 2-3
-- Quality score measures sustained throughput
-- Lower limits accept IPs with less consistent performance
+2. Port 443 may be blocked — check with another app
+3. Reduce Batch Size (try 100) if ISP throttles high-concurrency connections
 
 ### Update Fails
 
-**Problem**: "Failed to update BPB Panel"
+**"Failed to update BPB Panel":**
+1. Check Cloudflare credentials are entered correctly (Settings)
+2. Verify API token has Workers KV Edit permission
+3. Confirm the KV Namespace ID matches your BPB Panel namespace
+4. Check internet connection
+5. View Logs for the specific error message
 
-**Solutions**:
-1. Verify Cloudflare credentials
-2. Check internet connection
-3. Ensure API token has Workers KV Edit permission
-4. Check Workers KV namespace exists
-5. View logs for detailed error
+### Scan Takes Very Long
 
-### Slow Scans
+Phase 2 runs one Xray proxy test at a time. With Phase 2 Test Depth = 50 and slow IPs, this can take 10–20 minutes.
 
-**Problem**: Scan takes 10+ minutes
+To speed it up:
+- Reduce Phase 2 Test Depth (Configuration > Phase 2 Test Depth, try 20–30)
+- Reduce Max Samples per CIDR (smaller Phase 1 pool = fewer Phase 1 winners to test)
 
-**Solutions**:
-1. Reduce Download Test Count to 5
-2. Reduce Threads to 100
-3. Enable "Disable Download Test"
-4. Increase latency limit (fewer IPs to test)
+### Subscription URL Errors
+
+**"Failed to fetch subscription":**
+1. Check the URL is complete and correct
+2. Make sure your BPB Panel Worker is deployed and running
+3. Try opening the URL in a browser (should return JSON)
+4. Check internet connection
 
 ### App Crashes
 
-**Problem**: App closes unexpectedly
-
-**Solutions**:
 1. Restart app
-2. Clear app cache (Settings > Storage)
-3. Reinstall app
-4. Check device storage (need 50MB+ free)
-5. Report issue with logs
-
-### Permission Denied (Android)
-
-**Problem**: "Permission denied" error
-
-**Solutions**:
-1. Grant storage permission in Settings
-2. Reinstall app
-3. Check if device is rooted (may cause issues)
-
-### Invalid Credentials
-
-**Problem**: "Invalid API token"
-
-**Solutions**:
-1. Copy token again (ensure no extra spaces)
-2. Check token hasn't expired
-3. Verify token has correct permissions
-4. Create new token if needed
-
-See [Cloudflare Setup Guide](cloudflare-setup.md) for credential help.
+2. Check device storage (50 MB+ free needed for Xray temp files)
+3. View Logs before crashing if possible
+4. Report issue with log contents
 
 ## FAQ
 
 ### Q: Do I need Cloudflare credentials to use the app?
-**A**: No, not for scanning. Credentials are only required if you want to automatically update your BPB Panel. You can scan and view clean IPs without any credentials.
 
-### Q: What is "Quality Score" and how is it different from speed?
-**A**: Quality Score is an EWMA-based metric that measures **sustained throughput quality**, not peak speed:
-- Peak speed can be misleading (brief bursts don't represent real performance)
-- Quality score emphasizes consistency (80% weight to historical average)
-- Higher quality score = more reliable BPB Panel connection
-- Roughly correlates with MB/s but filters out unreliable IPs
+No. Credentials are only required for the "Update BPB Panel" feature. You can scan and copy working IPs without any credentials.
 
-### Q: Why does the scanner select IPs from different subnets?
-**A**: **Routing diversity improves BPB Panel performance:**
-- Each /24 subnet connects through different Cloudflare edge servers
-- Different edge servers have different routing paths to your ISP
-- Result: More stable connections even if raw speed is similar
-- This is why scanner IPs work better than random Cloudflare IPs
+### Q: What does "working IP" mean exactly?
+
+A working IP successfully routed an HTTP request through a real Xray proxy connection and received HTTP 204 back from Google's connectivity check endpoint. This means the IP actually functions as a proxy on your network, not just that port 443 is open.
+
+### Q: Why are results different on mobile data vs WiFi?
+
+Different networks route to different Cloudflare edge servers. An IP that works well from mobile data may be slow or blocked from home WiFi, and vice versa. Always scan on the network you intend to use.
 
 ### Q: Do I need a VPS?
-**A**: No. The app runs on your device.
 
-### Q: Will it work on mobile data?
-**A**: Yes, and you SHOULD scan on mobile data if that's what you'll use.
+No. The app runs on your device. On web deployment (VPS), scanning works with the Phase 1 TLS test (Phase 2 requires the Xray binary, which cannot run in a browser).
 
-### Q: How much data does a scan use?
-**A**: 10-50 MB per scan.
+### Q: Why does the scan take so long?
 
-### Q: Does it work offline?
-**A**: The app loads offline, but needs internet to scan and update.
+Phase 2 starts one Xray process per IP and waits for it to connect. This is intentional — it tests actual proxy connectivity. With the default 50 IPs and a 10-second timeout each, the worst case is ~8 minutes. In practice it's usually faster because working IPs respond quickly.
 
-### Q: Can I use the clean IPs manually?
-**A**: Yes! After scanning, you can copy the IP list and manually add them to your BPB Panel configuration.
+### Q: Can I use the IPs without updating BPB Panel automatically?
+
+Yes. After scanning, tap the copy button next to any IP or use "Copy All IPs" to copy all working IPs. Paste them into your BPB Panel's clean IP field manually.
 
 ### Q: Is it safe?
-**A**: Yes. All data stays local. Only connects to Cloudflare API.
+
+All data stays local on your device. The app only connects to your BPB Panel subscription URL, to Cloudflare's connectivity check endpoint (via the proxy being tested), and to Cloudflare API (for KV updates). No analytics, no third-party services.
 
 ### Q: Can I use multiple BPB Panels?
-**A**: Currently one panel per app. Future: multi-account support.
 
-### Q: How do I backup settings?
-**A**: Settings > Export Settings (coming soon)
+Not yet. One panel per app instance. Multi-account support is planned.
 
-### Q: Can I use custom IP lists?
-**A**: Not yet. Future feature.
+### Q: Why does enabling IPv6 not work?
 
-### Q: Why are results different on VPS vs mobile?
-**A**: Network routes differ. Always scan on the network you'll use.
+Your network must have native IPv6 connectivity. If your ISP does not provide IPv6, all IPv6 IPs will fail Phase 1 (TLS). Check if your network has IPv6 before enabling this option.
 
-### Q: How to uninstall?
-**A**:
-- Android: Settings > Apps > BPB Clean IP Updater > Uninstall
-- iOS: Long press app icon > Remove App
-- macOS: Drag to Trash from Applications
-- Windows: Settings > Apps > Uninstall
-- Linux: `sudo apt remove bpb-automation`
+### Q: How do I check what version I'm running?
+
+Tap **About** from the home screen Quick Actions grid.
 
 ## Privacy & Security
 
-### What Data is Stored
+### What Data is Stored Locally
 
-**Locally on Device:**
-- Cloudflare credentials (encrypted)
-- Scanner settings
-- Scan history
-- Logs
-
-**Not Stored:**
-- No cloud backups
-- No analytics sent
-- No tracking
+- Cloudflare credentials (encrypted with platform keychain)
+- BPB Panel subscription URL
+- Scan parameters
+- Last scan result (working IPs + stats)
+- App logs
 
 ### What Network Requests are Made
 
-**Only to Cloudflare API:**
-- Read current settings
-- Write updated settings
-- No third-party services
-- No telemetry
+- **BPB Panel subscription URL**: to fetch Xray configs (user-initiated, on scan start)
+- **Cloudflare API**: to read/write Workers KV `proxySettings` (user-initiated, on "Update BPB Panel")
+- **Cloudflare IPs**: TLS handshakes during Phase 1 (scan only)
+- **Google connectivity check** (`connectivitycheck.gstatic.com/generate_204`): via Xray proxy during Phase 2 (scan only)
+
+No telemetry, no analytics, no third-party tracking.
 
 ### Credential Security
 
-- Encrypted storage (platform keychain)
-- Never sent anywhere except Cloudflare
-- Can be deleted anytime
+- API token, account ID, and KV namespace ID are stored using the platform's secure encrypted keychain
+- Credentials are never sent anywhere except the Cloudflare API
+- Can be deleted anytime from Settings
 
 ## Getting Help
 
-### In-App Help
-- Settings > Help
-- Settings > View Logs
-- Settings > About
+### In-App
+
+- **Logs** screen: full log history, all errors are logged here
+- **About** screen: version info
 
 ### Documentation
-- See `docs/` folder for detailed guides
-- [Cloudflare Setup](cloudflare-setup.md)
-- [Scanner Configuration](scanner-configuration.md)
+
+- [Cloudflare Setup Guide](cloudflare-setup.md) — how to get Cloudflare API credentials
+- [Scanner Configuration Guide](scanner-configuration.md) — scan parameter tuning
 
 ### Reporting Issues
-- Check logs first
-- Include error messages
-- Report device/OS version
-- Describe steps to reproduce
 
-## Updates
-
-### Checking for Updates
-- Settings > Check for Updates (coming soon)
-- Follow release announcements
-
-### Installing Updates
-- Download new version
-- Install over existing (settings preserved)
-- Or uninstall and reinstall
-
-## Tips & Tricks
-
-1. **Quick Scan**: Enable "Disable Download Test" for 30-second scans
-2. **Best Results**: Scan during off-peak hours
-3. **Battery Saver**: Plug in device during scan
-4. **Network Test**: Compare before/after scan speeds
-5. **Multiple Networks**: Scan on each network you use
-
-## Changelog
-
-See release notes for version history and new features.
-
-## License
-
-To be determined.
-
-## Credits
-
-- Scanner: [Cloudflare-Clean-IP-Scanner](https://github.com/bia-pain-bache/Cloudflare-Clean-IP-Scanner)
-- BPB Panel: [BPB-Worker-Panel](https://github.com/bia-pain-bache/BPB-Worker-Panel)
+When reporting a bug:
+1. Check Logs screen for error messages
+2. Include your device/OS and app version
+3. Describe the steps to reproduce the issue
+4. Paste any relevant log lines

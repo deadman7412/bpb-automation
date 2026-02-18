@@ -2,97 +2,219 @@
 
 ## Overview
 
-BPB Automation is a Flutter application with a **pure Dart IP scanner implementation** that provides automated clean IP discovery and BPB Panel updates via Cloudflare Workers KV API.
+BPB Automation is a Flutter application that uses a **config-based, Xray-powered IP scanner** to find working Cloudflare IPs for BPB Panel and update them via the Cloudflare Workers KV API.
 
-**Key Design Decision:** The app uses a native Dart scanner instead of external binaries to avoid platform sandboxing issues (especially on macOS) and ensure true cross-platform compatibility.
+The scanner fetches the user's BPB Panel Xray subscription, tests candidate IPs through three verification phases (TCP, TLS, live proxy), and writes the best results back to the panel.
 
 ## Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────┐
-│         Flutter Application UI              │
-├─────────────────────────────────────────────┤
-│  Screens:                                   │
-│  - Home Screen (Scan + Progress)            │
-│  - Settings Screen (Credentials + Config)   │
-│  - Results Screen (IP List + Stats)         │
-│  - Config Screen (Scanner Parameters)       │
-│  - Logs Screen (Real-time logs)             │
-└──────────────┬──────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│           Flutter Application UI                │
+├─────────────────────────────────────────────────┤
+│  Screens:                                       │
+│  - Home Screen (start scan / status)            │
+│  - Config Screen (subscription URL + params)    │
+│  - Settings Screen (Cloudflare credentials)     │
+│  - Scan Progress Screen (live progress)         │
+│  - Config Scan Results Screen (results + IPs)   │
+│  - Logs Screen (real-time log viewer)           │
+│  - Debug Screen (developer tools)               │
+└──────────────┬──────────────────────────────────┘
                │
-┌──────────────▼──────────────────────────────┐
-│         Service Layer                       │
-├─────────────────────────────────────────────┤
-│  - DartScannerService (singleton)           │
-│    ├─ IPLoader (CIDR expansion)            │
-│    ├─ LatencyTester (TCP sockets)          │
-│    ├─ SpeedTester (HTTPS download)         │
-│    └─ Progress streaming                   │
-│  - CloudflareApiService                     │
-│    └─ Workers KV read/write                │
-│  - StorageService                           │
-│    └─ Secure credential storage            │
-│  - LogService                               │
-│    └─ [OK] [INFO] [WARN] [ERROR] tags      │
-└──────────────┬──────────────────────────────┘
+┌──────────────▼──────────────────────────────────┐
+│           Service Layer                         │
+├─────────────────────────────────────────────────┤
+│  DartScannerService (singleton)                 │
+│    ├─ SubscriptionService  (config fetch)       │
+│    ├─ IPLoader             (CIDR expansion)     │
+│    ├─ ConfigTesterService  (Phase 1: TLS tests) │
+│    └─ XrayService          (Phase 2: proxy test)│
+│                                                 │
+│  CloudflareApiService                           │
+│    └─ Workers KV read/write                     │
+│                                                 │
+│  StorageService                                 │
+│    └─ Secure credential + settings storage      │
+│                                                 │
+│  LogService                                     │
+│    └─ [OK] [INFO] [WARN] [ERROR] tagged output  │
+└──────────────┬──────────────────────────────────┘
                │
-┌──────────────▼──────────────────────────────┐
-│         External Components                 │
-├─────────────────────────────────────────────┤
-│  - Cloudflare Workers KV API                │
-│  - flutter_secure_storage                   │
-│  - IP lists (bundled assets)                │
-└─────────────────────────────────────────────┘
+┌──────────────▼──────────────────────────────────┐
+│           External Components                   │
+├─────────────────────────────────────────────────┤
+│  - Xray-core binary (bundled, platform-specific)│
+│  - Cloudflare Workers KV API                    │
+│  - BPB Panel subscription endpoint             │
+│  - flutter_secure_storage                       │
+│  - IP lists (bundled assets: ip.txt, ipv6.txt)  │
+└─────────────────────────────────────────────────┘
 ```
 
 ## Component Details
 
 ### 1. DartScannerService
 
-Pure Dart implementation of the IP scanner (no external binaries).
+Orchestrates the full scan workflow. Singleton — the scan keeps running even if the user navigates away, and screens can attach/detach to its progress streams.
 
 **Responsibilities:**
-- Orchestrate complete scan workflow
-- Load and expand CIDR IP ranges
-- Coordinate latency and speed testing
-- Stream real-time progress updates
-- Calculate quality scores
-- Sort and return results
+- Coordinate subscription fetch, IP loading, Phase 1 TLS testing, Phase 2 proxy testing
+- Stream Phase 2 real-time progress
+- Broadcast final `ConfigScanResult` on completion
+- Handle cancellation
 
 **Key Methods:**
 ```dart
-Future<DartScanResult> executeScan(ScannerConfig config)
-Stream<ScanProgress> startProgressStream()
-void stopProgressStream()
-bool get isAvailable  // Always true for Dart scanner
-String get version    // Returns '1.0.0-dart'
+Future<void> executeConfigScan({
+  required XrayConfig templateConfig,
+  required String subscriptionUrl,
+  int desiredIPCount,
+  int phase2TestDepth,
+  bool enableIPv6,
+  int maxSamplesPerCIDR,
+  int batchSize,
+})
+
+Stream<Phase2Progress> get phase2ProgressStream
+Stream<ConfigScanResult> get completionStream
+bool get isScanning
+void cancelScan()
 ```
 
 **Scan Workflow:**
-1. Load IP addresses from bundled assets
-2. Expand CIDR ranges with **subnet-aware sampling** (see IP Selection Strategy below)
-3. Test latency for ALL IPs concurrently
-4. Filter successful results, sort by **loss rate first, then latency**
-5. Test download speed for top N IPs (from config.downloadCount)
-6. Calculate **EWMA-based quality scores** (see Speed Testing Algorithm below)
-7. Sort by quality (loss rate → latency → quality score) and return
+1. Fetch/validate subscription URL → select template config
+2. Load IP candidates (CIDR expansion with subnet-aware sampling)
+3. Phase 1: TLS handshake test all candidates concurrently
+4. Sort Phase 1 results by TLS latency, take top `phase2TestDepth`
+5. Phase 2: Live Xray proxy test each candidate sequentially
+6. Sort Phase 2 results by proxy latency, take top `desiredIPCount`
+7. Emit `ConfigScanResult` on completion stream
 
-**Sub-services:**
-- **IPLoader**: CIDR expansion with subnet-aware IPv4 selection
-- **LatencyTester**: TCP socket-based latency measurement (1s timeout)
-- **SpeedTester**: Raw socket HTTPS download with EWMA quality scoring
-- **EWMA**: Exponentially Weighted Moving Average for sustained throughput quality
+### 2. SubscriptionService
 
-### 2. CloudflareApiService
-
-Handles all Cloudflare API interactions.
+Fetches and parses the BPB Panel Xray subscription.
 
 **Responsibilities:**
-- Authenticate with API token
-- Read current proxySettings from Workers KV
-- Update only cleanIPs field (preserve other settings)
+- Fetch `{url}?app=xray` with retry (3 attempts, exponential backoff, 30s timeout)
+- Parse JSON array of Xray config objects
+- Filter to IP-based configs (domain-based excluded from TLS testing)
+- Select best template config (VLESS/WebSocket preferred)
+
+**Key Methods:**
+```dart
+Future<List<XrayConfig>> fetchConfigs(String subscriptionUrl)
+XrayConfig? selectBestConfig(List<XrayConfig> configs)
+```
+
+### 3. IPLoader
+
+Generates the candidate IP pool from bundled CIDR lists.
+
+**Responsibilities:**
+- Load IPv4 ranges from `assets/ip_lists/ip.txt`
+- Load IPv6 ranges from `assets/ip_lists/ipv6.txt` (when enabled)
+- Expand CIDRs using subnet-aware sampling
+
+**IP Selection Strategy:**
+
+**IPv4 (Subnet-Aware):**
+- For each CIDR range, group host IPs by /24 subnet
+- Select one random IP from each /24 subnet, up to `maxSamplesPerCIDR` per CIDR
+- Ensures IPs route through different Cloudflare edge servers
+- Example: `104.16.0.0/13` → samples from up to 100 different /24 subnets
+
+**IPv6 (Pure Random):**
+- Randomize the host portion of each IPv6 CIDR
+- No subnet grouping; pure random sampling
+
+**Key Methods:**
+```dart
+Future<List<String>> loadIPv4({int maxSamplesPerCIDR})
+Future<List<String>> loadIPv6({int maxSamplesPerCIDR})
+Future<List<String>> loadAll({bool enableIPv6, int maxSamplesPerCIDR})
+```
+
+### 4. ConfigTesterService
+
+Runs Phase 1: concurrent TLS handshake tests against all candidate IPs.
+
+**Responsibilities:**
+- Batch-concurrent TLS testing (up to `batchSize` sockets open at once)
+- TCP connection to port 443, then TLS upgrade with SNI from template config
+- Uses `RawSocket`/`RawSecureSocket` to avoid file descriptor leaks
+- Reports progress via stream
+- Supports cancellation
+
+**Test Logic:**
+1. TCP connect to `ip:443` (1-second timeout)
+2. Upgrade to TLS using SNI hostname from config's outbound address
+3. Record success/failure and handshake latency
+4. Cancel socket on timeout using `RawSocket.detachRaw()`
+
+**Key Methods:**
+```dart
+Future<List<ConfigTestResult>> testIPsWithTLS({
+  required List<String> ips,
+  required XrayConfig config,
+  int batchSize,
+  int timeoutSeconds,
+})
+
+Stream<TlsTestProgress> get progressStream
+void cancel()
+```
+
+### 5. XrayService
+
+Manages the bundled Xray-core binary and runs Phase 2: live proxy tests.
+
+**Responsibilities:**
+- Extract platform-specific Xray binary from app assets
+- Launch Xray process with a modified config (IP substituted into outbound)
+- Route HTTP test request through SOCKS5 proxy Xray creates
+- Accept only HTTP 204 from `connectivitycheck.gstatic.com/generate_204` as success
+- Terminate Xray process after test, clean up ports
+
+**Binary Assets:**
+```
+assets/xray-binaries/
+├── android-arm64/xray
+├── darwin-amd64/xray
+├── darwin-arm64/xray
+├── linux-amd64/xray
+└── windows-amd64/xray.exe
+```
+
+**Test Logic:**
+1. Write temp Xray config JSON (outbound address = candidate IP)
+2. Start Xray process (`xray run -config <path>`)
+3. Wait for SOCKS5 proxy to become available on localhost
+4. HTTP GET through SOCKS5 to `generate_204`
+5. Record result: success = HTTP 204, latency = round-trip time
+6. Kill Xray process, delete temp files
+
+**Key Methods:**
+```dart
+Future<ProxyTestResult> testIPWithProxy({
+  required String ip,
+  required XrayConfig templateConfig,
+  int timeoutSeconds,
+})
+
+Future<bool> get isAvailable
+String get binaryPath
+```
+
+### 6. CloudflareApiService
+
+Handles all Cloudflare Workers KV API interactions.
+
+**Responsibilities:**
+- Read current `proxySettings` from Workers KV
+- Update only the `cleanIPs` array (all other fields preserved)
 - Write updated settings back to KV
-- Error handling and retries
+- Validate credentials
 
 **API Endpoints:**
 ```
@@ -102,183 +224,127 @@ PUT  /accounts/{account_id}/storage/kv/namespaces/{namespace_id}/values/proxySet
 
 **Key Methods:**
 ```dart
-Future<ProxySettings> getProxySettings()
-Future<bool> updateCleanIPs(List<String> ips)
-Future<bool> validateCredentials()
+Future<void> updateCleanIPs(Credentials credentials, List<String> ips)
+Future<bool> validateCredentials(Credentials credentials)
 ```
 
 **Data Flow:**
-1. Fetch current proxySettings JSON
-2. Parse to ProxySettings model
-3. Update cleanIPs array
-4. Serialize back to JSON
-5. PUT to Cloudflare API
+1. Fetch current `proxySettings` JSON from KV
+2. Decode JSON, replace `cleanIPs` array
+3. Re-encode JSON, PUT back to KV
 
-### 3. StorageService
+### 7. StorageService
 
-Manages local storage of credentials and app state.
+Manages local storage for credentials and app state.
 
 **Storage Strategy:**
-- **Sensitive data** (API tokens): flutter_secure_storage (encrypted)
-- **App state** (last scan time, settings): shared_preferences
+- **Sensitive data** (API tokens): `flutter_secure_storage` (platform keychain)
+- **App state** (scan params, last scan time): `shared_preferences`
+- **Scan results** (last scan JSON): `shared_preferences`
+- **Cached configs** (Xray subscription): `shared_preferences`
 
 **Stored Data:**
 ```dart
 // Secure storage (encrypted)
-- cf_api_token: String
-- cf_account_id: String
-- cf_kv_namespace_id: String
+- cf_api_token
+- cf_account_id
+- cf_kv_namespace_id
 
 // Preferences
-- scanner_threads: int
-- scanner_latency_limit: int
-- num_ips_to_use: int
-- last_scan_timestamp: DateTime
-- auto_update_enabled: bool
-- auto_update_interval: int (hours)
+- subscription_url: String
+- scan_params: Map (desiredIPCount, phase2TestDepth, enableIPv6, maxSamplesPerCIDR, scanBatchSize)
+- last_scan_timestamp: String (ISO 8601)
+- last_scan_result: String (JSON)
+- cached_configs: String (JSON)
 ```
 
-**Key Methods:**
-```dart
-Future<void> saveCredentials(Credentials creds)
-Future<Credentials?> getCredentials()
-Future<void> clearCredentials()
-Future<void> saveScannerConfig(ScannerConfig config)
-```
-
-### 4. LogService
+### 8. LogService
 
 Centralized logging with tagged output.
 
-**Log Levels:**
-- `[OK]` - Success messages
-- `[INFO]` - Informational messages
-- `[WARN]` - Warnings
-- `[ERROR]` - Error messages
+**Log Tags:**
+- `[OK]` — Success messages
+- `[INFO]` — Informational messages
+- `[WARN]` — Warnings
+- `[ERROR]` — Errors
 
-**Features:**
-- Console output (debug mode)
-- File logging (persistent)
-- UI display (in-app log viewer)
-- Automatic log rotation
-
-**Format:**
+**Log Format:**
 ```
-[2025-02-15 14:30:45] [INFO] Starting IP scan...
-[2025-02-15 14:31:12] [OK] Scan completed, found 10 clean IPs
-[2025-02-15 14:31:15] [INFO] Updating Cloudflare KV...
-[2025-02-15 14:31:18] [OK] Clean IPs updated successfully
+[2026-01-15 14:30:45] [INFO] Starting IP scan...
+[2026-01-15 14:31:12] [OK] Phase 1 complete: 47 IPs passed TLS
+[2026-01-15 14:31:15] [INFO] Starting Phase 2 proxy tests...
+[2026-01-15 14:31:58] [OK] Phase 2 complete: 5 working IPs found
 ```
 
 ## Data Models
 
-### LatencyResult
+### XrayConfig
 ```dart
-class LatencyResult {
-  final String ip;
-  final int port;
-  final int successCount;
-  final int totalAttempts;
-  final double averageLatencyMs;
-  final double minLatencyMs;
-  final double maxLatencyMs;
-  final List<double> latencies;
-  final String? error;
-
-  double get successRate;
-  bool get isSuccessful;
+class XrayConfig {
+  // Parsed Xray outbound configuration
+  // Contains protocol (vless/vmess/trojan), network, SNI, etc.
+  String? getProtocol()
+  String? getOutboundAddress()   // hostname or IP
+  int? getOutboundPort()
+  bool isSecure()                // true for TLS/Reality
+  XrayConfig withIP(String ip)   // returns copy with IP substituted
+  Map<String, dynamic> toJson()
+  factory XrayConfig.fromJson(Map<String, dynamic>)
 }
 ```
 
-### SpeedResult
+### ConfigTestResult
 ```dart
-class SpeedResult {
+class ConfigTestResult {
   final String ip;
-  final String testUrl;
-  final int bytesDownloaded;
-  final double durationSeconds;
-  final double qualityScore;  // EWMA-based dimensionless quality metric
-  final String? error;
+  final TlsTestResult? tlsTestResult;      // Phase 1 result
+  final ProxyTestResult? proxyTestResult;  // Phase 2 result
+}
 
-  bool get isSuccessful;
-  double get speedMbps;  // Computed from qualityScore (backward compat)
-  double get speedKbps;
-  double get speedMBps;
+class TlsTestResult {
+  final bool success;
+  final double latencyMs;
+  final String? error;
+}
+
+class ProxyTestResult {
+  final bool success;
+  final double latencyMs;
+  final int? statusCode;   // 204 = working
+  final String? error;
 }
 ```
 
-**Note:** Primary metric is now `qualityScore` (EWMA-based), not raw speed in Mbps.
-
-### ScanResult
+### ConfigScanResult
 ```dart
-class ScanResult {
-  final String ip;
-  final LatencyResult latencyResult;
-  final SpeedResult? speedResult;
-  final double qualityScore;
+class ConfigScanResult {
+  final int totalTested;       // Phase 1 candidates
+  final int phase1Passed;      // TLS handshake successes
+  final int phase2Tested;      // IPs tested in Phase 2
+  final int workingIPCount;    // HTTP 204 successes
+  final List<String> workingIPs;        // sorted by proxy latency
+  final List<ConfigTestResult> allResults;
+  final Duration scanDuration;
+  final XrayConfig templateConfig;
   final DateTime timestamp;
 
-  int compareQuality(ScanResult other);
+  factory ConfigScanResult.success({...})
+  factory ConfigScanResult.failure({...})
+  factory ConfigScanResult.fromJson(Map<String, dynamic>)
+  Map<String, dynamic> toJson()
 }
 ```
 
-### ScanProgress
+### Phase2Progress
 ```dart
-class ScanProgress {
+class Phase2Progress {
   final int totalIPs;
-  final int processedIPs;
-  final int successfulIPs;
-  final int failedIPs;
+  final int testedIPs;
+  final int workingIPs;
   final String? currentIP;
-  final ScanStage stage;
-  final String? message;
 
   double get progress;
   double get progressPercent;
-}
-
-enum ScanStage {
-  initializing, loadingIPs, latencyTesting,
-  speedTesting, sorting, completed, failed
-}
-```
-
-### CleanIP
-```dart
-class CleanIP {
-  final String ip;
-  final int packetsSent;
-  final int packetsReceived;
-  final double lossRate;
-  final double avgLatency;
-  final double downloadSpeed;
-}
-```
-
-### ProxySettings
-```dart
-class ProxySettings {
-  final String remoteDNS;
-  final Map<String, dynamic> remoteDnsHost;
-  final String localDNS;
-  final List<String> cleanIPs;  // This is what we update
-  final List<String> proxyIPs;
-  final Map<String, dynamic> outProxyParams;
-  // ... other fields preserved as-is
-}
-```
-
-### ScannerConfig
-```dart
-class ScannerConfig {
-  final int threads;
-  final int testCount;
-  final int downloadCount;
-  final int latencyLimit;
-  final int latencyLowerLimit;
-  final int speedLimit;
-  final bool disableDownload;
-  final bool httpingMode;
 }
 ```
 
@@ -294,233 +360,81 @@ class Credentials {
 ## Security Architecture
 
 ### Credential Storage
-- All sensitive data encrypted at rest
-- flutter_secure_storage uses:
+- All API tokens encrypted at rest via `flutter_secure_storage`
   - **Android**: Android Keystore
   - **iOS**: iOS Keychain
-  - **Desktop**: Platform-specific secure storage
+  - **Desktop**: Platform-specific secure storage (libsecret, Keychain, DPAPI)
 
 ### Network Security
-- HTTPS only for Cloudflare API
-- Certificate pinning (optional)
+- HTTPS only for Cloudflare API calls
 - No third-party analytics or tracking
-- All network requests user-initiated
+- No data sent anywhere except Cloudflare API and user's own BPB Panel URL
 
-### Scanner Security
-- Pure Dart implementation - no binary execution
-- No sandboxing issues or permission requirements
-- All network operations using standard Dart libraries
-- TCP/HTTPS connections with proper error handling
-- Accept any certificate for speed testing (IP-based connections)
+### Binary Execution
+- Xray binary is extracted to app-private temp directory before use
+- Execute permission is set programmatically (POSIX platforms)
+- Process is killed and temp files deleted after each Phase 2 test
+- Binary is verified to exist before scan starts
 
 ## Error Handling
 
 ### Error Types
-1. **Network Errors**: Cloudflare API unreachable
-2. **Auth Errors**: Invalid API token
-3. **Scanner Errors**: Binary execution failed
-4. **Parse Errors**: Invalid CSV output
-5. **Storage Errors**: Failed to save/load credentials
+1. **Subscription Errors**: Unable to fetch or parse BPB Panel configs
+2. **Network Errors**: Cloudflare API unreachable
+3. **Auth Errors**: Invalid API token
+4. **Binary Errors**: Xray binary missing or failed to execute
+5. **Storage Errors**: Failed to save/load credentials or results
 
 ### Error Recovery
-```dart
-// Retry logic with exponential backoff
-Future<T> retryWithBackoff<T>(
-  Future<T> Function() operation,
-  {int maxAttempts = 3, Duration initialDelay = Duration(seconds: 1)}
-)
-
-// User-friendly error messages
-String getUserFriendlyError(Exception e) {
-  if (e is NetworkException) return "Network unreachable. Check connection.";
-  if (e is AuthException) return "Invalid credentials. Check API token.";
-  // ...
-}
-```
+- Subscription fetch: 3 retries with exponential backoff (1s, 2s, 4s), 30s timeout
+- Phase 2 proxy test: per-IP timeout (configurable), Xray process killed on failure
+- Cloudflare API: user shown error message with detail; no automatic retry
 
 ## Platform-Specific Considerations
 
 ### Android
-- No special permissions needed (only internet)
-- Background execution: WorkManager for scheduled scans
-- Distribution: APK sideloading or Play Store
-- Works without sandboxing restrictions
+- Xray binary: `android-arm64/xray` (ELF 64-bit ARM, linked against Android linker)
+- Only arm64-v8a devices supported (covers all modern Android phones)
+- Internet permission only (no storage permission required)
+- Distribution: APK sideloading
 
-### iOS
-- Code signing: Developer account required
-- Background execution: Background fetch API
-- Distribution: TestFlight or App Store
-- No binary execution issues
+### macOS
+- Xray binary: `darwin-arm64/xray` or `darwin-amd64/xray` (selected at runtime)
+- Requires network entitlement (`com.apple.security.network.client`)
+- Sandbox entitlement allows outgoing connections only
 
-### Desktop (macOS/Linux/Windows)
-- No binary extraction or permissions needed
-- **macOS**: No sandboxing issues with pure Dart
-- Tray icon: System tray integration (optional)
-- Auto-start: Platform-specific (plist/systemd/registry)
-- Universal compatibility across all desktop platforms
+### Linux / Windows
+- Xray binary: `linux-amd64/xray` or `windows-amd64/xray.exe`
+- No special permissions required
 
 ### Web
-- **Pure Dart scanner works in browser** (with CORS considerations)
-- Alternative: VPS deployment with backend
-- Frontend: Flutter web UI
-- Deployment: Cloudflare Pages, Netlify, or VPS
-
-## Scanner Algorithm Details
-
-### IP Selection Strategy (Routing Diversity)
-
-**Goal:** Maximize routing diversity to ensure IPs connect through different Cloudflare PoPs (Points of Presence).
-
-**IPv4 Selection (Subnet-Aware):**
-- Large CIDR ranges (> /24): Select **one random IP per /24 subnet**
-  - Example: `104.16.0.0/13` (524,288 IPs) → Sample from 2,048 different /24 subnets
-  - Each /24 subnet typically routes through different paths to your ISP
-  - Prevents clustering IPs in the same network segment
-- Small CIDR ranges (≤ /24): Random sampling within subnet
-
-**Implementation:**
-```dart
-// For IPv4 CIDR like 104.16.0.0/13:
-1. Calculate number of /24 subnets in range
-2. Randomly select N subnets to sample
-3. For each selected subnet:
-   - Generate random IP within that /24
-   - Randomize last octet only (xxx.xxx.xxx.0-255)
-4. Result: N IPs from N different /24 subnets
-```
-
-**IPv6 Selection (Pure Random):**
-- Sample randomly across entire /32 range
-- No subnet-based logic (matches Go scanner behavior)
-- Randomize last 2 bytes completely
-
-**Why This Matters:**
-- Different /24 subnets connect to different Cloudflare edge servers
-- Edge servers have different routing paths to your ISP
-- Result: IPs with better routing quality for BPB Panel, even if raw speed metrics are similar
-
-### Speed Testing Algorithm (EWMA Quality Score)
-
-**Goal:** Measure sustained throughput quality, not just peak speed.
-
-**EWMA (Exponentially Weighted Moving Average):**
-- Library equivalent: `github.com/VividCortex/ewma` (Go)
-- Alpha coefficient: **0.2** (20% weight to new samples, 80% to historical average)
-- Favors sustained performance over brief bursts
-
-**Sampling Process:**
-```dart
-1. Start download from speed.cloudflare.com
-2. Every 100ms during download:
-   - Calculate bytes received since last sample
-   - Add to EWMA: ewma.add(bytesInInterval)
-3. After download completes:
-   - Apply normalization: qualityScore = ewma.value / (timeout / 120)
-   - Store qualityScore (dimensionless metric)
-```
-
-**Normalization Factor:**
-- Formula: `timeout_seconds / 120`
-- Example: 10s timeout → factor = 10/120 = 0.0833
-- Aligns quality scores across different timeout durations
-- Matches Go scanner's download quality calculation
-
-**Quality Score vs Speed Mbps:**
-- `qualityScore`: EWMA-based sustained throughput quality (primary metric)
-- `speedMbps`: Computed as `(bytesDownloaded * 8) / (durationSeconds * 1000000)` (backward compatibility)
-- Quality score is more reliable for BPB Panel performance
-
-### Latency Testing Algorithm
-
-**TCP Socket Connection Test:**
-```dart
-1. Connect to IP:443 via raw TCP socket
-2. Timeout: 1 second (aggressive, matches Go scanner)
-3. Measure connection establishment time
-4. Repeat 2 times per IP
-5. Calculate average latency from successful attempts
-```
-
-**Success Criteria:**
-- At least 1 successful connection out of 2 attempts
-- Connection established within 1s timeout
-- Valid TCP handshake completed
-
-**Loss Rate Calculation:**
-```dart
-lossRate = 1.0 - (successCount / totalAttempts)
-// Example: 1 success out of 2 attempts = 50% loss rate
-```
-
-### Sorting Algorithm (Multi-Criteria)
-
-**Priority Order:**
-1. **Loss Rate** (lower is better) - PRIMARY
-2. **Latency** (lower is better) - SECONDARY
-3. **Quality Score** (higher is better) - TERTIARY
-
-**Implementation:**
-```dart
-int compareQuality(ScanResult a, ScanResult b) {
-  // Compare loss rates first
-  if (a.lossRate != b.lossRate) {
-    return a.lossRate.compareTo(b.lossRate);  // Lower wins
-  }
-  
-  // If tied, compare latency
-  if (a.latency != b.latency) {
-    return a.latency.compareTo(b.latency);  // Lower wins
-  }
-  
-  // If still tied, compare quality score
-  return b.qualityScore.compareTo(a.qualityScore);  // Higher wins
-}
-```
-
-**Why Loss Rate First:**
-- 0% packet loss is critical for stable BPB Panel connections
-- Low latency with packet loss = unstable connection
-- Matches Go scanner's `PingDelaySet.Less()` behavior
+- Xray binary cannot run in browser; Phase 2 proxy testing unavailable
+- Falls back to Phase 1 TLS results only
+- Config download available as an alternative to auto-update
 
 ## Performance Considerations
 
-### IP Loading & CIDR Expansion
-- CIDR ranges use **subnet-aware sampling** for IPv4 (one IP per /24 subnet)
-- IPv6 uses pure random sampling across /32 ranges
-- Max samples configurable per CIDR (default: 200 IPs)
-- Avoids expanding millions of IPs into memory
-- Typical load: ~3000 IPs from 15 CIDR ranges
-- Loading time: < 1 second
+### Phase 1 (TLS Testing)
+- Concurrent: up to `batchSize` (default 200) simultaneous sockets
+- Each test: TCP connect + TLS handshake (1s timeout)
+- Typical duration: 10–30 seconds for 500–1000 IPs
 
-**Routing Diversity:**
-- IPv4: 100 samples from /13 range = 100 different /24 subnets
-- Result: 100 IPs connecting through different network paths
-- Significantly improves BPB Panel IP quality vs random sampling
+### Phase 2 (Proxy Testing)
+- Sequential (one Xray process at a time)
+- Each test: Xray startup + HTTP request via SOCKS5
+- Typical duration: 5–15 seconds per IP
+- For `phase2TestDepth = 50`, expect 5–10 minutes total
 
-### Concurrent Testing
-- Configurable parallelism (default: 200 threads)
-- Asynchronous stream-based processing
-- Map-based pending task tracking
-- Automatic rate limiting via maxConcurrent parameter
-
-### Memory Management
-- Stream-based result processing (not batch)
-- Real-time progress updates via broadcast stream
-- Proper StreamController disposal
-- Socket cleanup in finally blocks
-
-### Network Efficiency
-- Single API call to update KV (not multiple)
-- Gzip compression on API requests
-- Raw socket connections (lower overhead than HTTP client)
-- Connection reuse within test batches
+### Memory
+- IP list loaded once into memory (~few thousand strings)
+- Scan results kept in memory, serialized to storage on completion
+- Xray binary extracted once per scan to temp directory
 
 ## Future Enhancements
 
 - Multi-account support
 - Scan history and analytics
 - Export/import settings
-- Custom IP ranges
+- Custom IP range input
 - Notification system
-- Background scheduled scans
-- Cloud backup of settings (optional)
+- Background/scheduled scans

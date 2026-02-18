@@ -95,11 +95,13 @@ class XrayService {
         _logService.logInfo('Extracting Xray binary...');
         await _extractBinary(assetPath, binaryPath);
         await _writeVersionFile(versionFilePath);
-        await _setExecutePermissions(binaryPath);
         _logService.logOk('Xray binary extracted successfully');
       } else {
         _logService.logInfo('Xray binary already up to date');
       }
+
+      // Always ensure execute permissions (and remove quarantine on macOS)
+      await _setExecutePermissions(binaryPath);
 
       _binaryPath = binaryPath;
       _isInitialized = true;
@@ -224,11 +226,26 @@ class XrayService {
         _logService.logOk('Execute permissions set');
       } else {
         _logService.logWarn(
-          '[WARN] Failed to set execute permissions: ${result.stderr}',
+          'Failed to set execute permissions: ${result.stderr}',
         );
       }
     } catch (e) {
       _logService.logWarn('Failed to set execute permissions: $e');
+    }
+
+    // On macOS, remove quarantine attribute that blocks execution of
+    // binaries written by sandboxed apps
+    if (Platform.isMacOS) {
+      try {
+        await Process.run('xattr', [
+          '-d',
+          'com.apple.quarantine',
+          binaryPath,
+        ]);
+        _logService.logInfo('Quarantine attribute removed');
+      } catch (_) {
+        // Attribute may not exist - ignore
+      }
     }
   }
 
@@ -295,7 +312,7 @@ class XrayService {
     String? configPath;
 
     try {
-      _logService.logInfo('Testing \$candidateIP with Xray proxy...');
+      _logService.logInfo('Testing $candidateIP with Xray proxy...');
 
       // Replace address in config
       final testConfig = config.copyWithAddress(candidateIP);
@@ -305,16 +322,30 @@ class XrayService {
 
       // Write config to temp file
       configPath = await _writeConfigToTempFile(configWithInbound);
-      _logService.logInfo('Config written to: \$configPath');
+      _logService.logInfo('Config written to: $configPath');
 
       // Start Xray process
       xrayProcess = await _startXrayProcess(configPath);
       _logService.logInfo(
-        '[INFO] Xray process started (PID: \${xrayProcess.pid})',
+        'Xray process started (PID: ${xrayProcess.pid})',
       );
 
-      // Wait for Xray to initialize
-      await Future.delayed(const Duration(seconds: 2));
+      // Poll until Xray binds port 10808 (up to 8 s)
+      // Replaces fixed 2 s delay — Xray with ECH + fragmentation takes 3-5 s
+      final xrayReady = await _waitForXrayPort(10808, maxWaitSeconds: 8);
+      if (!xrayReady) {
+        _logService.logError('Xray did not bind port 10808 within 8 seconds');
+        return ConfigTestResult(
+          ip: candidateIP,
+          config: config,
+          proxyTestResult: ProxyTestResult.failure(
+            error: 'Xray startup timeout (port 10808 never opened)',
+          ),
+          qualityScore: 0,
+          timestamp: startTime,
+        );
+      }
+      _logService.logOk('Xray ready on port 10808');
 
       // Test proxy connection
       final proxyResult = await _testProxyConnection(
@@ -328,8 +359,8 @@ class XrayService {
           .toDouble();
 
       _logService.logOk(
-        '[OK] Proxy test for \$candidateIP: \${proxyResult.success ? "SUCCESS" : "FAILED"} '
-        '(\${latency.toStringAsFixed(0)}ms)',
+        'Proxy test for $candidateIP: ${proxyResult.success ? "SUCCESS" : "FAILED"} '
+        '(${latency.toStringAsFixed(0)}ms)',
       );
 
       // Create result with updated latency
@@ -371,7 +402,7 @@ class XrayService {
         'run',
         '-c',
         configPath,
-      ], mode: ProcessStartMode.detached);
+      ]);
 
       // Listen to stdout/stderr for debugging (don't wait for completion)
       process.stdout.listen((data) {
@@ -384,24 +415,52 @@ class XrayService {
 
       return process;
     } catch (e) {
-      _logService.logError('Failed to start Xray process: \$e');
+      _logService.logError('Failed to start Xray process: $e');
       rethrow;
     }
   }
 
-  /// Test proxy connection via SOCKS5
+  /// Poll until Xray binds [port] or [maxWaitSeconds] elapses.
   ///
-  /// Connects to http://www.gstatic.com/generate_204 through the SOCKS5 proxy
-  /// and verifies we get a 204 No Content response.
+  /// Returns true if the port is open, false if it never opened in time.
+  Future<bool> _waitForXrayPort(int port, {required int maxWaitSeconds}) async {
+    final deadline = DateTime.now().add(Duration(seconds: maxWaitSeconds));
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final s = await Socket.connect(
+          '127.0.0.1',
+          port,
+          timeout: const Duration(milliseconds: 300),
+        );
+        await s.close();
+        return true;
+      } catch (_) {
+        // Not ready yet — brief pause before retry
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+    }
+    return false;
+  }
+
+  /// Test proxy connection via SOCKS5 with full HTTP 204 end-to-end check.
+  ///
+  /// Flow:
+  ///   1. SOCKS5 CONNECT to www.gstatic.com:80 through Xray
+  ///   2. Send HTTP GET /generate_204
+  ///   3. Read response chunks until status line is received or timeout
+  ///   4. Return success only on HTTP 204
+  ///
+  /// Xray fast-accepts SOCKS5 CONNECT before the outbound is established,
+  /// so we must wait for the actual HTTP response to confirm end-to-end
+  /// connectivity through the Cloudflare → BPB worker chain.
   Future<ProxyTestResult> _testProxyConnection({
     required int socksPort,
     required int timeout,
   }) async {
-    Socket? socket;
+    Socks5Connection? conn;
 
     try {
-      // Connect via SOCKS5 to www.gstatic.com:80
-      socket = await Socks5Helper.connectViaSocks5(
+      conn = await Socks5Helper.connectViaSocks5(
         socksHost: '127.0.0.1',
         socksPort: socksPort,
         targetHost: 'www.gstatic.com',
@@ -409,46 +468,70 @@ class XrayService {
         timeout: timeout,
       );
 
-      _logService.logInfo('SOCKS5 connection established');
+      _logService.logInfo('SOCKS5 connected, sending HTTP GET...');
 
-      // Send HTTP GET request
-      final request =
-          'GET /generate_204 HTTP/1.1\\r\\n'
-          'Host: www.gstatic.com\\r\\n'
-          'Connection: close\\r\\n'
-          '\\r\\n';
+      // HTTP/1.1 requires CRLF (\r\n). Note: Dart string \r\n = 2 bytes.
+      conn.write(utf8.encode(
+        'GET /generate_204 HTTP/1.1\r\n'
+        'Host: www.gstatic.com\r\n'
+        'Connection: close\r\n'
+        '\r\n',
+      ));
+      await conn.flush();
 
-      socket.write(request);
-      await socket.flush();
+      // Read response chunks until we find the HTTP status line or timeout.
+      // Xray establishes the outbound (ECH + VLESS + Cloudflare) after
+      // accepting SOCKS5, so this may take several seconds.
+      final buf = StringBuffer();
+      final deadline = DateTime.now().add(Duration(seconds: timeout));
 
-      _logService.logInfo('HTTP request sent');
+      while (DateTime.now().isBefore(deadline)) {
+        final remaining = deadline.difference(DateTime.now()).inSeconds;
+        if (remaining <= 0) break;
 
-      // Read response with timeout
-      final responseBytes = await socket
-          .timeout(Duration(seconds: timeout))
-          .toList();
-      final response = utf8.decode(responseBytes.expand((x) => x).toList());
+        List<int> chunk;
+        try {
+          chunk = await conn.readAvailable(remaining);
+        } on TimeoutException {
+          break;
+        }
 
-      _logService.logInfo(
-        '[INFO] HTTP response received: ${response.substring(0, response.length > 100 ? 100 : response.length)}',
-      );
+        if (chunk.isEmpty) break; // Socket closed cleanly
 
-      // Check for 204 No Content
-      if (response.contains('204') || response.contains('No Content')) {
-        _logService.logOk('Received 204 No Content response');
-        return ProxyTestResult.success(
-          latencyMs: 0, // Will be updated by caller
-          statusCode: 204,
-        );
-      } else {
-        _logService.logWarn(
-          '[WARN] Unexpected HTTP response (expected 204): \${response.substring(0, 50)}',
-        );
-        return ProxyTestResult.failure(
-          error: 'Unexpected HTTP status (expected 204)',
-          statusCode: _extractHttpStatus(response),
-        );
+        buf.write(utf8.decode(chunk, allowMalformed: true));
+        final response = buf.toString();
+
+        // Check for 204 success
+        if (response.contains('204') || response.contains('No Content')) {
+          _logService.logOk('HTTP 204 received - proxy chain confirmed working');
+          return ProxyTestResult.success(
+            latencyMs: 0, // Updated by caller with wall-clock time
+            statusCode: 204,
+          );
+        }
+
+        // If we have a full status line, parse and report the actual code
+        if (response.contains('\r\n')) {
+          final status = _extractHttpStatus(response);
+          _logService.logWarn(
+            'HTTP ${status ?? "?"} received (expected 204)',
+          );
+          return ProxyTestResult.failure(
+            error: 'HTTP ${status ?? "?"} (expected 204)',
+            statusCode: status,
+          );
+        }
+
+        if (buf.length > 4096) break;
       }
+
+      _logService.logWarn(
+        'No HTTP response within ${timeout}s '
+        '(proxy chain may be slow or outProxy unreachable)',
+      );
+      return ProxyTestResult.failure(
+        error: 'HTTP response timeout after ${timeout}s',
+      );
     } on TimeoutException catch (e) {
       _logService.logError('Proxy connection timeout: $e');
       return ProxyTestResult.failure(error: 'Connection timeout');
@@ -459,17 +542,14 @@ class XrayService {
       _logService.logError('Proxy connection failed: $e');
       return ProxyTestResult.failure(error: e.toString());
     } finally {
-      await socket?.close();
+      await conn?.close();
     }
   }
 
-  /// Extract HTTP status code from response
+  /// Extract HTTP status code from a response string.
   int? _extractHttpStatus(String response) {
-    final match = RegExp(r'HTTP/\d\.\d\s+(\d+)').firstMatch(response);
-    if (match != null) {
-      return int.tryParse(match.group(1)!);
-    }
-    return null;
+    final m = RegExp(r'HTTP/\S+\s+(\d+)').firstMatch(response);
+    return m != null ? int.tryParse(m.group(1)!) : null;
   }
 
   /// Write Xray config to temporary file
@@ -480,6 +560,7 @@ class XrayService {
 
     final configJson = json.encode(config.toJson());
     final file = File(configPath);
+    await file.parent.create(recursive: true);
     await file.writeAsString(configJson);
 
     return configPath;
@@ -493,7 +574,7 @@ class XrayService {
         process.kill();
         _logService.logInfo('Xray process killed');
       } catch (e) {
-        _logService.logWarn('Failed to kill Xray process: \$e');
+        _logService.logWarn('Failed to kill Xray process: $e');
       }
     }
 
@@ -506,7 +587,7 @@ class XrayService {
           _logService.logInfo('Temp config file deleted');
         }
       } catch (e) {
-        _logService.logWarn('Failed to delete temp config: \$e');
+        _logService.logWarn('Failed to delete temp config: $e');
       }
     }
   }
@@ -529,7 +610,7 @@ class XrayService {
       _binaryPath = null;
       _isInitialized = false;
     } catch (e) {
-      _logService.logError('Failed to cleanup: \$e');
+      _logService.logError('Failed to cleanup: $e');
     }
   }
 }
