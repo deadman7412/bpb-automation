@@ -65,6 +65,7 @@ build/
 *.pkg
 *.app.zip
 *.exe
+!assets/xray-binaries/windows-amd64/xray.exe
 *.msi
 *.msix
 *.AppImage

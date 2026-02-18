@@ -57,7 +57,7 @@ void main() {
         final results = await service.testIPsWithTLS(
           template: invalidConfig,
           candidateIPs: ['1.1.1.1'],
-          timeoutSeconds: 5,
+          tlsTimeoutSeconds: 5,
         );
 
         expect(results, isEmpty);
@@ -76,7 +76,7 @@ void main() {
         final results = await service.testIPsWithTLS(
           template: configNoPort,
           candidateIPs: ['1.1.1.1'],
-          timeoutSeconds: 5,
+          tlsTimeoutSeconds: 5,
         );
 
         expect(results, isEmpty);
@@ -94,9 +94,8 @@ void main() {
           final results = await service.testIPsWithTLS(
             template: config,
             candidateIPs: ['1.1.1.1'],
-            timeoutSeconds: 10,
+            tlsTimeoutSeconds: 10,
             maxConcurrency: 1,
-            verifyCdn: false, // Disable CDN verification for faster test
           );
 
           // Should return results (may succeed or fail depending on network)
@@ -122,9 +121,8 @@ void main() {
         final results = await service.testIPsWithTLS(
           template: config,
           candidateIPs: ['192.0.2.1'],
-          timeoutSeconds: 1, // Short timeout
+          tlsTimeoutSeconds: 1, // Short timeout
           maxConcurrency: 1,
-          verifyCdn: false,
         );
 
         // Should return empty (no successful results)
@@ -149,9 +147,8 @@ void main() {
           final results = await service.testIPsWithTLS(
             template: config,
             candidateIPs: candidateIPs,
-            timeoutSeconds: 10,
+            tlsTimeoutSeconds: 10,
             maxConcurrency: 3,
-            verifyCdn: false,
           );
 
           // Should have some results
@@ -190,9 +187,8 @@ void main() {
         final results = await service.testIPsWithTLS(
           template: config,
           candidateIPs: candidateIPs,
-          timeoutSeconds: 2,
+          tlsTimeoutSeconds: 2,
           maxConcurrency: 3, // Small batch size
-          verifyCdn: false,
         );
 
         // Should have processed all IPs
@@ -301,9 +297,8 @@ void main() {
           await service.testIPsWithTLS(
             template: config,
             candidateIPs: candidateIPs,
-            timeoutSeconds: 2,
+            tlsTimeoutSeconds: 2,
             maxConcurrency: 1,
-            verifyCdn: false,
           );
 
           // Wait a bit for final progress update to arrive
