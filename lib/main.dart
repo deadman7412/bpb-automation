@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
-import 'screens/results_screen.dart';
 import 'screens/logs_screen.dart';
 import 'screens/config_screen.dart';
 import 'screens/config_scan_screen.dart';
@@ -73,13 +71,11 @@ class BPBAutomationApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       initialRoute: '/',
       routes: {
-        '/': (context) => const HomeScreen(),
+        '/': (context) => const ConfigScanScreen(),
         '/settings': (context) => const SettingsScreen(),
-        '/results': (context) => const ResultsScreen(),
         '/logs': (context) => const LogsScreen(),
         '/config': (context) => const ConfigScreen(),
-        '/config-scan': (context) => const ConfigScanScreen(),
-        '/config-results': (context) => const ConfigScanResultsScreen(),
+        '/results': (context) => const ConfigScanResultsScreen(),
         '/about': (context) => const AboutScreen(),
         '/debug': (context) => const DebugScreen(),
       },
