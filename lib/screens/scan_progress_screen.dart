@@ -497,6 +497,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         content: Text('Stopping scan - will show results found so far'),
         backgroundColor: Colors.orange,
         duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
       ),
     );
 

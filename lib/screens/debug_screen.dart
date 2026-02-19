@@ -748,6 +748,7 @@ class _DebugScreenState extends State<DebugScreen> {
       const SnackBar(
         content: Text('Results copied to clipboard'),
         duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -778,6 +779,7 @@ class _DebugScreenState extends State<DebugScreen> {
       const SnackBar(
         content: Text('Debug info copied to clipboard'),
         duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

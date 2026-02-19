@@ -54,6 +54,31 @@ class IPLoader {
     }
   }
 
+  /// Returns up to [count] randomly selected IPs from [ips] without duplicates.
+  ///
+  /// If [count] >= [ips].length, returns a shuffled copy of the full list.
+  List<String> selectRandomIPs(List<String> ips, int count) {
+    if (count >= ips.length) return List.from(ips)..shuffle(Random());
+    final shuffled = List<String>.from(ips)..shuffle(Random());
+    return shuffled.take(count).toList();
+  }
+
+  /// Filters [ips] to only include addresses matching [type].
+  ///
+  /// [IPType.ipv4] returns only IPv4 addresses (no colon).
+  /// [IPType.ipv6] returns only IPv6 addresses (contains colon).
+  /// [IPType.both] returns all addresses unchanged.
+  List<String> filterByType(List<String> ips, IPType type) {
+    switch (type) {
+      case IPType.ipv4:
+        return ips.where((ip) => !ip.contains(':')).toList();
+      case IPType.ipv6:
+        return ips.where((ip) => ip.contains(':')).toList();
+      case IPType.both:
+        return List.from(ips);
+    }
+  }
+
   /// Load [targetCount] addresses total, split 80% IPv4 / 20% IPv6.
   Future<List<String>> loadAllAddressesExact({int targetCount = 1000}) async {
     try {
@@ -406,7 +431,7 @@ class IPLoader {
     for (var i = 0; i < 16; i += 2) {
       parts.add(((bytes[i] << 8) | bytes[i + 1]).toRadixString(16));
     }
-    return parts.join(':');
+    return '[${parts.join(':')}]';
   }
 
   List<String> _expandCIDRFull(List<int> baseOctets, int prefix) {

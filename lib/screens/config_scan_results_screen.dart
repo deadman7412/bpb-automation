@@ -100,7 +100,10 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         _isUpdating = false;
       });
 
-      _showMessage('Updated BPB Panel with ${_result!.workingIPs.length} IPs');
+      _showMessage(
+        'Updated BPB Panel with ${_result!.workingIPs.length} IPs. '
+        'Wait ~60s for KV to propagate, then refresh your subscription.',
+      );
       _log.logOk('BPB Panel updated successfully');
     } catch (e, stackTrace) {
       _log.logError('Failed to update BPB Panel: $e\n$stackTrace');
@@ -252,7 +255,8 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? Colors.red : Colors.green,
-        duration: Duration(seconds: isError ? 4 : 3),
+        duration: Duration(seconds: isError ? 4 : 6),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

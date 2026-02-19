@@ -123,6 +123,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
           content: Text('Success! Cached ${configs.length} configs'),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     } catch (e) {
@@ -221,6 +222,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
         content: Text('Configuration saved'),
         backgroundColor: Colors.green,
         duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

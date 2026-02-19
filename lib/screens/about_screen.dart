@@ -48,6 +48,7 @@ class _AboutScreenState extends State<AboutScreen> {
         SnackBar(
           content: Text('Could not launch $url'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -82,6 +83,7 @@ class _AboutScreenState extends State<AboutScreen> {
             content: Text('You are already running the latest version'),
             backgroundColor: Colors.green,
             duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -97,6 +99,7 @@ class _AboutScreenState extends State<AboutScreen> {
           content: Text('Failed to check for updates: ${e.toString()}'),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     } finally {

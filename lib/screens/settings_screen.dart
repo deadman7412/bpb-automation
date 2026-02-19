@@ -94,6 +94,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const SnackBar(
         content: Text('Credentials saved successfully'),
         backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -128,6 +129,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SnackBar(
           content: Text('Credentials validated successfully'),
           backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       _log.logOk('Credentials validated successfully');
@@ -136,6 +138,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SnackBar(
           content: Text('Invalid credentials. Please check and try again.'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       _log.logWarn('Credential validation failed');
@@ -178,6 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Credentials cleared'),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }

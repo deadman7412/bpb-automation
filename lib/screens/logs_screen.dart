@@ -66,9 +66,12 @@ class _LogsScreenState extends State<LogsScreen> {
       setState(() {});
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Logs cleared')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Logs cleared'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -103,6 +106,7 @@ class _LogsScreenState extends State<LogsScreen> {
           content: Text('Logs exported to:\n${file.path}'),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
           action: SnackBarAction(
             label: 'Copy Path',
             textColor: Colors.white,
@@ -118,6 +122,7 @@ class _LogsScreenState extends State<LogsScreen> {
         SnackBar(
           content: Text('Failed to export logs: $e'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -132,6 +137,7 @@ class _LogsScreenState extends State<LogsScreen> {
       const SnackBar(
         content: Text('Logs copied to clipboard'),
         backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -303,6 +309,7 @@ class _LogsScreenState extends State<LogsScreen> {
                                 const SnackBar(
                                   content: Text('Log entry copied'),
                                   duration: Duration(seconds: 1),
+                                  behavior: SnackBarBehavior.floating,
                                 ),
                               );
                             },
