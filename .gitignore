@@ -154,3 +154,7 @@ temp/
 
 # Keep BPB Panel Source of the git
 /BPB Panel Source
+
+worker/worker.js
+
+worker/worker.js
