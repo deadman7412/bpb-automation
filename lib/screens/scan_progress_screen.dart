@@ -13,7 +13,7 @@ import '../services/subscription_service.dart';
 /// Features:
 /// - Auto-starts scan when screen loads
 /// - Intelligently caches subscription configs
-/// - Real-time Phase 1 (TLS) and Phase 2 (Proxy) progress tracking
+/// - Real-time Phase 1 (TCP), Phase 2 (TLS), and Phase 3 (Proxy) progress tracking
 /// - Background scan support - can navigate away
 /// - Shows detailed statistics for each phase
 class ScanProgressScreen extends StatefulWidget {
@@ -35,16 +35,16 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
 
   // Progress tracking
   String _currentPhase = 'Initializing...';
-  // Phase 0: TCP pre-filter
+  // Phase 1: TCP pre-filter
   int _phase0Tested = 0;
   int _phase0Total = 0;
   int _phase0Success = 0;
-  // Phase 1: TLS handshake
+  // Phase 2: TLS handshake
   int _phase1Tested = 0;
   int _phase1Total = 0;
   int _phase1Success = 0;
   String? _phase1PassLabel; // "1/2" or "2/2" during two-pass TLS
-  // Phase 2: Proxy test
+  // Phase 3: Proxy test
   int _phase2Tested = 0;
   int _phase2Total = 0;
   int _phase2Success = 0;
@@ -127,58 +127,63 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     });
     _startElapsedTimer();
 
-    // Try to load cached configs first
+    // Always refresh configs from subscription first.
     List<XrayConfig>? configs;
     final cachedConfigsJson = await _storage.getCachedConfigs();
+    final cachedConfigs = (cachedConfigsJson ?? const <dynamic>[])
+        .map((json) => XrayConfig.fromJson(json as Map<String, dynamic>))
+        .toList();
 
-    if (cachedConfigsJson != null && cachedConfigsJson.isNotEmpty) {
-      // Use cached configs
-      configs = cachedConfigsJson
-          .map((json) => XrayConfig.fromJson(json as Map<String, dynamic>))
-          .toList();
-      _log.logInfo('Using ${configs.length} cached configs');
+    setState(() {
+      _currentPhase = 'Refreshing configs from subscription...';
+    });
+
+    try {
+      _log.logInfo('Fetching latest subscription configs from: $url');
+      configs = await _subscription.fetchConfigs(url);
+
+      if (configs.isEmpty) {
+        throw Exception('Subscription returned no valid configs');
+      }
+
+      await _storage.saveCachedConfigs(configs);
+      _log.logOk(
+        'Fetched latest ${configs.length} configs and refreshed cache',
+      );
 
       setState(() {
-        _currentPhase = 'Using cached configs (${configs!.length} configs)';
+        _currentPhase = 'Using latest configs (${configs!.length} configs)';
       });
-
       await Future.delayed(const Duration(milliseconds: 500));
-    } else {
-      // No cache - fetch from network
-      setState(() {
-        _currentPhase = 'Downloading configs from subscription URL...';
-      });
+    } catch (e) {
+      _log.logWarn('Failed to refresh subscription configs: $e');
 
-      try {
-        _log.logInfo('Fetching subscription from: $url');
-        configs = await _subscription.fetchConfigs(url);
+      if (cachedConfigs.isNotEmpty) {
+        configs = cachedConfigs;
+        _log.logWarn(
+          'Falling back to ${configs.length} cached configs for this scan',
+        );
 
-        if (configs.isEmpty) {
-          if (!mounted) return;
-          setState(() {
-            _isScanning = false;
-            _currentPhase = 'Error';
-          });
-          _showError(
-            'No Valid Configs Found',
-            'The subscription URL returned no valid Xray configs.\n\n'
-                'Please check your URL in Configuration.',
-            showConfigButton: true,
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Could not refresh latest configs. Using cached configs for this scan.',
+              ),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+              duration: Duration(seconds: 4),
+            ),
           );
-          return;
         }
 
-        // Cache the configs for next time
-        await _storage.saveCachedConfigs(configs);
-        _log.logOk('Fetched and cached ${configs.length} configs');
-
         setState(() {
-          _currentPhase = 'Configs downloaded (${configs!.length} configs)';
+          _currentPhase =
+              'Using cached configs (refresh failed, ${configs!.length} configs)';
         });
-
         await Future.delayed(const Duration(milliseconds: 500));
-      } catch (e) {
-        _log.logError('Failed to fetch subscription: $e');
+      } else {
+        _log.logError('No cached configs available and refresh failed: $e');
 
         if (!mounted) return;
         setState(() {
@@ -187,8 +192,8 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         });
 
         _showError(
-          'Cannot Download Configs',
-          'Failed to fetch configs from subscription URL.\n\n'
+          'Cannot Load Configs',
+          'Failed to refresh configs from subscription URL, and no cached configs are available.\n\n'
               'Error: $e\n\n'
               'Please check:\n'
               '• Your internet connection\n'
@@ -215,17 +220,17 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       _phase2Success = 0;
     });
 
-    // Subscribe to Phase 0 (TCP) + Phase 1 (TLS) progress updates
+    // Subscribe to Phase 1 (TCP) + Phase 2 (TLS) progress updates
     _progressSubscription = _configTester.progressStream.listen((progress) {
       if (!mounted) return;
       setState(() {
         if (progress.phase == ScanPhaseType.tcp) {
-          _currentPhase = 'Phase 0: TCP Pre-filter';
+          _currentPhase = 'Phase 1: TCP Pre-filter';
           _phase0Tested = progress.processedIPs;
           _phase0Total = progress.totalIPs;
           _phase0Success = progress.successfulIPs;
         } else {
-          _currentPhase = 'Phase 1: TLS Testing';
+          _currentPhase = 'Phase 2: TLS Testing';
           _phase1Tested = progress.processedIPs;
           _phase1Total = progress.totalIPs;
           _phase1Success = progress.successfulIPs;
@@ -234,13 +239,13 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       });
     });
 
-    // Subscribe to Phase 2 progress updates
+    // Subscribe to Phase 3 progress updates
     _phase2ProgressSubscription = _scanner.phase2ProgressStream.listen((
       progress,
     ) {
       if (!mounted) return;
       setState(() {
-        _currentPhase = 'Phase 2: Proxy Testing';
+        _currentPhase = 'Phase 3: Proxy Testing';
         _phase2Tested = progress.testedIPs;
         _phase2Total = progress.totalIPs;
         _phase2Success = progress.workingIPs;
@@ -299,32 +304,32 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     int p1tested = 0, p1total = 0, p1success = 0;
     int p2tested = 0, p2total = 0, p2success = 0;
 
-    // Phase 0 (TCP) — always show last TCP snapshot if it exists
+    // Phase 1 (TCP) — always show last TCP snapshot if it exists
     final lastTcp = _configTester.lastTcpProgress;
     if (lastTcp != null) {
       p0tested = lastTcp.processedIPs;
       p0total = lastTcp.totalIPs;
       p0success = lastTcp.successfulIPs;
-      phase = 'Phase 0: TCP Pre-filter';
+      phase = 'Phase 1: TCP Pre-filter';
     }
 
-    // Phase 1 (TLS) — always show last TLS snapshot if it exists
+    // Phase 2 (TLS) — always show last TLS snapshot if it exists
     final lastTls = _configTester.lastTlsProgress;
     if (lastTls != null) {
       p1tested = lastTls.processedIPs;
       p1total = lastTls.totalIPs;
       p1success = lastTls.successfulIPs;
-      phase = 'Phase 1: TLS Testing';
+      phase = 'Phase 2: TLS Testing';
       _phase1PassLabel = lastTls.passLabel;
     }
 
-    // Phase 2 — always show last proxy snapshot if it exists
+    // Phase 3 — always show last proxy snapshot if it exists
     final lastP2 = _scanner.lastPhase2Progress;
     if (lastP2 != null) {
       p2tested = lastP2.testedIPs;
       p2total = lastP2.totalIPs;
       p2success = lastP2.workingIPs;
-      phase = 'Phase 2: Proxy Testing';
+      phase = 'Phase 3: Proxy Testing';
     }
 
     _startElapsedTimer();
@@ -342,17 +347,17 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       _phase2Success = p2success;
     });
 
-    // Phase 0 (TCP) + Phase 1 (TLS) progress
+    // Phase 1 (TCP) + Phase 2 (TLS) progress
     _progressSubscription = _configTester.progressStream.listen((progress) {
       if (!mounted) return;
       setState(() {
         if (progress.phase == ScanPhaseType.tcp) {
-          _currentPhase = 'Phase 0: TCP Pre-filter';
+          _currentPhase = 'Phase 1: TCP Pre-filter';
           _phase0Tested = progress.processedIPs;
           _phase0Total = progress.totalIPs;
           _phase0Success = progress.successfulIPs;
         } else {
-          _currentPhase = 'Phase 1: TLS Testing';
+          _currentPhase = 'Phase 2: TLS Testing';
           _phase1Tested = progress.processedIPs;
           _phase1Total = progress.totalIPs;
           _phase1Success = progress.successfulIPs;
@@ -361,13 +366,13 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       });
     });
 
-    // Phase 2 progress
+    // Phase 3 progress
     _phase2ProgressSubscription = _scanner.phase2ProgressStream.listen((
       progress,
     ) {
       if (!mounted) return;
       setState(() {
-        _currentPhase = 'Phase 2: Proxy Testing';
+        _currentPhase = 'Phase 3: Proxy Testing';
         _phase2Tested = progress.testedIPs;
         _phase2Total = progress.totalIPs;
         _phase2Success = progress.workingIPs;
@@ -540,14 +545,18 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                             children: [
                               Icon(
                                 Icons.info_outline,
-                                color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onPrimaryContainer,
                               ),
                               const SizedBox(width: 8),
                               Text(
                                 'Scan in Progress',
                                 style: Theme.of(context).textTheme.titleMedium
                                     ?.copyWith(
-                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onPrimaryContainer,
                                       fontWeight: FontWeight.bold,
                                     ),
                               ),
@@ -559,7 +568,9 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                             'This may take a few minutes.',
                             style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(
-                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onPrimaryContainer,
                                 ),
                           ),
                         ],
@@ -610,14 +621,14 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                                   style: TextStyle(
                                     color: Colors.grey[600],
                                     fontFeatures: const [
-                                      FontFeature.tabularFigures()
+                                      FontFeature.tabularFigures(),
                                     ],
                                   ),
                                 ),
                             ],
                           ),
 
-                          // Phase 0: TCP Pre-filter
+                          // Phase 1: TCP Pre-filter
                           if (_phase0Total > 0) ...[
                             const SizedBox(height: 16),
                             const Divider(),
@@ -626,12 +637,10 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 const Text(
-                                  'Phase 0 (TCP):',
+                                  'Phase 1 (TCP):',
                                   style: TextStyle(fontWeight: FontWeight.bold),
                                 ),
-                                Text(
-                                  '$_phase0Tested / $_phase0Total checked',
-                                ),
+                                Text('$_phase0Tested / $_phase0Total checked'),
                               ],
                             ),
                             const SizedBox(height: 4),
@@ -651,7 +660,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                             ),
                           ],
 
-                          // Phase 1: TLS Handshake
+                          // Phase 2: TLS Handshake
                           if (_phase1Total > 0) ...[
                             const SizedBox(height: 16),
                             const Divider(),
@@ -662,15 +671,13 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                                 Text(
                                   _phase1PassLabel != null &&
                                           _phase1PassLabel != 'done'
-                                      ? 'Phase 1 (TLS, Pass $_phase1PassLabel):'
-                                      : 'Phase 1 (TLS):',
+                                      ? 'Phase 2 (TLS, Pass $_phase1PassLabel):'
+                                      : 'Phase 2 (TLS):',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                Text(
-                                  '$_phase1Tested / $_phase1Total tested',
-                                ),
+                                Text('$_phase1Tested / $_phase1Total tested'),
                               ],
                             ),
                             const SizedBox(height: 4),
@@ -691,7 +698,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                             ),
                           ],
 
-                          // Phase 2 Progress
+                          // Phase 3 Progress
                           if (_phase2Total > 0) ...[
                             const SizedBox(height: 16),
                             const Divider(),
@@ -700,7 +707,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 const Text(
-                                  'Phase 2 (Proxy):',
+                                  'Phase 3 (Proxy):',
                                   style: TextStyle(fontWeight: FontWeight.bold),
                                 ),
                                 Text(

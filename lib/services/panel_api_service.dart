@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import '../models/panel_credentials.dart';
 import 'log_service.dart';
@@ -25,18 +26,36 @@ class PanelApiService {
     _sessionCookie = null;
   }
 
+  bool isConnectivityError(Object error) {
+    if (error is TimeoutException || error is http.ClientException) {
+      return true;
+    }
+
+    final message = error.toString().toLowerCase();
+    return message.contains('socketexception') ||
+        message.contains('failed host lookup') ||
+        message.contains('connection refused') ||
+        message.contains('network is unreachable') ||
+        message.contains('connection reset') ||
+        message.contains('timed out');
+  }
+
+  Future<void> verifyCredentials(PanelCredentials credentials) async {
+    final validationErrors = credentials.validate();
+    if (validationErrors.isNotEmpty) {
+      throw PanelApiException(
+        'Panel credential validation failed: ${validationErrors.join(", ")}',
+        400,
+      );
+    }
+
+    await _login(credentials);
+    await _getSettings(credentials.baseUrl);
+  }
+
   Future<bool> validateCredentials(PanelCredentials credentials) async {
     try {
-      final validationErrors = credentials.validate();
-      if (validationErrors.isNotEmpty) {
-        _logService.logWarn(
-          'Panel credential validation failed: ${validationErrors.join(", ")}',
-        );
-        return false;
-      }
-
-      await _login(credentials);
-      await _getSettings(credentials.baseUrl);
+      await verifyCredentials(credentials);
       _logService.logOk('Panel credentials validated successfully');
       return true;
     } catch (e, stackTrace) {
@@ -89,6 +108,57 @@ class PanelApiService {
     }
 
     return false;
+  }
+
+  /// Fetches the panel normal subscription URL using the current [subPath].
+  ///
+  /// Returns null when subPath is unavailable in panel settings.
+  Future<String?> fetchNormalSubscriptionUrl(
+    PanelCredentials credentials,
+  ) async {
+    _logService.logInfo('Fetching normal subscription URL via panel API');
+
+    for (int attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await _ensureLoggedIn(credentials);
+        final settingsResponse = await _getSettings(credentials.baseUrl);
+        final subPath = settingsResponse['subPath'];
+
+        if (subPath is! String || subPath.trim().isEmpty) {
+          _logService.logWarn(
+            'Panel settings did not include a usable subPath; skipping auto subscription URL population',
+          );
+          return null;
+        }
+
+        final normalizedBase = credentials.baseUrl.trim().replaceFirst(
+          RegExp(r'/*$'),
+          '',
+        );
+        final rawPath = subPath.trim();
+        final path = rawPath.startsWith('/sub/')
+            ? rawPath
+            : '/sub/normal/$rawPath';
+        final uri = Uri.parse('$normalizedBase$path');
+        final query = Map<String, String>.from(uri.queryParameters);
+        query.putIfAbsent('app', () => 'xray');
+        final normalizedUrl = uri.replace(queryParameters: query).toString();
+
+        _logService.logOk('Fetched normal subscription URL from panel API');
+        return normalizedUrl;
+      } on PanelApiException catch (e) {
+        if (e.statusCode == 401 && attempt == 1) {
+          _logService.logWarn(
+            'Panel session expired while fetching subscription URL, re-authenticating and retrying once',
+          );
+          _sessionCookie = null;
+          continue;
+        }
+        rethrow;
+      }
+    }
+
+    return null;
   }
 
   Future<void> _ensureLoggedIn(PanelCredentials credentials) async {

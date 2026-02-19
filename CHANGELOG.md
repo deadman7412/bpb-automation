@@ -5,6 +5,30 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.1] - 2026-02-20
+
+### Added
+- Settings notices for reliability guidance:
+  - Panel API: if panel is unreachable without VPN or under disturbed network, use Cloudflare API mode.
+  - Cloudflare API: updates may take up to ~60 seconds to take effect (KV propagation).
+- Panel-unreachable guidance dialog on Results update flow with direct navigation to Settings and step-by-step fallback instructions.
+
+### Changed
+- Scan progress labels renumbered for users:
+  - Phase 1 = TCP pre-filter
+  - Phase 2 = TLS testing
+  - Phase 3 = Proxy testing
+- Subscription config handling is now refresh-first on each scan:
+  - Attempt to fetch latest configs every run.
+  - If refresh fails, fallback to cached configs with warning.
+
+### Fixed
+- Prevented infinite "updating" spinner on panel update failures by:
+  - adding a hard timeout to panel update calls
+  - always clearing update state via `finally`, including timeout/error paths.
+
+---
+
 ## [4.2.0] - 2026-02-20
 
 ### Added

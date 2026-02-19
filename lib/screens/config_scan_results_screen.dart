@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import '../models/config_scan_result.dart';
 import '../models/update_mode.dart';
 import '../services/storage_service.dart';
@@ -94,7 +95,6 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         final credentials = await _storage.getCredentials();
         if (credentials == null) {
           if (mounted) _showNoCredentialsDialog(UpdateMode.cloudflareApi);
-          setState(() => _isUpdating = false);
           return;
         }
         await _api.updateCleanIPs(credentials, _result!.workingIPs);
@@ -102,17 +102,15 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         final credentials = await _storage.getPanelCredentials();
         if (credentials == null) {
           if (mounted) _showNoCredentialsDialog(UpdateMode.panelApi);
-          setState(() => _isUpdating = false);
           return;
         }
-        await _panelApi.updateCleanIPs(credentials, _result!.workingIPs);
+        // Hard timeout so UI never appears stuck forever when panel route is bad.
+        await _panelApi
+            .updateCleanIPs(credentials, _result!.workingIPs)
+            .timeout(const Duration(seconds: 45));
       }
 
       if (!mounted) return;
-
-      setState(() {
-        _isUpdating = false;
-      });
 
       _showMessage(
         'Updated BPB Panel with ${_result!.workingIPs.length} IPs. '
@@ -128,8 +126,50 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         _isUpdating = false;
       });
 
-      _showMessage('Failed to update: $e', isError: true);
+      final shouldSuggestCloudflare =
+          updateMode == UpdateMode.panelApi && _panelApi.isConnectivityError(e);
+      if (shouldSuggestCloudflare) {
+        _showPanelUnreachableDialog();
+      } else {
+        _showMessage('Failed to update: $e', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
     }
+  }
+
+  void _showPanelUnreachableDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Panel Not Reachable'),
+        content: const Text(
+          'Panel API is not reachable from your current network.\n\n'
+          'Use Cloudflare API mode instead:\n'
+          '1. Go to Settings\n'
+          '2. Choose Update Method: Cloudflare API\n'
+          '3. Save/validate Cloudflare credentials\n'
+          '4. Return to Results and tap Update BPB Panel again',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, '/settings');
+            },
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showNoCredentialsDialog(UpdateMode mode) {

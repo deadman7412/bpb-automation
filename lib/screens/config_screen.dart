@@ -419,7 +419,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                 hintText: 'https://your-bpb-panel.com/sub/...',
                                 border: OutlineInputBorder(),
                                 labelText: 'Subscription URL',
-                                helperText: 'Your BPB Panel subscription link',
+                                helperText:
+                                    'Your BPB Panel subscription link. Auto-populated when Panel API settings are saved.',
                                 helperMaxLines: 2,
                               ),
                               keyboardType: TextInputType.url,
@@ -479,7 +480,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                       ),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
                                           children: [
@@ -493,7 +495,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                               child: Text(
                                                 'Cached: ${_cachedConfigs!.length} configs ready to use',
                                                 style: TextStyle(
-                                                  color: cs.onSecondaryContainer,
+                                                  color:
+                                                      cs.onSecondaryContainer,
                                                   fontWeight: FontWeight.w500,
                                                 ),
                                               ),
@@ -513,11 +516,13 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                               'View Cached Configs',
                                             ),
                                             style: TextButton.styleFrom(
-                                              foregroundColor: cs.onSecondaryContainer,
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 4,
-                                              ),
+                                              foregroundColor:
+                                                  cs.onSecondaryContainer,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
                                             ),
                                           ),
                                         ),
@@ -577,7 +582,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     vertical: 6,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.primaryContainer,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
@@ -585,7 +592,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onPrimaryContainer,
                                     ),
                                   ),
                                 ),
@@ -644,7 +653,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     vertical: 6,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.secondaryContainer,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.secondaryContainer,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
@@ -652,7 +663,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: Theme.of(context).colorScheme.onSecondaryContainer,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSecondaryContainer,
                                     ),
                                   ),
                                 ),
@@ -738,7 +751,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     vertical: 6,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.primaryContainer,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
@@ -746,7 +761,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
-                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onPrimaryContainer,
                                     ),
                                   ),
                                 ),
@@ -814,7 +831,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     vertical: 6,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.secondaryContainer,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.secondaryContainer,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
@@ -822,7 +841,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: Theme.of(context).colorScheme.onSecondaryContainer,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSecondaryContainer,
                                     ),
                                   ),
                                 ),
@@ -876,7 +897,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                   child: CheckboxListTile(
                                     value: _enableIPv6,
                                     onChanged: (value) {
-                                      setState(() => _enableIPv6 = value ?? false);
+                                      setState(
+                                        () => _enableIPv6 = value ?? false,
+                                      );
                                     },
                                     title: Row(
                                       children: [

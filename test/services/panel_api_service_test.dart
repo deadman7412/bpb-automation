@@ -179,5 +179,78 @@ void main() {
       expect(loginCalls, equals(2));
       expect(settingsCalls, equals(2));
     });
+
+    test('fetchNormalSubscriptionUrl returns URL built from subPath', () async {
+      final mockClient = MockClient((request) async {
+        if (request.url.path == '/login/authenticate') {
+          return http.Response(
+            jsonEncode({'success': true, 'status': 200, 'body': null}),
+            200,
+            headers: {'set-cookie': 'jwtToken=test123; Path=/; HttpOnly'},
+          );
+        }
+
+        if (request.url.path == '/panel/settings') {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'status': 200,
+              'body': {
+                'subPath': 'abc123',
+                'proxySettings': {
+                  'cleanIPs': ['1.1.1.1'],
+                },
+              },
+            }),
+            200,
+          );
+        }
+
+        return http.Response('not found', 404);
+      });
+
+      service.setClient(mockClient);
+      final url = await service.fetchNormalSubscriptionUrl(credentials);
+      expect(
+        url,
+        equals('https://example.workers.dev/sub/normal/abc123?app=xray'),
+      );
+    });
+
+    test(
+      'fetchNormalSubscriptionUrl returns null when subPath missing',
+      () async {
+        final mockClient = MockClient((request) async {
+          if (request.url.path == '/login/authenticate') {
+            return http.Response(
+              jsonEncode({'success': true, 'status': 200, 'body': null}),
+              200,
+              headers: {'set-cookie': 'jwtToken=test123; Path=/; HttpOnly'},
+            );
+          }
+
+          if (request.url.path == '/panel/settings') {
+            return http.Response(
+              jsonEncode({
+                'success': true,
+                'status': 200,
+                'body': {
+                  'proxySettings': {
+                    'cleanIPs': ['1.1.1.1'],
+                  },
+                },
+              }),
+              200,
+            );
+          }
+
+          return http.Response('not found', 404);
+        });
+
+        service.setClient(mockClient);
+        final url = await service.fetchNormalSubscriptionUrl(credentials);
+        expect(url, isNull);
+      },
+    );
   });
 }

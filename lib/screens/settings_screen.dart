@@ -149,6 +149,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isLoading = true);
 
     try {
+      String? autoSubscriptionUrl;
+      bool autoPopulateFailed = false;
+      Object? autoPopulateError;
+
       if (_updateMode == UpdateMode.cloudflareApi) {
         final credentials = Credentials(
           apiToken: _apiTokenController.text.trim(),
@@ -163,6 +167,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
           password: _panelPasswordController.text.trim(),
         );
         await _storage.savePanelCredentials(credentials);
+
+        try {
+          autoSubscriptionUrl = await _panelApi.fetchNormalSubscriptionUrl(
+            credentials,
+          );
+          if (autoSubscriptionUrl != null && autoSubscriptionUrl.isNotEmpty) {
+            await _storage.saveSubscriptionUrl(autoSubscriptionUrl);
+            _log.logOk(
+              'Auto-populated subscription URL from panel API settings',
+            );
+          }
+        } catch (e, stackTrace) {
+          autoPopulateFailed = true;
+          autoPopulateError = e;
+          _log.logWarn(
+            'Panel credentials were saved, but auto-populating subscription URL failed: $e',
+          );
+          _log.logError(
+            'Auto-populate subscription URL failure',
+            e,
+            stackTrace,
+          );
+        }
       }
 
       await _storage.saveUpdateMode(_updateMode);
@@ -173,14 +200,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       });
 
       if (!mounted) return;
+      final isPanelMode = _updateMode == UpdateMode.panelApi;
+      final suggestCloudflare =
+          autoPopulateError != null &&
+          _panelApi.isConnectivityError(autoPopulateError);
+      final panelMessage = autoSubscriptionUrl != null
+          ? 'Panel API settings saved. Subscription URL auto-populated.'
+          : suggestCloudflare
+          ? 'Panel API settings saved, but panel domain is unreachable right now. Switch Update Method to Cloudflare API and retry.'
+          : autoPopulateFailed
+          ? 'Panel API settings saved. Subscription URL auto-populate failed.'
+          : 'Panel API settings saved. Subscription URL not available from panel.';
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             _updateMode == UpdateMode.cloudflareApi
                 ? 'Cloudflare settings saved successfully'
-                : 'Panel API settings saved successfully',
+                : panelMessage,
           ),
-          backgroundColor: Colors.green,
+          backgroundColor: isPanelMode && autoSubscriptionUrl == null
+              ? Colors.orange
+              : Colors.green,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -208,6 +249,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isValidating = true);
 
     bool isValid;
+    Object? panelValidationError;
     if (_updateMode == UpdateMode.cloudflareApi) {
       final credentials = Credentials(
         apiToken: _apiTokenController.text.trim(),
@@ -221,21 +263,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
         baseUrl: _normalizePanelBaseUrl(_panelBaseUrlController.text),
         password: _panelPasswordController.text.trim(),
       );
-      isValid = await _panelApi.validateCredentials(credentials);
+      try {
+        await _panelApi.verifyCredentials(credentials);
+        isValid = true;
+      } catch (e, stackTrace) {
+        panelValidationError = e;
+        isValid = false;
+        _log.logError('Failed to validate panel credentials', e, stackTrace);
+      }
     }
 
     setState(() => _isValidating = false);
 
     if (!mounted) return;
 
+    final panelConnectivityIssue =
+        _updateMode == UpdateMode.panelApi &&
+        panelValidationError != null &&
+        _panelApi.isConnectivityError(panelValidationError);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           isValid
               ? 'Credentials validated successfully'
+              : panelConnectivityIssue
+              ? 'Could not reach the panel domain. Network may be disturbed. Switch Update Method to Cloudflare API and try again.'
               : 'Invalid credentials. Please check and try again.',
         ),
-        backgroundColor: isValid ? Colors.green : Colors.red,
+        backgroundColor: isValid
+            ? Colors.green
+            : panelConnectivityIssue
+            ? Colors.orange
+            : Colors.red,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -332,6 +391,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             context,
           ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
         ),
+        const SizedBox(height: 8),
+        Text(
+          'After each update, allow up to 60 seconds for new configs to take effect.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: Colors.orange.shade800),
+        ),
         const SizedBox(height: 24),
         TextFormField(
           controller: _apiTokenController,
@@ -422,6 +488,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           style: Theme.of(
             context,
           ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'If your network is disturbed or panel is only reachable via VPN, use Cloudflare API mode instead.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: Colors.orange.shade800),
         ),
         const SizedBox(height: 24),
         TextFormField(
