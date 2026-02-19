@@ -91,6 +91,7 @@ BPB-Automation-Windows-x64.zip
 
 - [User Guide](docs/user-guide.md) - Complete usage instructions
 - [Panel Setup](docs/panel-setup.md) - Configure Panel API update mode
+- [Panel API Reference](docs/panel-api-reference.md) - Full BPB panel route and API reference
 - [Cloudflare Setup](docs/cloudflare-setup.md) - How to get credentials
 - [Scanner Configuration](docs/scanner-configuration.md) - Scan parameters explained
 - [Development Guide](docs/development.md) - For developers

@@ -49,6 +49,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed technical architec
 
 - [docs/architecture.md](docs/architecture.md) - Technical architecture and design
 - [docs/panel-setup.md](docs/panel-setup.md) - How to configure Panel API credentials
+- [docs/panel-api-reference.md](docs/panel-api-reference.md) - Full BPB panel route and API reference
 - [docs/cloudflare-setup.md](docs/cloudflare-setup.md) - How to obtain Cloudflare credentials
 - [docs/scanner-configuration.md](docs/scanner-configuration.md) - Scanner parameters and configuration
 - [docs/development.md](docs/development.md) - Development setup and guidelines

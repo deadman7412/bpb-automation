@@ -340,6 +340,7 @@ No telemetry, no analytics, no third-party tracking.
 ### Documentation
 
 - [Panel Setup Guide](panel-setup.md) — how to configure Panel API credentials
+- [Panel API Reference](panel-api-reference.md) — complete BPB panel endpoints and methods
 - [Cloudflare Setup Guide](cloudflare-setup.md) — how to get Cloudflare API credentials
 - [Scanner Configuration Guide](scanner-configuration.md) — scan parameter tuning
 
