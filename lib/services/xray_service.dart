@@ -27,6 +27,20 @@ class XrayService {
   /// Current Xray-core version bundled in the app
   static const String xrayVersion = 'v26.2.6';
 
+  /// External non-Cloudflare target used in Phase 2 to verify the BPB Worker
+  /// can reach the real internet. Must NOT be a Cloudflare-hosted domain —
+  /// Cloudflare Workers can always reach other Cloudflare services via internal
+  /// routing, so a Cloudflare target (e.g. cp.cloudflare.com) would pass even
+  /// when the Worker has no real outbound internet access.
+  ///
+  /// connectivitycheck.gstatic.com is Google's dedicated connectivity probe:
+  /// - Returns HTTP 204 at /generate_204 — no body, fast response
+  /// - Not hosted on Cloudflare — forces a real TCP connection to the internet
+  /// - Globally distributed and highly available
+  static const String _phase2TestHost = 'connectivitycheck.gstatic.com';
+  static const String _phase2TestPath = '/generate_204';
+  static const int _phase2TestPort = 80;
+
   /// Version file name for tracking extracted binary version
   static const String versionFileName = '.xray_version';
 
@@ -371,7 +385,7 @@ class XrayService {
       );
     }
 
-    final startTime = DateTime.now();
+    final xrayStartTime = DateTime.now();
     Process? xrayProcess;
     String? configPath;
 
@@ -406,31 +420,58 @@ class XrayService {
             error: 'Xray startup timeout (port 10808 never opened)',
           ),
           qualityScore: 0,
-          timestamp: startTime,
+          timestamp: xrayStartTime,
         );
       }
-      _logService.logOk('Xray ready on port 10808');
 
-      // Test proxy connection
-      final proxyResult = await _testProxyConnection(
-        socksPort: 10808,
-        timeout: timeoutSeconds,
+      final xrayReadyTime = DateTime.now();
+      final xrayStartupMs =
+          xrayReadyTime.difference(xrayStartTime).inMilliseconds;
+      _logService.logInfo(
+        'Xray ready on port 10808 (startup: ${xrayStartupMs}ms)',
       );
 
-      final latency = DateTime.now()
-          .difference(startTime)
+      // Compute remaining HTTP test budget after startup.
+      // Cap at a minimum so very slow starts don't leave zero time for the test.
+      const minHttpTimeoutSeconds = 5;
+      final httpTimeoutSeconds =
+          (timeoutSeconds - (xrayStartupMs / 1000).ceil())
+              .clamp(minHttpTimeoutSeconds, timeoutSeconds);
+      _logService.logInfo(
+        'HTTP test timeout: ${httpTimeoutSeconds}s '
+        '(${timeoutSeconds}s total - ${(xrayStartupMs / 1000).ceil()}s startup)',
+      );
+
+      // Log the worker host for debugging only — the actual test uses an
+      // external host to confirm the Worker can reach the broader internet.
+      final workerHost = config.getSni() ?? '';
+      _logService.logInfo(
+        'Worker: $workerHost — testing outbound via $_phase2TestHost',
+      );
+
+      final proxyResult = await _testProxyConnection(
+        socksPort: 10808,
+        httpTimeoutSeconds: httpTimeoutSeconds,
+      );
+
+      // Measure latency from Xray-ready to HTTP response. This isolates actual
+      // network round-trip from process startup time (logged separately above).
+      final proxyLatency = DateTime.now()
+          .difference(xrayReadyTime)
           .inMilliseconds
           .toDouble();
 
       _logService.logOk(
-        'Proxy test for $candidateIP: ${proxyResult.success ? "SUCCESS" : "FAILED"} '
-        '(${latency.toStringAsFixed(0)}ms)',
+        'Proxy test for $candidateIP: '
+        '${proxyResult.success ? "SUCCESS" : "FAILED"} '
+        '(proxy: ${proxyLatency.toStringAsFixed(0)}ms, '
+        'startup: ${xrayStartupMs}ms)',
       );
 
-      // Create result with updated latency
+      // Create result with latency measured from Xray-ready (not wall-clock).
       final updatedProxyResult = ProxyTestResult(
         success: proxyResult.success,
-        latencyMs: latency,
+        latencyMs: proxyLatency,
         error: proxyResult.error,
         statusCode: proxyResult.statusCode,
         speedMbps: proxyResult.speedMbps,
@@ -451,7 +492,7 @@ class XrayService {
         config: config,
         proxyTestResult: ProxyTestResult.failure(error: e.toString()),
         qualityScore: 0,
-        timestamp: startTime,
+        timestamp: xrayStartTime,
       );
     } finally {
       // Always cleanup: kill process and delete temp file
@@ -506,20 +547,27 @@ class XrayService {
     return false;
   }
 
-  /// Test proxy connection via SOCKS5 with full HTTP 204 end-to-end check.
+  /// Test proxy connection via SOCKS5 against a non-Cloudflare external host.
   ///
   /// Flow:
-  ///   1. SOCKS5 CONNECT to www.gstatic.com:80 through Xray
-  ///   2. Send HTTP GET /generate_204
-  ///   3. Read response chunks until status line is received or timeout
-  ///   4. Return success only on HTTP 204
+  ///   1. SOCKS5 CONNECT to [_phase2TestHost]:[_phase2TestPort] through Xray
+  ///   2. Send HTTP GET [_phase2TestPath]
+  ///   3. Read response chunks until an HTTP status line is received or timeout
+  ///   4. HTTP 2xx or 3xx = success; 4xx/5xx = failure
+  ///
+  /// Why non-Cloudflare:
+  ///   Cloudflare Workers can always reach other Cloudflare services (e.g.
+  ///   cp.cloudflare.com) via Cloudflare's internal network fabric. A test
+  ///   against a Cloudflare host passes even when the Worker has no real
+  ///   outbound internet access — exactly the false-positive case we need to
+  ///   avoid. [_phase2TestHost] is a non-Cloudflare Google connectivity probe.
   ///
   /// Xray fast-accepts SOCKS5 CONNECT before the outbound is established,
   /// so we must wait for the actual HTTP response to confirm end-to-end
-  /// connectivity through the Cloudflare → BPB worker chain.
+  /// connectivity through the Cloudflare → Worker → real internet chain.
   Future<ProxyTestResult> _testProxyConnection({
     required int socksPort,
-    required int timeout,
+    required int httpTimeoutSeconds,
   }) async {
     Socks5Connection? conn;
 
@@ -527,17 +575,20 @@ class XrayService {
       conn = await Socks5Helper.connectViaSocks5(
         socksHost: '127.0.0.1',
         socksPort: socksPort,
-        targetHost: 'www.gstatic.com',
-        targetPort: 80,
-        timeout: timeout,
+        targetHost: _phase2TestHost,
+        targetPort: _phase2TestPort,
+        timeout: httpTimeoutSeconds,
       );
 
-      _logService.logInfo('SOCKS5 connected, sending HTTP GET...');
+      _logService.logInfo(
+        'SOCKS5 connected to $_phase2TestHost:$_phase2TestPort, '
+        'sending HTTP GET $_phase2TestPath...',
+      );
 
       // HTTP/1.1 requires CRLF (\r\n). Note: Dart string \r\n = 2 bytes.
       conn.write(utf8.encode(
-        'GET /generate_204 HTTP/1.1\r\n'
-        'Host: www.gstatic.com\r\n'
+        'GET $_phase2TestPath HTTP/1.1\r\n'
+        'Host: $_phase2TestHost\r\n'
         'Connection: close\r\n'
         '\r\n',
       ));
@@ -547,7 +598,9 @@ class XrayService {
       // Xray establishes the outbound (ECH + VLESS + Cloudflare) after
       // accepting SOCKS5, so this may take several seconds.
       final buf = StringBuffer();
-      final deadline = DateTime.now().add(Duration(seconds: timeout));
+      final httpStart = DateTime.now();
+      final deadline =
+          DateTime.now().add(Duration(seconds: httpTimeoutSeconds));
 
       while (DateTime.now().isBefore(deadline)) {
         final remaining = deadline.difference(DateTime.now()).inSeconds;
@@ -565,37 +618,58 @@ class XrayService {
         buf.write(utf8.decode(chunk, allowMalformed: true));
         final response = buf.toString();
 
-        // Check for 204 success
-        if (response.contains('204') || response.contains('No Content')) {
-          _logService.logOk('HTTP 204 received - proxy chain confirmed working');
-          return ProxyTestResult.success(
-            latencyMs: 0, // Updated by caller with wall-clock time
-            statusCode: 204,
-          );
-        }
-
-        // If we have a full status line, parse and report the actual code
         if (response.contains('\r\n')) {
           final status = _extractHttpStatus(response);
-          _logService.logWarn(
-            'HTTP ${status ?? "?"} received (expected 204)',
-          );
-          return ProxyTestResult.failure(
-            error: 'HTTP ${status ?? "?"} (expected 204)',
-            statusCode: status,
-          );
+          if (status != null) {
+            // Only 2xx/3xx confirm a healthy outbound connection.
+            // 4xx/5xx (e.g. 530 Worker Error) indicate Cloudflare or Worker
+            // problems — the proxy chain technically works but the Worker
+            // cannot serve requests, so these do not count as success.
+            if (status >= 200 && status < 400) {
+              _logService.logOk(
+                'HTTP $status from $_phase2TestHost — outbound internet OK',
+              );
+              return ProxyTestResult.success(
+                latencyMs: 0, // Updated by caller with Xray-ready-relative time
+                statusCode: status,
+              );
+            } else {
+              _logService.logWarn(
+                'HTTP $status from $_phase2TestHost — not counting as success',
+              );
+              return ProxyTestResult.failure(
+                error: 'HTTP $status',
+                statusCode: status,
+              );
+            }
+          }
         }
 
         if (buf.length > 4096) break;
       }
 
-      _logService.logWarn(
-        'No HTTP response within ${timeout}s '
-        '(proxy chain may be slow or outProxy unreachable)',
-      );
-      return ProxyTestResult.failure(
-        error: 'HTTP response timeout after ${timeout}s',
-      );
+      final elapsedMs =
+          DateTime.now().difference(httpStart).inMilliseconds;
+      // Distinguish between actual timeout (elapsedMs ≈ budget) and early
+      // socket close (elapsedMs << budget, meaning Xray gave up on outbound).
+      final closedEarly = elapsedMs < (httpTimeoutSeconds - 1) * 1000;
+      if (closedEarly) {
+        _logService.logWarn(
+          'Connection closed after ${elapsedMs}ms without HTTP response '
+          '(outbound failed — budget was ${httpTimeoutSeconds}s)',
+        );
+        return ProxyTestResult.failure(
+          error: 'Connection closed after ${elapsedMs}ms (no response)',
+        );
+      } else {
+        _logService.logWarn(
+          'No HTTP response after ${elapsedMs}ms '
+          '(timeout: ${httpTimeoutSeconds}s)',
+        );
+        return ProxyTestResult.failure(
+          error: 'HTTP response timeout after ${httpTimeoutSeconds}s',
+        );
+      }
     } on TimeoutException catch (e) {
       _logService.logError('Proxy connection timeout: $e');
       return ProxyTestResult.failure(error: 'Connection timeout');

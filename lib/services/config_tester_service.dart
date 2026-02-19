@@ -9,11 +9,19 @@ enum ScanPhaseType { tcp, tls }
 
 /// Service for testing candidate IPs using Xray configs.
 ///
-/// Phase 0 — TCP port check (1 s, 200 concurrent):
-///   Connects TCP to candidate:443. Eliminates ~70-85 % of candidates.
+/// Phase 0 — Two-probe TCP filter (1 s per probe, 100 ms gap, 200 concurrent):
+///   Two sequential TCP connections to candidate:443. Both must pass.
+///   Eliminates IPs with >50 % loss or unstable routing. Survivors sorted by
+///   average TCP latency ascending.
 ///
-/// Phase 1 — TLS handshake (3 s, 200 concurrent):
+/// Phase 1a — First TLS pass (3 s, 200 concurrent):
 ///   Full TLS handshake. Confirms the IP is a reachable Cloudflare edge.
+///   Sort key: TLS handshake latency.
+///
+/// Phase 1b — Second TLS pass — re-validation (3 s, 200 concurrent):
+///   Re-tests Phase 1a survivors only. An IP that passes two independent TLS
+///   tests is genuinely stable. Only IPs that pass BOTH passes are kept.
+///   Final sort key: avg(1a, 1b) + |1a - 1b| * 0.5  (jitter penalty).
 ///
 /// Cancellation: cancel() fires a Completer that races against every batch
 /// via Future.any. The batch is abandoned immediately; results already
@@ -68,8 +76,8 @@ class ConfigTesterService {
     @Deprecated('Use tlsTimeoutSeconds') int timeoutSeconds = 3,
   }) async {
     _logService.logInfo(
-      'Starting TLS scan for ${candidateIPs.length} IPs '
-      '(TCP 1 s, TLS ${tlsTimeoutSeconds}s, concurrency: $maxConcurrency)',
+      'Starting scan for ${candidateIPs.length} IPs '
+      '(TCP 2-probe/1s, TLS 2-pass/${tlsTimeoutSeconds}s, concurrency: $maxConcurrency)',
     );
 
     if (!template.isValid()) {
@@ -121,7 +129,9 @@ class ConfigTesterService {
     required int maxConcurrency,
   }) async {
     final total = candidateIPs.length;
-    _logService.logInfo('Phase 0 TCP: checking $total IPs on port $port...');
+    _logService.logInfo(
+      'Phase 0 TCP: checking $total IPs on port $port (2 probes each)...',
+    );
 
     _emitProgress(TlsTestProgress(
       phase: ScanPhaseType.tcp,
@@ -132,8 +142,10 @@ class ConfigTesterService {
     ));
 
     const tcpTimeout = Duration(seconds: 1);
+    const probeGap = Duration(milliseconds: 100);
+
     // Shared list — each lambda appends immediately so cancel preserves results
-    final passed = <String>[];
+    final tcpResults = <_TcpProbeResult>[];
     int checkedCount = 0;
 
     final batches = _createBatches(candidateIPs, maxConcurrency);
@@ -146,17 +158,45 @@ class ConfigTesterService {
       final batchStart = DateTime.now();
 
       // Race batch against cancel — on cancel Future.any returns immediately.
-      // Results already appended to `passed` inside each lambda are kept.
+      // Results already appended inside each lambda are kept.
       await Future.any<void>([
         Future.wait(batch.map((ip) async {
+          // Probe 1
+          final sw1 = Stopwatch()..start();
+          bool probe1Passed = false;
           try {
             final s = await Socket.connect(ip, port, timeout: tcpTimeout);
             await s.close();
-            passed.add(ip);
-          } catch (_) {
-            // unreachable — skip
+            probe1Passed = true;
+          } catch (_) {}
+          sw1.stop();
+          final lat1 = sw1.elapsedMilliseconds.toDouble();
+
+          if (!probe1Passed) {
+            checkedCount++;
+            return;
           }
+
+          // Brief gap to catch IPs that only pass momentarily
+          await Future.delayed(probeGap);
+
+          // Probe 2
+          final sw2 = Stopwatch()..start();
+          bool probe2Passed = false;
+          try {
+            final s = await Socket.connect(ip, port, timeout: tcpTimeout);
+            await s.close();
+            probe2Passed = true;
+          } catch (_) {}
+          sw2.stop();
+          final lat2 = sw2.elapsedMilliseconds.toDouble();
+
           checkedCount++;
+
+          if (probe2Passed) {
+            final avgLatency = (lat1 + lat2) / 2;
+            tcpResults.add(_TcpProbeResult(ip: ip, avgLatencyMs: avgLatency));
+          }
         })).then((_) {}),
         _cancelSignal.future,
       ]);
@@ -166,22 +206,26 @@ class ConfigTesterService {
       final batchMs = DateTime.now().difference(batchStart).inMilliseconds;
       _logService.logInfo(
         'TCP batch ${bi + 1}/$batchCount done in ${batchMs}ms:'
-        ' ${passed.length} reachable ($checkedCount/$total checked)',
+        ' ${tcpResults.length} passed both probes ($checkedCount/$total checked)',
       );
 
       _emitProgress(TlsTestProgress(
         phase: ScanPhaseType.tcp,
         totalIPs: total,
         processedIPs: checkedCount,
-        successfulIPs: passed.length,
-        failedIPs: checkedCount - passed.length,
+        successfulIPs: tcpResults.length,
+        failedIPs: checkedCount - tcpResults.length,
       ));
     }
 
+    // Sort survivors by average latency — fastest IPs go first into Phase 1
+    tcpResults.sort((a, b) => a.avgLatencyMs.compareTo(b.avgLatencyMs));
+
     _logService.logOk(
-      'Phase 0 complete: ${passed.length}/$total reachable on port $port',
+      'Phase 0 complete: ${tcpResults.length}/$total passed both TCP probes'
+      ' (sorted by avg latency)',
     );
-    return passed;
+    return tcpResults.map((r) => r.ip).toList();
   }
 
   // -------------------------------------------------------------------------
@@ -199,27 +243,125 @@ class ConfigTesterService {
     if (candidateIPs.isEmpty) return [];
 
     final total = candidateIPs.length;
-    _logService.logInfo('Phase 1 TLS: $total IPs (timeout: ${tlsTimeoutSeconds}s)');
-
     final timeout = Duration(seconds: tlsTimeoutSeconds);
 
-    // Shared list — each IP lambda appends as it completes.
-    // When cancel fires, Future.any returns immediately but results already
-    // in this list are preserved (no batch-level discard).
+    // --- Phase 1a: first TLS pass on all candidates ---
+    _logService.logInfo(
+      'Phase 1a TLS: $total IPs (timeout: ${tlsTimeoutSeconds}s)',
+    );
+    final pass1Latencies = await _tlsSinglePassBatch(
+      ips: candidateIPs,
+      template: template,
+      port: port,
+      sni: sni,
+      timeout: timeout,
+      maxConcurrency: maxConcurrency,
+      passLabel: '1a',
+    );
+
+    if (_isCancelled) return [];
+
+    _logService.logOk(
+      'Phase 1a complete: ${pass1Latencies.length}/$total passed TLS',
+    );
+
+    if (pass1Latencies.isEmpty) return [];
+
+    // --- Phase 1b: re-validate survivors only ---
+    final pass1IPs = pass1Latencies.keys.toList();
+    _logService.logInfo(
+      'Phase 1b TLS: ${pass1IPs.length} survivors (re-validation)',
+    );
+    final pass2Latencies = await _tlsSinglePassBatch(
+      ips: pass1IPs,
+      template: template,
+      port: port,
+      sni: sni,
+      timeout: timeout,
+      maxConcurrency: maxConcurrency,
+      passLabel: '1b',
+    );
+
+    _logService.logOk(
+      'Phase 1b complete: ${pass2Latencies.length}/${pass1IPs.length} re-validated',
+    );
+
+    // --- Combine: only IPs that passed both passes ---
     final results = <ConfigTestResult>[];
-    int processedIPs = 0;
-    int successfulIPs = 0;
-    int failedIPs = 0;
+    for (final ip in pass2Latencies.keys) {
+      final lat1 = pass1Latencies[ip]!;
+      final lat2 = pass2Latencies[ip]!;
+      final avgLatency = (lat1 + lat2) / 2;
+      final jitter = (lat1 - lat2).abs();
+
+      results.add(
+        ConfigTestResult.fromTlsTest(
+          ip: ip,
+          config: template.copyWithAddress(ip),
+          tlsTestResult: TlsTestResult.success(
+            latencyMs: avgLatency,
+            jitterMs: jitter,
+          ),
+        ),
+      );
+    }
+
+    // Sort by sortScore = avg_latency + jitter * 0.5 (penalise instability)
+    results.sort(
+      (a, b) => a.tlsTestResult!.sortScore.compareTo(b.tlsTestResult!.sortScore),
+    );
 
     _emitProgress(TlsTestProgress(
       phase: ScanPhaseType.tls,
-      totalIPs: total,
+      totalIPs: pass1IPs.length,
+      processedIPs: pass1IPs.length,
+      successfulIPs: results.length,
+      failedIPs: pass1IPs.length - results.length,
+      passLabel: 'done',
+    ));
+
+    _logService.logOk(
+      'Phase 1 complete: ${results.length} IPs passed both TLS passes'
+      '${_isCancelled ? " (cancelled early)" : ""}',
+    );
+
+    return results;
+  }
+
+  /// Runs a single concurrent TLS pass over [ips].
+  ///
+  /// Returns a map of ip -> latencyMs for every IP that completed a successful
+  /// TLS handshake. IPs that timed out or errored are absent from the map.
+  Future<Map<String, double>> _tlsSinglePassBatch({
+    required List<String> ips,
+    required XrayConfig template,
+    required int port,
+    required String? sni,
+    required Duration timeout,
+    required int maxConcurrency,
+    required String passLabel,
+  }) async {
+    final latencies = <String, double>{};
+    int processedIPs = 0;
+    int successfulIPs = 0;
+
+    // Convert internal passLabel ("1a"/"1b") to user-facing label ("1/2"/"2/2")
+    final displayPassLabel = passLabel == '1a'
+        ? '1/2'
+        : passLabel == '1b'
+        ? '2/2'
+        : null;
+
+    _emitProgress(TlsTestProgress(
+      phase: ScanPhaseType.tls,
+      totalIPs: ips.length,
       processedIPs: 0,
       successfulIPs: 0,
       failedIPs: 0,
+      passLabel: displayPassLabel,
     ));
 
-    final batches = _createBatches(candidateIPs, maxConcurrency);
+    final batches = _createBatches(ips, maxConcurrency);
     final batchCount = batches.length;
 
     for (int bi = 0; bi < batchCount; bi++) {
@@ -231,14 +373,12 @@ class ConfigTesterService {
           '${batchStart.minute.toString().padLeft(2, '0')}:'
           '${batchStart.second.toString().padLeft(2, '0')}';
       _logService.logInfo(
-        'Phase 1 batch ${bi + 1}/$batchCount: testing ${batch.length} IPs'
-        ' (started $startTs, timeout ${tlsTimeoutSeconds}s each)',
+        'Phase $passLabel batch ${bi + 1}/$batchCount: ${batch.length} IPs'
+        ' (started $startTs)',
       );
 
-      // Per-batch error tally for diagnostics
       final batchErrors = <String, int>{};
 
-      // Race batch against cancel.
       await Future.any<void>([
         Future.wait(batch.map((ip) async {
           final result = await _testSingleIPTLS(
@@ -249,13 +389,11 @@ class ConfigTesterService {
             timeout: timeout,
           );
 
-          // Append immediately — visible even if the batch is abandoned by cancel
-          results.add(result);
           processedIPs++;
           if (result.tlsPassed) {
             successfulIPs++;
+            latencies[ip] = result.tlsTestResult!.latencyMs;
           } else {
-            failedIPs++;
             final errKey = result.tlsTestResult?.error ?? 'unknown';
             batchErrors[errKey] = (batchErrors[errKey] ?? 0) + 1;
           }
@@ -263,11 +401,12 @@ class ConfigTesterService {
           if (processedIPs % 10 == 0 || result.tlsPassed) {
             _emitProgress(TlsTestProgress(
               phase: ScanPhaseType.tls,
-              totalIPs: total,
+              totalIPs: ips.length,
               processedIPs: processedIPs,
               successfulIPs: successfulIPs,
-              failedIPs: failedIPs,
+              failedIPs: processedIPs - successfulIPs,
               currentIP: result.tlsPassed ? ip : null,
+              passLabel: displayPassLabel,
             ));
           }
         })).then((_) {}),
@@ -276,45 +415,27 @@ class ConfigTesterService {
 
       if (_isCancelled) {
         _logService.logWarn(
-          'Phase 1 cancelled — ${results.length} results collected, '
-          '$successfulIPs passed TLS so far',
+          'Phase $passLabel cancelled — $successfulIPs/$processedIPs passed so far',
         );
         break;
       }
 
       final batchMs = DateTime.now().difference(batchStart).inMilliseconds;
       _logService.logInfo(
-        'Phase 1 batch ${bi + 1}/$batchCount done in ${batchMs}ms:'
-        ' $successfulIPs/$processedIPs passed TLS',
+        'Phase $passLabel batch ${bi + 1}/$batchCount done in ${batchMs}ms:'
+        ' $successfulIPs/$processedIPs passed',
       );
 
-      // Log error breakdown so we can see WHY IPs are failing
       if (batchErrors.isNotEmpty) {
         final sorted = batchErrors.entries.toList()
           ..sort((a, b) => b.value.compareTo(a.value));
         for (final e in sorted.take(5)) {
-          _logService.logInfo('  [batch errors] ${e.value}x ${e.key}');
+          _logService.logInfo('  [$passLabel errors] ${e.value}x ${e.key}');
         }
       }
     }
 
-    _emitProgress(TlsTestProgress(
-      phase: ScanPhaseType.tls,
-      totalIPs: total,
-      processedIPs: processedIPs,
-      successfulIPs: successfulIPs,
-      failedIPs: failedIPs,
-    ));
-
-    final successfulResults = results.where((r) => r.tlsPassed).toList()
-      ..sort((a, b) => a.finalLatencyMs.compareTo(b.finalLatencyMs));
-
-    _logService.logOk(
-      'Phase 1 TLS complete: ${successfulResults.length}/$total passed'
-      '${_isCancelled ? " (cancelled early)" : ""}',
-    );
-
-    return successfulResults;
+    return latencies;
   }
 
   Future<ConfigTestResult> _testSingleIPTLS({
@@ -487,6 +608,13 @@ class ConfigTesterService {
   }
 }
 
+/// Internal result holder for Phase 0 two-probe TCP filter.
+class _TcpProbeResult {
+  final String ip;
+  final double avgLatencyMs;
+  const _TcpProbeResult({required this.ip, required this.avgLatencyMs});
+}
+
 /// Progress event emitted during Phase 0 (TCP) and Phase 1 (TLS).
 class TlsTestProgress {
   final ScanPhaseType phase;
@@ -496,6 +624,10 @@ class TlsTestProgress {
   final int failedIPs;
   final String? currentIP;
 
+  /// Human-readable pass label for two-pass TLS.
+  /// "1/2" during Phase 1a, "2/2" during Phase 1b, null otherwise.
+  final String? passLabel;
+
   const TlsTestProgress({
     this.phase = ScanPhaseType.tls,
     required this.totalIPs,
@@ -503,6 +635,7 @@ class TlsTestProgress {
     required this.successfulIPs,
     required this.failedIPs,
     this.currentIP,
+    this.passLabel,
   });
 
   double get progress => totalIPs > 0 ? processedIPs / totalIPs : 0.0;

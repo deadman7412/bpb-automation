@@ -72,13 +72,13 @@ class ConfigScanResult {
     List<ConfigTestResult> workingResults;
 
     if (hasProxyResults) {
-      // Phase 2 ran — only HTTP 204 counts as a working IP
+      // Phase 2 ran — any successful proxy test counts as a working IP.
+      // (Status 301/302 from /cdn-cgi/trace is still a valid Cloudflare response.)
       workingResults = allResults
           .where(
             (r) =>
                 r.proxyTestResult != null &&
-                r.proxyTestResult!.success &&
-                r.proxyTestResult!.statusCode == 204,
+                r.proxyTestResult!.success,
           )
           .toList();
 

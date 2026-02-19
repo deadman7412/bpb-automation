@@ -43,6 +43,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
   int _phase1Tested = 0;
   int _phase1Total = 0;
   int _phase1Success = 0;
+  String? _phase1PassLabel; // "1/2" or "2/2" during two-pass TLS
   // Phase 2: Proxy test
   int _phase2Tested = 0;
   int _phase2Total = 0;
@@ -118,6 +119,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     final enableIPv6 = params['enableIPv6'] == 1; // 1 = ON, 0 = OFF
     final maxSamplesPerCIDR = params['maxSamplesPerCIDR'] ?? 100;
     final batchSize = params['scanBatchSize'] ?? 200;
+    final fullScan = await _storage.getFullScan();
 
     setState(() {
       _isScanning = true;
@@ -227,6 +229,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
           _phase1Tested = progress.processedIPs;
           _phase1Total = progress.totalIPs;
           _phase1Success = progress.successfulIPs;
+          _phase1PassLabel = progress.passLabel;
         }
       });
     });
@@ -255,6 +258,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         enableIPv6: enableIPv6,
         maxSamplesPerCIDR: maxSamplesPerCIDR,
         batchSize: batchSize,
+        fullScan: fullScan,
       );
 
       if (!mounted) return;
@@ -311,6 +315,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       p1total = lastTls.totalIPs;
       p1success = lastTls.successfulIPs;
       phase = 'Phase 1: TLS Testing';
+      _phase1PassLabel = lastTls.passLabel;
     }
 
     // Phase 2 — always show last proxy snapshot if it exists
@@ -351,6 +356,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
           _phase1Tested = progress.processedIPs;
           _phase1Total = progress.totalIPs;
           _phase1Success = progress.successfulIPs;
+          _phase1PassLabel = progress.passLabel;
         }
       });
     });
@@ -386,15 +392,16 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
 
     if (!mounted) return;
 
-    if (result.workingIPCount > 0 || _isCancelling) {
+    final wasCancelling = _isCancelling;
+    if (result.workingIPCount > 0 || wasCancelling) {
       setState(() {
-        _currentPhase = _isCancelling ? 'Cancelled' : 'Complete';
+        _currentPhase = wasCancelling ? 'Cancelled' : 'Complete';
         _isScanning = false;
         _isCancelling = false;
       });
 
       _log.logOk(
-        _isCancelling
+        wasCancelling
             ? 'Scan cancelled - showing partial results'
             : 'Config scan completed successfully',
       );
@@ -651,9 +658,14 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text(
-                                  'Phase 1 (TLS):',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                Text(
+                                  _phase1PassLabel != null &&
+                                          _phase1PassLabel != 'done'
+                                      ? 'Phase 1 (TLS, Pass $_phase1PassLabel):'
+                                      : 'Phase 1 (TLS):',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                                 Text(
                                   '$_phase1Tested / $_phase1Total tested',

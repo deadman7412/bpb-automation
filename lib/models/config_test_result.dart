@@ -220,8 +220,13 @@ class TlsTestResult {
   /// Whether the TLS handshake succeeded
   final bool success;
 
-  /// Latency in milliseconds
+  /// Average latency in milliseconds across both Phase 1a and 1b passes.
+  /// For single-pass results this equals the single measurement.
   final double latencyMs;
+
+  /// Jitter: absolute difference between Phase 1a and Phase 1b latencies.
+  /// Zero for single-pass results. High jitter indicates unstable routing.
+  final double jitterMs;
 
   /// Error message if test failed
   final String? error;
@@ -233,18 +238,25 @@ class TlsTestResult {
   const TlsTestResult({
     required this.success,
     required this.latencyMs,
+    this.jitterMs = 0,
     this.error,
     this.cloudflareVerified = false,
   });
 
+  /// Composite sort score: penalises jitter at 50% weight.
+  /// Lower is better. Use this as the Phase 1 sort key.
+  double get sortScore => latencyMs + jitterMs * 0.5;
+
   /// Creates a successful TLS test result.
   factory TlsTestResult.success({
     required double latencyMs,
+    double jitterMs = 0,
     bool cloudflareVerified = false,
   }) {
     return TlsTestResult(
       success: true,
       latencyMs: latencyMs,
+      jitterMs: jitterMs,
       cloudflareVerified: cloudflareVerified,
     );
   }
@@ -259,6 +271,7 @@ class TlsTestResult {
     return {
       'success': success,
       'latencyMs': latencyMs,
+      'jitterMs': jitterMs,
       'error': error,
       'cloudflareVerified': cloudflareVerified,
     };
@@ -269,6 +282,7 @@ class TlsTestResult {
     return TlsTestResult(
       success: json['success'] as bool,
       latencyMs: (json['latencyMs'] as num).toDouble(),
+      jitterMs: (json['jitterMs'] as num? ?? 0).toDouble(),
       error: json['error'] as String?,
       cloudflareVerified: json['cloudflareVerified'] as bool? ?? false,
     );
@@ -277,7 +291,8 @@ class TlsTestResult {
   @override
   String toString() {
     if (success) {
-      return 'TlsTestResult(OK, ${latencyMs.toStringAsFixed(2)}ms, CF: $cloudflareVerified)';
+      final jitterStr = jitterMs > 0 ? ', jitter: ${jitterMs.toStringAsFixed(0)}ms' : '';
+      return 'TlsTestResult(OK, ${latencyMs.toStringAsFixed(0)}ms$jitterStr)';
     } else {
       return 'TlsTestResult(FAIL, error: $error)';
     }
@@ -295,7 +310,7 @@ class ProxyTestResult {
   /// Error message if test failed
   final String? error;
 
-  /// HTTP status code received (should be 204 for success)
+  /// HTTP status code received (any HTTP status = success for /cdn-cgi/trace)
   final int? statusCode;
 
   /// Download speed in Mbps (optional, if speed test was performed)

@@ -132,6 +132,8 @@ Desktop.ini
 # Logs
 *.log
 logs/
+app_log.txt
+backend_log.txt
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

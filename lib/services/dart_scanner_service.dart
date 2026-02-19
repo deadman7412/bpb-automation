@@ -138,6 +138,7 @@ class DartScannerService {
     bool enableIPv6 = false,
     int maxSamplesPerCIDR = 0, // 0 = use platform default
     int batchSize = 200,
+    bool fullScan = false, // when true, test all Phase 1 survivors in Phase 2
   }) async {
     // Prevent multiple concurrent scans
     if (_isScanning) {
@@ -163,7 +164,11 @@ class DartScannerService {
     _logService.logInfo(
       'Goal: Find $desiredIPCount working IPs using Xray config',
     );
-    _logService.logInfo('Phase 2 test depth: $phase2TestDepth IPs');
+    if (fullScan) {
+      _logService.logInfo('Phase 2: FULL SCAN — will test all Phase 1 survivors');
+    } else {
+      _logService.logInfo('Phase 2 test depth: $phase2TestDepth IPs');
+    }
     _logService.logInfo(
       'IPv6 scanning: ${enableIPv6 ? "ENABLED" : "DISABLED"}',
     );
@@ -297,9 +302,11 @@ class DartScannerService {
       // Step 5: Phase 2 - Proxy Testing (sequential, one by one)
       _logService.logInfo('===== PHASE 2: XRAY PROXY TESTING =====');
 
-      final phase2Candidates = phase1Successful.take(phase2TestDepth).toList();
+      final phase2Candidates = phase1Successful
+          .take(fullScan ? phase1Successful.length : phase2TestDepth)
+          .toList();
       _logService.logInfo(
-        'Testing top ${phase2Candidates.length} IPs with Xray proxy...',
+        'Testing ${fullScan ? "all" : "top"} ${phase2Candidates.length} IPs with Xray proxy...',
       );
 
       final phase2Results = <ConfigTestResult>[];

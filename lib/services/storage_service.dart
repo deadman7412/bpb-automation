@@ -35,6 +35,7 @@ class StorageService {
   static const String _keyMaxSamplesPerCIDR = 'max_samples_per_cidr';
   static const String _keyScanBatchSize = 'scan_batch_size';
   static const String _keyLastScanResult = 'last_scan_result';
+  static const String _keyFullScan = 'full_scan';
 
   StorageService._internal()
     : _secureStorage = const FlutterSecureStorage(
@@ -298,6 +299,7 @@ class StorageService {
     int? enableIPv6,
     int? maxSamplesPerCIDR,
     int? scanBatchSize,
+    bool? fullScan,
   }) async {
     if (desiredIPCount != null) {
       await _prefs.setInt(_keyDesiredIPCount, desiredIPCount);
@@ -314,7 +316,17 @@ class StorageService {
     if (scanBatchSize != null) {
       await _prefs.setInt(_keyScanBatchSize, scanBatchSize);
     }
+    if (fullScan != null) {
+      await _prefs.setBool(_keyFullScan, fullScan);
+    }
     _logService.logInfo('Saved scan parameters');
+  }
+
+  /// Retrieves whether full scan mode is enabled.
+  ///
+  /// When true, Phase 2 tests all Phase 1 survivors rather than just the top N.
+  Future<bool> getFullScan() async {
+    return _prefs.getBool(_keyFullScan) ?? false;
   }
 
   /// Retrieves scan parameters.

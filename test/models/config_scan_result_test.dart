@@ -502,7 +502,7 @@ void main() {
     });
 
     group('Edge cases', () {
-      test('handles IPs with non-204 status codes', () {
+      test('counts successful non-204 proxy responses as working', () {
         final results = [
           ConfigTestResult(
             ip: '1.1.1.1',
@@ -510,7 +510,7 @@ void main() {
             tlsTestResult: TlsTestResult.success(latencyMs: 50),
             proxyTestResult: ProxyTestResult.success(
               latencyMs: 200,
-              statusCode: 200, // Not 204
+              statusCode: 200, // Successful and should count as working
             ),
             qualityScore: 80,
             timestamp: DateTime.now(),
@@ -526,9 +526,9 @@ void main() {
           templateConfig: testConfig,
         );
 
-        // Should not count as working since status code is not 204
-        expect(scanResult.workingIPCount, equals(0));
-        expect(scanResult.workingIPs, isEmpty);
+        // Any successful proxy response now counts as working.
+        expect(scanResult.workingIPCount, equals(1));
+        expect(scanResult.workingIPs, equals(['1.1.1.1']));
       });
 
       test('handles mixed success and failure proxy results', () {

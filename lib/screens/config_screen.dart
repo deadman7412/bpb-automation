@@ -26,6 +26,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
   int _desiredIPCount = 5;
   int _phase2TestDepth = 50;
   bool _enableIPv6 = false; // Default to OFF
+  bool _fullScan = false; // Default: use depth slider, not all survivors
   int _maxSamplesPerCIDR = 100; // default: ~700 IPs
   int _batchSize = 200; // default: 200 concurrent connections
   List<XrayConfig>? _cachedConfigs;
@@ -47,6 +48,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
     final url = await _storage.getSubscriptionUrl();
     final params = await _storage.getScanParameters();
+    final fullScan = await _storage.getFullScan();
     final cachedConfigsJson = await _storage.getCachedConfigs();
 
     // Convert JSON to XrayConfig objects
@@ -67,6 +69,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _enableIPv6 = params['enableIPv6'] == 1; // 1 = true, 0/null = false
       _maxSamplesPerCIDR = params['maxSamplesPerCIDR'] ?? 100;
       _batchSize = params['scanBatchSize'] ?? 200;
+      _fullScan = fullScan;
       _cachedConfigs = configs;
       _isLoading = false;
     });
@@ -207,6 +210,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       enableIPv6: _enableIPv6 ? 1 : 0,
       maxSamplesPerCIDR: _maxSamplesPerCIDR,
       scanBatchSize: _batchSize,
+      fullScan: _fullScan,
     );
 
     _log.logOk('Configuration saved successfully');
@@ -662,7 +666,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    '$_phase2TestDepth',
+                                    _fullScan ? 'All' : '$_phase2TestDepth',
                                     style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
@@ -678,14 +682,18 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               max: 100,
                               divisions: 8,
                               label: '$_phase2TestDepth candidates',
-                              onChanged: (value) {
-                                setState(
-                                  () => _phase2TestDepth = value.round(),
-                                );
-                              },
+                              onChanged: _fullScan
+                                  ? null
+                                  : (value) {
+                                      setState(
+                                        () => _phase2TestDepth = value.round(),
+                                      );
+                                    },
                             ),
                             Text(
-                              _phase2TestDepth < 40
+                              _fullScan
+                                  ? 'Full scan — tests all Phase 1 survivors in Phase 2'
+                                  : _phase2TestDepth < 40
                                   ? 'Fast scan (may miss some working IPs)'
                                   : _phase2TestDepth < 70
                                   ? 'Balanced (recommended)'
@@ -695,6 +703,21 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     color: Colors.grey[600],
                                     fontWeight: FontWeight.w500,
                                   ),
+                            ),
+                            const SizedBox(height: 8),
+                            CheckboxListTile(
+                              value: _fullScan,
+                              onChanged: (value) {
+                                setState(() => _fullScan = value ?? false);
+                              },
+                              title: const Text('Full scan mode'),
+                              subtitle: Text(
+                                _fullScan
+                                    ? 'Tests every Phase 1 survivor in Phase 2 (most thorough, slower)'
+                                    : 'Enable to test all Phase 1 IPs instead of capping at depth slider',
+                              ),
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
                             ),
                             const SizedBox(height: 24),
 

@@ -2264,6 +2264,62 @@ All acceptance criteria exceeded. App is polished, well-documented, and ready fo
 
 ---
 
+## Scan Pipeline Overhaul (Post-Phase-9)
+
+**Status**: COMPLETED
+**Date**: 2026-02-19
+
+### Summary
+
+Redesigned the scan pipeline to fix a root-cause issue: Phase 2 proxy tests
+were confirming Cloudflare CDN connectivity (via gstatic.com) rather than
+reachability of the specific BPB Worker zone. This caused IPs that passed
+Phase 2 to show -1 ms latency in v2rayN after updating the panel.
+
+### Changes Made
+
+#### Phase 0 — Two-Probe TCP Filter
+- **Before**: Single TCP probe per IP, unordered output.
+- **After**: Two sequential probes per IP (1 s each, 100 ms gap). Both must
+  pass. Survivors sorted by average TCP latency ascending. Eliminates IPs
+  with >50% packet loss before any TLS work is done.
+
+#### Phase 1 — Two-Pass TLS Validation
+- **Before**: Single TLS pass per IP, sorted by latency.
+- **After**: Two independent TLS passes (1a on all candidates, 1b on 1a
+  survivors only). Only IPs passing both passes are kept. Sort key:
+  `avg(1a, 1b) + |1a - 1b| * 0.5` — penalises jitter, eliminates IPs with
+  unstable routing that only passed once.
+
+#### Phase 2 — Worker Hostname Test
+- **Before**: HTTP GET `www.gstatic.com/generate_204`, accept only HTTP 204.
+- **After**: HTTP GET `/cdn-cgi/trace` via SOCKS5 to `[worker-hostname]:80`.
+  Any HTTP status code is accepted as success. This confirms the IP routes
+  to the correct Cloudflare zone for the BPB Worker.
+
+#### ConfigExportService (new)
+- New service in `lib/services/config_export_service.dart`.
+- Builds Xray-compatible configs from scan results by substituting each
+  working IP into the template config (IP replaced, DNS dropped, geo rules
+  stripped, all other settings preserved).
+- Output: JSON array of all working IPs, or single best-IP config.
+- Ready for import into v2rayN, NekoBox, and any Xray-based VPN app.
+
+#### Model Update — TlsTestResult
+- Added `jitterMs` field (absolute difference between Phase 1a and 1b
+  latencies).
+- Added `sortScore` computed property: `latencyMs + jitterMs * 0.5`.
+
+### Files Modified
+- `lib/models/config_test_result.dart` — added jitterMs + sortScore
+- `lib/services/config_tester_service.dart` — two-probe TCP + two-pass TLS
+- `lib/services/xray_service.dart` — worker hostname test
+- `lib/services/config_export_service.dart` — new
+- `docs/scan-pipeline.md` — new documentation
+- `docs/architecture.md` — updated component descriptions
+
+---
+
 ## PHASE 10: Release and Deployment
 
 **Status**: NOT STARTED

@@ -28,8 +28,9 @@ The scanner fetches the user's BPB Panel Xray subscription, tests candidate IPs 
 │  DartScannerService (singleton)                 │
 │    ├─ SubscriptionService  (config fetch)       │
 │    ├─ IPLoader             (CIDR expansion)     │
-│    ├─ ConfigTesterService  (Phase 1: TLS tests) │
-│    └─ XrayService          (Phase 2: proxy test)│
+│    ├─ ConfigTesterService  (Phase 0+1: TCP+TLS) │
+│    ├─ XrayService          (Phase 2: proxy test)│
+│    └─ ConfigExportService  (JSON export)        │
 │                                                 │
 │  CloudflareApiService                           │
 │    └─ Workers KV read/write                     │
@@ -137,28 +138,27 @@ Future<List<String>> loadAll({bool enableIPv6, int maxSamplesPerCIDR})
 
 ### 4. ConfigTesterService
 
-Runs Phase 1: concurrent TLS handshake tests against all candidate IPs.
+Runs Phase 0 (TCP pre-filter) and Phase 1 (two-pass TLS) against all candidate IPs.
 
-**Responsibilities:**
-- Batch-concurrent TLS testing (up to `batchSize` sockets open at once)
-- TCP connection to port 443, then TLS upgrade with SNI from template config
+**Phase 0 — Two-Probe TCP Filter:**
+- Two sequential TCP connections to `ip:443` (1 s each, 100 ms gap)
+- Both probes must succeed — eliminates IPs with >50% packet loss
+- Survivors sorted by average TCP latency ascending
+
+**Phase 1a + 1b — Two-Pass TLS:**
+- Phase 1a: full TLS handshake on all Phase 0 survivors (concurrently)
+- Phase 1b: re-tests Phase 1a survivors only (verifies stability)
+- Only IPs that pass BOTH passes are kept
+- Sort key: `avg(1a, 1b) + |1a - 1b| * 0.5` (penalises jitter)
 - Uses `RawSocket`/`RawSecureSocket` to avoid file descriptor leaks
-- Reports progress via stream
-- Supports cancellation
-
-**Test Logic:**
-1. TCP connect to `ip:443` (1-second timeout)
-2. Upgrade to TLS using SNI hostname from config's outbound address
-3. Record success/failure and handshake latency
-4. Cancel socket on timeout using `RawSocket.detachRaw()`
 
 **Key Methods:**
 ```dart
 Future<List<ConfigTestResult>> testIPsWithTLS({
-  required List<String> ips,
-  required XrayConfig config,
-  int batchSize,
-  int timeoutSeconds,
+  required List<String> candidateIPs,
+  required XrayConfig template,
+  int tlsTimeoutSeconds,
+  int maxConcurrency,
 })
 
 Stream<TlsTestProgress> get progressStream
@@ -173,8 +173,13 @@ Manages the bundled Xray-core binary and runs Phase 2: live proxy tests.
 - Extract platform-specific Xray binary from app assets
 - Launch Xray process with a modified config (IP substituted into outbound)
 - Route HTTP test request through SOCKS5 proxy Xray creates
-- Accept only HTTP 204 from `connectivitycheck.gstatic.com/generate_204` as success
+- Test `http://[worker-hostname]/cdn-cgi/trace` — any HTTP status = success
 - Terminate Xray process after test, clean up ports
+
+**Why the worker hostname (not gstatic.com):**
+Testing gstatic.com confirms Cloudflare CDN connectivity but not that the
+BPB Worker zone is reachable via the candidate IP. `/cdn-cgi/trace` is
+available on every Cloudflare zone; a 301 redirect still proves routing.
 
 **Binary Assets:**
 ```
@@ -189,9 +194,9 @@ assets/xray-binaries/
 **Test Logic:**
 1. Write temp Xray config JSON (outbound address = candidate IP)
 2. Start Xray process (`xray run -config <path>`)
-3. Wait for SOCKS5 proxy to become available on localhost
-4. HTTP GET through SOCKS5 to `generate_204`
-5. Record result: success = HTTP 204, latency = round-trip time
+3. Poll until SOCKS5 proxy opens on localhost:10808 (up to 8 s)
+4. HTTP GET `/cdn-cgi/trace` via SOCKS5 to `[worker-hostname]:80`
+5. Any HTTP status code = success; record wall-clock latency
 6. Kill Xray process, delete temp files
 
 **Key Methods:**
@@ -206,7 +211,24 @@ Future<bool> get isAvailable
 String get binaryPath
 ```
 
-### 6. CloudflareApiService
+### 6. ConfigExportService
+
+Builds Xray-compatible config files from scan results for import into VPN apps.
+
+**Responsibilities:**
+- Substitute each working IP into the template config
+- Drop DNS section and strip geo routing rules (no geo data files bundled)
+- Preserve original inbounds, TLS/ECH/fragmentation settings
+- Serialize as JSON array (all IPs) or single best-IP JSON object
+
+**Key Methods:**
+```dart
+List<XrayConfig> buildExportConfigs(ConfigScanResult result)
+String exportToJsonArray(ConfigScanResult result)   // all working IPs
+String? exportBestConfig(ConfigScanResult result)   // lowest-latency IP only
+```
+
+### 7. CloudflareApiService
 
 Handles all Cloudflare Workers KV API interactions.
 
@@ -233,7 +255,7 @@ Future<bool> validateCredentials(Credentials credentials)
 2. Decode JSON, replace `cleanIPs` array
 3. Re-encode JSON, PUT back to KV
 
-### 7. StorageService
+### 8. StorageService
 
 Manages local storage for credentials and app state.
 
@@ -258,7 +280,7 @@ Manages local storage for credentials and app state.
 - cached_configs: String (JSON)
 ```
 
-### 8. LogService
+### 9. LogService
 
 Centralized logging with tagged output.
 
