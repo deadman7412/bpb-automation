@@ -5,6 +5,20 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.1] - 2026-02-19
+
+### Fixed
+- **EMFILE (FD exhaustion) in Phase 0 TCP pre-filter** — TCP probe sockets were closed with `await s.close()` (graceful half-close), which left sockets in CLOSE_WAIT and held OS file descriptors until GC ran. With large IP pools (5000+ IPs) this exhausted the FD limit before Phase 1 TLS even started, causing every TLS connection to fail instantly with `[24] Connection failed`. Fixed by replacing both probe closes with `s.destroy()`, which issues an immediate RST and releases the FD right away.
+
+### Added
+- **Copy Configs button** on the scan results page — exports generated Xray configs as JSON directly to the clipboard, alongside the existing Download Configs button.
+
+### Changed
+- **Exact IP pool size** — `ipPoolSize` now controls the exact number of candidate IPs loaded for scanning (previously `maxSamplesPerCIDR` was a per-range cap). IPs are allocated proportionally across all Cloudflare CIDR ranges weighted by /24 subnet count, with cap-and-redistribute to honour range sizes.
+- Slider label on the Config screen now shows the exact IP count (e.g. `1000 IPs`) instead of an approximate formula.
+
+---
+
 ## [1.0.0] - 2026-02-16
 
 ### Initial Release

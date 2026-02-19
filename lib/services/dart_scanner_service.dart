@@ -100,14 +100,14 @@ class DartScannerService {
     _completionController.close();
   }
 
-  /// Get CIDR expansion samples per range based on platform
-  int _getCIDRSamplesForPlatform() {
+  /// Default IP pool size based on platform.
+  int _getDefaultIPPoolSize() {
     if (Platform.isAndroid || Platform.isIOS) {
-      return 50; // Mobile: ~750 total IPs with 15 CIDR ranges
+      return 500; // Mobile: keep scan fast
     } else if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
-      return 100; // Desktop: ~1500 total IPs with 15 CIDR ranges
+      return 1000; // Desktop: more thorough
     }
-    return 50; // Fallback
+    return 500; // Fallback
   }
 
   /// Execute config-based scan with 2-phase testing
@@ -136,7 +136,7 @@ class DartScannerService {
     int desiredIPCount = 10,
     int phase2TestDepth = 50,
     bool enableIPv6 = false,
-    int maxSamplesPerCIDR = 0, // 0 = use platform default
+    int ipPoolSize = 0, // 0 = use platform default
     int batchSize = 200,
     bool fullScan = false, // when true, test all Phase 1 survivors in Phase 2
   }) async {
@@ -172,11 +172,9 @@ class DartScannerService {
     _logService.logInfo(
       'IPv6 scanning: ${enableIPv6 ? "ENABLED" : "DISABLED"}',
     );
-    final actualMaxSamples = maxSamplesPerCIDR > 0
-        ? maxSamplesPerCIDR
-        : _getCIDRSamplesForPlatform();
+    final actualPoolSize = ipPoolSize > 0 ? ipPoolSize : _getDefaultIPPoolSize();
     _logService.logInfo(
-      'Pool size: $actualMaxSamples samples/CIDR, batch size: $batchSize',
+      'IP pool size: $actualPoolSize IPs, batch size: $batchSize',
     );
 
     final scanStartTime = DateTime.now();
@@ -237,12 +235,8 @@ class DartScannerService {
       // Step 3: Load candidate IPs
       _logService.logInfo('Loading candidate IPs...');
       candidateIPs = enableIPv6
-          ? await _ipLoader.loadAllAddresses(
-              maxSamplesPerCIDR: actualMaxSamples,
-            )
-          : await _ipLoader.loadIPv4Addresses(
-              maxSamplesPerCIDR: actualMaxSamples,
-            );
+          ? await _ipLoader.loadAllAddressesExact(targetCount: actualPoolSize)
+          : await _ipLoader.loadIPv4AddressesExact(targetCount: actualPoolSize);
 
       _logService.logOk('Loaded ${candidateIPs.length} candidate IPs');
 

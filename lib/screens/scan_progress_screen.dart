@@ -117,7 +117,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     final desiredIPCount = params['desiredIPCount'] ?? 5;
     final phase2TestDepth = params['phase2TestDepth'] ?? 50;
     final enableIPv6 = params['enableIPv6'] == 1; // 1 = ON, 0 = OFF
-    final maxSamplesPerCIDR = params['maxSamplesPerCIDR'] ?? 100;
+    final ipPoolSize = params['ipPoolSize'] ?? 1000;
     final batchSize = params['scanBatchSize'] ?? 200;
     final fullScan = await _storage.getFullScan();
 
@@ -256,7 +256,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         desiredIPCount: desiredIPCount,
         phase2TestDepth: phase2TestDepth,
         enableIPv6: enableIPv6,
-        maxSamplesPerCIDR: maxSamplesPerCIDR,
+        ipPoolSize: ipPoolSize,
         batchSize: batchSize,
         fullScan: fullScan,
       );

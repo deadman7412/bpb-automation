@@ -32,7 +32,8 @@ class StorageService {
   static const String _keyDesiredIPCount = 'desired_ip_count';
   static const String _keyPhase2TestDepth = 'phase2_test_depth';
   static const String _keyEnableIPv6 = 'enable_ipv6';
-  static const String _keyMaxSamplesPerCIDR = 'max_samples_per_cidr';
+  static const String _keyMaxSamplesPerCIDR = 'max_samples_per_cidr'; // legacy
+  static const String _keyIpPoolSize = 'ip_pool_size';
   static const String _keyScanBatchSize = 'scan_batch_size';
   static const String _keyLastScanResult = 'last_scan_result';
   static const String _keyFullScan = 'full_scan';
@@ -292,12 +293,12 @@ class StorageService {
     _logService.logInfo('Cleared cached configs');
   }
 
-  /// Saves scan parameters (desired IP count and Phase 2 test depth).
+  /// Saves scan parameters.
   Future<void> saveScanParameters({
     int? desiredIPCount,
     int? phase2TestDepth,
     int? enableIPv6,
-    int? maxSamplesPerCIDR,
+    int? ipPoolSize,
     int? scanBatchSize,
     bool? fullScan,
   }) async {
@@ -310,8 +311,8 @@ class StorageService {
     if (enableIPv6 != null) {
       await _prefs.setInt(_keyEnableIPv6, enableIPv6);
     }
-    if (maxSamplesPerCIDR != null) {
-      await _prefs.setInt(_keyMaxSamplesPerCIDR, maxSamplesPerCIDR);
+    if (ipPoolSize != null) {
+      await _prefs.setInt(_keyIpPoolSize, ipPoolSize);
     }
     if (scanBatchSize != null) {
       await _prefs.setInt(_keyScanBatchSize, scanBatchSize);
@@ -333,13 +334,26 @@ class StorageService {
   ///
   /// Returns a map with all scan settings.
   /// Defaults: desiredIPCount=5, phase2TestDepth=50, enableIPv6=0,
-  ///           maxSamplesPerCIDR=100, scanBatchSize=200
+  ///           ipPoolSize=1000, scanBatchSize=200
+  ///
+  /// Migrates legacy maxSamplesPerCIDR: if ipPoolSize was never saved but the
+  /// old key exists, the old value is converted (×10, clamped to 100–5000).
   Future<Map<String, int>> getScanParameters() async {
+    int ipPoolSize;
+    final saved = _prefs.getInt(_keyIpPoolSize);
+    if (saved != null) {
+      ipPoolSize = saved;
+    } else {
+      // Migrate from legacy key if present.
+      final legacy = _prefs.getInt(_keyMaxSamplesPerCIDR);
+      ipPoolSize = legacy != null ? (legacy * 10).clamp(100, 5000) : 1000;
+    }
+
     return {
       'desiredIPCount': _prefs.getInt(_keyDesiredIPCount) ?? 5,
       'phase2TestDepth': _prefs.getInt(_keyPhase2TestDepth) ?? 50,
       'enableIPv6': _prefs.getInt(_keyEnableIPv6) ?? 0,
-      'maxSamplesPerCIDR': _prefs.getInt(_keyMaxSamplesPerCIDR) ?? 100,
+      'ipPoolSize': ipPoolSize,
       'scanBatchSize': _prefs.getInt(_keyScanBatchSize) ?? 200,
     };
   }

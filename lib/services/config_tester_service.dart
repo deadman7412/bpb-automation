@@ -166,7 +166,11 @@ class ConfigTesterService {
           bool probe1Passed = false;
           try {
             final s = await Socket.connect(ip, port, timeout: tcpTimeout);
-            await s.close();
+            // destroy() releases the OS FD immediately (RST). Using
+            // await s.close() instead leaves sockets in CLOSE_WAIT,
+            // accumulating FDs across batches and triggering EMFILE (error 24)
+            // when the pool size is large.
+            s.destroy();
             probe1Passed = true;
           } catch (_) {}
           sw1.stop();
@@ -185,7 +189,7 @@ class ConfigTesterService {
           bool probe2Passed = false;
           try {
             final s = await Socket.connect(ip, port, timeout: tcpTimeout);
-            await s.close();
+            s.destroy();
             probe2Passed = true;
           } catch (_) {}
           sw2.stop();

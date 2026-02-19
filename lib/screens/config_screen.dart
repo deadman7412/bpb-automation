@@ -27,7 +27,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
   int _phase2TestDepth = 50;
   bool _enableIPv6 = false; // Default to OFF
   bool _fullScan = false; // Default: use depth slider, not all survivors
-  int _maxSamplesPerCIDR = 100; // default: ~700 IPs
+  int _ipPoolSize = 1000; // default: 1000 IPs total
   int _batchSize = 200; // default: 200 concurrent connections
   List<XrayConfig>? _cachedConfigs;
 
@@ -67,7 +67,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _desiredIPCount = params['desiredIPCount'] ?? 5;
       _phase2TestDepth = params['phase2TestDepth'] ?? 50;
       _enableIPv6 = params['enableIPv6'] == 1; // 1 = true, 0/null = false
-      _maxSamplesPerCIDR = params['maxSamplesPerCIDR'] ?? 100;
+      _ipPoolSize = params['ipPoolSize'] ?? 1000;
       _batchSize = params['scanBatchSize'] ?? 200;
       _fullScan = fullScan;
       _cachedConfigs = configs;
@@ -208,7 +208,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       desiredIPCount: _desiredIPCount,
       phase2TestDepth: _phase2TestDepth,
       enableIPv6: _enableIPv6 ? 1 : 0,
-      maxSamplesPerCIDR: _maxSamplesPerCIDR,
+      ipPoolSize: _ipPoolSize,
       scanBatchSize: _batchSize,
       fullScan: _fullScan,
     );
@@ -261,26 +261,6 @@ class _ConfigScreenState extends State<ConfigScreen> {
       ),
     );
     return result ?? false;
-  }
-
-  /// Approximate total IPv4 IPs for a given maxSamplesPerCIDR value.
-  ///
-  /// Based on the actual Cloudflare CIDR ranges in ip.txt:
-  ///   4 × /22  (4 /24 subnets each)
-  ///   2 × /13  (2048 /24 subnets each)
-  ///   1 × /14  (1024 /24 subnets)
-  ///   2 × /18  (64 /24 subnets each)
-  ///   1 × /15  (512 /24 subnets)
-  ///   3 × /20  (16 /24 subnets each)
-  ///   1 × /17  (128 /24 subnets)
-  int _approxTotalIPs(int s) {
-    return 4 * s.clamp(0, 4) +     // /22 × 4
-        2 * s.clamp(0, 2048) +      // /13 × 2
-        s.clamp(0, 1024) +          // /14 × 1
-        2 * s.clamp(0, 64) +        // /18 × 2
-        s.clamp(0, 512) +           // /15 × 1
-        3 * s.clamp(0, 16) +        // /20 × 3
-        s.clamp(0, 128);            // /17 × 1
   }
 
   void _showHelp(String title, String message) {
@@ -738,10 +718,11 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                       ),
                                       onPressed: () => _showHelp(
                                         'IP Pool Size',
-                                        'Controls how many Cloudflare IP addresses are loaded and tested in Phase 0 and Phase 1.\n\n'
-                                            'Higher = more IPs tested = better chance of finding clean IPs, but Phase 1 takes longer.\n\n'
-                                            'The actual number loaded is shown in the scan logs.\n\n'
-                                            'Default: 100 per CIDR range (~700 total IPs)',
+                                        'Exactly how many Cloudflare IP addresses are loaded and tested in Phase 0 and Phase 1.\n\n'
+                                            'IPs are distributed proportionally across all Cloudflare CIDR ranges — larger ranges receive more IPs.\n\n'
+                                            'Higher = better chance of finding clean IPs, but Phase 1 takes longer.\n\n'
+                                            'Default: 1000 IPs\n'
+                                            'Recommended range: 500–2000',
                                       ),
                                       tooltip: 'What is this?',
                                       padding: EdgeInsets.zero,
@@ -759,7 +740,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    '~${_approxTotalIPs(_maxSamplesPerCIDR)} IPs',
+                                    '$_ipPoolSize IPs',
                                     style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
@@ -770,23 +751,25 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               ],
                             ),
                             Slider(
-                              value: _maxSamplesPerCIDR.toDouble(),
+                              value: _ipPoolSize.toDouble(),
                               min: 100,
-                              max: 2000,
-                              divisions: 19,
-                              label: '$_maxSamplesPerCIDR per range',
+                              max: 5000,
+                              divisions: 49,
+                              label: '$_ipPoolSize IPs',
                               onChanged: (value) {
-                                setState(() => _maxSamplesPerCIDR = value.round());
+                                setState(() => _ipPoolSize = value.round());
                               },
                             ),
                             Text(
-                              _maxSamplesPerCIDR <= 100
-                                  ? 'Default — fast scan, good for most networks'
-                                  : _maxSamplesPerCIDR <= 500
-                                  ? 'Larger pool — more IPs, Phase 1 takes a bit longer'
-                                  : _maxSamplesPerCIDR <= 1000
-                                  ? 'Large pool — recommended for strong networks'
-                                  : 'Maximum pool — exhausts all Cloudflare /24 subnets',
+                              _ipPoolSize <= 300
+                                  ? 'Minimal — very fast, best for slow networks'
+                                  : _ipPoolSize <= 800
+                                  ? 'Small pool — fast scan, good for testing'
+                                  : _ipPoolSize <= 1500
+                                  ? 'Medium pool — balanced (recommended)'
+                                  : _ipPoolSize <= 3000
+                                  ? 'Large pool — thorough, slower on mobile'
+                                  : 'Maximum pool — comprehensive, use on desktop',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
                                     color: Colors.grey[600],

@@ -29,6 +29,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
   bool _isLoaded = false;
   bool _isUpdating = false;
   bool _isGenerating = false;
+  bool _isCopying = false;
 
   @override
   void didChangeDependencies() {
@@ -193,6 +194,54 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       });
 
       _showMessage('Failed to generate configs: $e', isError: true);
+    }
+  }
+
+  Future<void> _copyConfigs() async {
+    if (_result == null || _result!.workingIPs.isEmpty) {
+      _showMessage('No working IPs to generate configs', isError: true);
+      return;
+    }
+
+    setState(() {
+      _isCopying = true;
+    });
+
+    _log.logInfo(
+      'Copying configs for ${_result!.workingIPs.length} working IPs to clipboard',
+    );
+
+    try {
+      final configs = await _configGenerator.generateConfigsWithIPs(
+        template: _result!.templateConfig,
+        workingIPs: _result!.workingIPs,
+      );
+
+      if (configs.isEmpty) {
+        throw Exception('Failed to generate configs');
+      }
+
+      final jsonString = _configGenerator.exportConfigsAsJSON(configs);
+      await Clipboard.setData(ClipboardData(text: jsonString));
+
+      if (!mounted) return;
+
+      setState(() {
+        _isCopying = false;
+      });
+
+      _showMessage('${configs.length} configs copied to clipboard');
+      _log.logOk('${configs.length} configs copied to clipboard');
+    } catch (e, stackTrace) {
+      _log.logError('Failed to copy configs: $e\n$stackTrace');
+
+      if (!mounted) return;
+
+      setState(() {
+        _isCopying = false;
+      });
+
+      _showMessage('Failed to copy configs: $e', isError: true);
     }
   }
 
@@ -413,31 +462,27 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
                 // Action Buttons
                 if (_result!.workingIPCount > 0) ...[
+                  ElevatedButton.icon(
+                    onPressed: _isUpdating ? null : _updateBPBPanel,
+                    icon: _isUpdating
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cloud_upload),
+                    label: Text(
+                      _isUpdating ? 'Updating...' : 'Update BPB Panel',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50),
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isUpdating ? null : _updateBPBPanel,
-                          icon: _isUpdating
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.cloud_upload),
-                          label: Text(
-                            _isUpdating ? 'Updating...' : 'Update BPB Panel',
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(0, 50),
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: _isGenerating ? null : _downloadConfigs,
@@ -451,13 +496,34 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                                 )
                               : const Icon(Icons.download),
                           label: Text(
-                            _isGenerating
-                                ? 'Generating...'
-                                : 'Download Configs',
+                            _isGenerating ? 'Generating...' : 'Download Configs',
                           ),
                           style: ElevatedButton.styleFrom(
                             minimumSize: const Size(0, 50),
                             backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _isCopying ? null : _copyConfigs,
+                          icon: _isCopying
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.copy),
+                          label: Text(
+                            _isCopying ? 'Copying...' : 'Copy Configs',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 50),
+                            backgroundColor: Colors.teal,
                             foregroundColor: Colors.white,
                           ),
                         ),
