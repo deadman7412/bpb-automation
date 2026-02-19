@@ -28,8 +28,10 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
   final ConfigGeneratorService _configGenerator =
       ConfigGeneratorService.instance;
   final LogService _log = LogService.instance;
+  static const String _keyLastScanElapsedMs = 'last_scan_elapsed_ms';
 
   ConfigScanResult? _result;
+  Duration? _displayScanDuration;
   bool _isLoaded = false;
   bool _isUpdating = false;
   bool _isGenerating = false;
@@ -47,9 +49,15 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
   Future<void> _loadResults() async {
     final args = ModalRoute.of(context)?.settings.arguments;
+    final savedElapsedMs = await _storage.getInt(_keyLastScanElapsedMs);
+    final savedDuration = savedElapsedMs != null
+        ? Duration(milliseconds: savedElapsedMs)
+        : null;
+
     if (args != null && args is ConfigScanResult) {
       setState(() {
         _result = args;
+        _displayScanDuration = savedDuration;
       });
       _log.logInfo(
         'Loaded config scan result with ${_result!.workingIPCount} working IPs',
@@ -61,6 +69,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         try {
           setState(() {
             _result = ConfigScanResult.fromJson(resultJson);
+            _displayScanDuration = savedDuration;
           });
           _log.logInfo(
             'Loaded saved scan result with ${_result!.workingIPCount} working IPs',
@@ -72,6 +81,13 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         _log.logWarn('No config scan result available');
       }
     }
+  }
+
+  Duration get _effectiveScanDuration {
+    if (_displayScanDuration != null && _displayScanDuration! > Duration.zero) {
+      return _displayScanDuration!;
+    }
+    return _result?.scanDuration ?? Duration.zero;
   }
 
   Future<void> _updateBPBPanel() async {
@@ -324,22 +340,22 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     IconData icon, {
     Color? color,
   }) {
+    final cs = Theme.of(context).colorScheme;
+    final iconColor = color ?? cs.onSurfaceVariant;
+    final valueColor = color ?? cs.onSurface;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            Icon(
-              icon,
-              size: 32,
-              color: color ?? Theme.of(context).primaryColor,
-            ),
+            Icon(icon, size: 32, color: iconColor),
             const SizedBox(height: 8),
             Text(
               value,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
-                color: color,
+                color: valueColor,
               ),
             ),
             const SizedBox(height: 4),
@@ -414,7 +430,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Scan completed in ${_result!.scanDuration.inSeconds} seconds',
+                          'Scan completed in ${_effectiveScanDuration.inSeconds} seconds',
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(color: Colors.grey[700]),
                         ),
@@ -423,6 +439,61 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
+
+                if (_result!.autoApplyStatus != null) ...[
+                  Builder(
+                    builder: (context) {
+                      final cs = Theme.of(context).colorScheme;
+                      final isSuccess = _result!.autoApplySucceeded == true;
+                      final bgColor = isSuccess
+                          ? cs.secondaryContainer
+                          : cs.tertiaryContainer;
+                      final fgColor = isSuccess
+                          ? cs.onSecondaryContainer
+                          : cs.onTertiaryContainer;
+                      final icon = isSuccess
+                          ? Icons.check_circle
+                          : Icons.info_outline;
+
+                      return Card(
+                        color: bgColor,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(icon, color: fgColor),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Auto Apply Status',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: fgColor,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _result!.autoApplyStatus!,
+                                      style: TextStyle(color: fgColor),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                ],
 
                 // Phase Statistics
                 Text(
@@ -523,23 +594,39 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
                 // Action Buttons
                 if (_result!.workingIPCount > 0) ...[
-                  ElevatedButton.icon(
-                    onPressed: _isUpdating ? null : _updateBPBPanel,
-                    icon: _isUpdating
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.cloud_upload),
-                    label: Text(
-                      _isUpdating ? 'Updating...' : 'Update BPB Panel',
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                    ),
+                  Builder(
+                    builder: (context) {
+                      final alreadyApplied =
+                          _result!.autoApplySucceeded == true;
+                      final idleLabel = alreadyApplied
+                          ? 'Already Applied - Apply Again'
+                          : 'Update BPB Panel';
+                      final busyLabel = alreadyApplied
+                          ? 'Applying Again...'
+                          : 'Updating...';
+                      final idleIcon = alreadyApplied
+                          ? const Icon(Icons.refresh)
+                          : const Icon(Icons.cloud_upload);
+
+                      return ElevatedButton.icon(
+                        onPressed: _isUpdating ? null : _updateBPBPanel,
+                        icon: _isUpdating
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : idleIcon,
+                        label: Text(_isUpdating ? busyLabel : idleLabel),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 50),
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -660,8 +747,16 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                 '  Working: ${_result!.workingIPCount} ($phase2SuccessRate%)',
               ),
               const SizedBox(height: 12),
-              Text('Duration: ${_result!.scanDuration.inSeconds}s'),
+              Text('Duration: ${_effectiveScanDuration.inSeconds}s'),
               Text('Timestamp: ${_formatDateTime(_result!.timestamp)}'),
+              if (_result!.autoApplyStatus != null) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'Auto Apply:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text('  ${_result!.autoApplyStatus}'),
+              ],
             ],
           ),
         ),

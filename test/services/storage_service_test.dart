@@ -183,6 +183,17 @@ void main() {
         final retrieved = await storage.getAutoUpdateInterval();
         expect(retrieved, equals(24));
       });
+
+      test('saveAutoApplyAfterScan and getAutoApplyAfterScan work', () async {
+        await storage.saveAutoApplyAfterScan(true);
+        final retrieved = await storage.getAutoApplyAfterScan();
+        expect(retrieved, isTrue);
+      });
+
+      test('getAutoApplyAfterScan returns false by default', () async {
+        final retrieved = await storage.getAutoApplyAfterScan();
+        expect(retrieved, isFalse);
+      });
     });
 
     group('Num IPs To Use', () {

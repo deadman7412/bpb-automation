@@ -47,6 +47,12 @@ class ConfigScanResult {
   /// Timestamp when the scan completed
   final DateTime timestamp;
 
+  /// Status message for auto-apply action (if enabled during this scan).
+  final String? autoApplyStatus;
+
+  /// Whether auto-apply succeeded (when [autoApplyStatus] is present).
+  final bool? autoApplySucceeded;
+
   const ConfigScanResult({
     required this.totalTested,
     required this.phase1Passed,
@@ -57,6 +63,8 @@ class ConfigScanResult {
     required this.scanDuration,
     required this.templateConfig,
     required this.timestamp,
+    this.autoApplyStatus,
+    this.autoApplySucceeded,
   });
 
   /// Create result from successful scan
@@ -75,11 +83,7 @@ class ConfigScanResult {
       // Phase 2 ran — any successful proxy test counts as a working IP.
       // (Status 301/302 from /cdn-cgi/trace is still a valid Cloudflare response.)
       workingResults = allResults
-          .where(
-            (r) =>
-                r.proxyTestResult != null &&
-                r.proxyTestResult!.success,
-          )
+          .where((r) => r.proxyTestResult != null && r.proxyTestResult!.success)
           .toList();
 
       // Sort by proxy latency (fastest first)
@@ -136,6 +140,34 @@ class ConfigScanResult {
       scanDuration: scanDuration,
       templateConfig: templateConfig,
       timestamp: DateTime.now(),
+    );
+  }
+
+  ConfigScanResult copyWith({
+    int? totalTested,
+    int? phase1Passed,
+    int? phase2Tested,
+    int? workingIPCount,
+    List<String>? workingIPs,
+    List<ConfigTestResult>? allResults,
+    Duration? scanDuration,
+    XrayConfig? templateConfig,
+    DateTime? timestamp,
+    String? autoApplyStatus,
+    bool? autoApplySucceeded,
+  }) {
+    return ConfigScanResult(
+      totalTested: totalTested ?? this.totalTested,
+      phase1Passed: phase1Passed ?? this.phase1Passed,
+      phase2Tested: phase2Tested ?? this.phase2Tested,
+      workingIPCount: workingIPCount ?? this.workingIPCount,
+      workingIPs: workingIPs ?? this.workingIPs,
+      allResults: allResults ?? this.allResults,
+      scanDuration: scanDuration ?? this.scanDuration,
+      templateConfig: templateConfig ?? this.templateConfig,
+      timestamp: timestamp ?? this.timestamp,
+      autoApplyStatus: autoApplyStatus ?? this.autoApplyStatus,
+      autoApplySucceeded: autoApplySucceeded ?? this.autoApplySucceeded,
     );
   }
 
@@ -234,6 +266,8 @@ class ConfigScanResult {
       'scanDurationMicroseconds': scanDuration.inMicroseconds,
       'templateConfig': templateConfig.toJson(),
       'timestamp': timestamp.toIso8601String(),
+      'autoApplyStatus': autoApplyStatus,
+      'autoApplySucceeded': autoApplySucceeded,
     };
   }
 
@@ -256,6 +290,8 @@ class ConfigScanResult {
         json['templateConfig'] as Map<String, dynamic>,
       ),
       timestamp: DateTime.parse(json['timestamp'] as String),
+      autoApplyStatus: json['autoApplyStatus'] as String?,
+      autoApplySucceeded: json['autoApplySucceeded'] as bool?,
     );
   }
 

@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../models/xray_config.dart';
 import '../models/config_scan_result.dart';
+import '../models/update_mode.dart';
 import '../services/storage_service.dart';
 import '../services/log_service.dart';
 import '../services/dart_scanner_service.dart';
 import '../services/config_tester_service.dart';
 import '../services/subscription_service.dart';
+import '../services/cloudflare_api_service.dart';
+import '../services/panel_api_service.dart';
 
 /// Real-time scan progress screen
 ///
@@ -29,9 +32,13 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
   final DartScannerService _scanner = DartScannerService.instance;
   final ConfigTesterService _configTester = ConfigTesterService.instance;
   final SubscriptionService _subscription = SubscriptionService.instance;
+  final CloudflareApiService _cloudflareApi = CloudflareApiService.instance;
+  final PanelApiService _panelApi = PanelApiService.instance;
 
   bool _isScanning = false;
   bool _isCancelling = false;
+  static const String _keyActiveScanStartMs = 'active_scan_start_ms';
+  static const String _keyLastScanElapsedMs = 'last_scan_elapsed_ms';
 
   // Progress tracking
   String _currentPhase = 'Initializing...';
@@ -54,7 +61,6 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
   StreamSubscription<ConfigScanResult>? _completionSubscription;
 
   // Elapsed time tracking
-  DateTime? _scanStartTime;
   Timer? _elapsedTimer;
   Duration _elapsed = Duration.zero;
 
@@ -62,9 +68,9 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
   void initState() {
     super.initState();
     if (_scanner.isScanning) {
-      _attachToExistingScan();
+      unawaited(_attachToExistingScan());
     } else {
-      _startScan();
+      unawaited(_startScan());
     }
   }
 
@@ -77,14 +83,13 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     super.dispose();
   }
 
-  void _startElapsedTimer() {
-    _scanStartTime = DateTime.now();
-    _elapsed = Duration.zero;
+  void _startElapsedTimer(DateTime scanStartTime) {
+    _elapsed = DateTime.now().difference(scanStartTime);
     _elapsedTimer?.cancel();
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() {
-        _elapsed = DateTime.now().difference(_scanStartTime!);
+        _elapsed = DateTime.now().difference(scanStartTime);
       });
     });
   }
@@ -98,6 +103,11 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     final m = _elapsed.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = _elapsed.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$m:$s';
+  }
+
+  void _setStateIfMounted(VoidCallback fn) {
+    if (!mounted) return;
+    setState(fn);
   }
 
   Future<void> _startScan() async {
@@ -121,11 +131,17 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     final batchSize = params['scanBatchSize'] ?? 200;
     final fullScan = await _storage.getFullScan();
 
-    setState(() {
+    _setStateIfMounted(() {
       _isScanning = true;
       _currentPhase = 'Loading configs...';
     });
-    _startElapsedTimer();
+    final scanStartTime = DateTime.now();
+    await _storage.saveInt(
+      _keyActiveScanStartMs,
+      scanStartTime.millisecondsSinceEpoch,
+    );
+    if (!mounted) return;
+    _startElapsedTimer(scanStartTime);
 
     // Always refresh configs from subscription first.
     List<XrayConfig>? configs;
@@ -134,7 +150,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         .map((json) => XrayConfig.fromJson(json as Map<String, dynamic>))
         .toList();
 
-    setState(() {
+    _setStateIfMounted(() {
       _currentPhase = 'Refreshing configs from subscription...';
     });
 
@@ -151,7 +167,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         'Fetched latest ${configs.length} configs and refreshed cache',
       );
 
-      setState(() {
+      _setStateIfMounted(() {
         _currentPhase = 'Using latest configs (${configs!.length} configs)';
       });
       await Future.delayed(const Duration(milliseconds: 500));
@@ -177,7 +193,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
           );
         }
 
-        setState(() {
+        _setStateIfMounted(() {
           _currentPhase =
               'Using cached configs (refresh failed, ${configs!.length} configs)';
         });
@@ -185,29 +201,31 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       } else {
         _log.logError('No cached configs available and refresh failed: $e');
 
-        if (!mounted) return;
-        setState(() {
+        _stopElapsedTimer();
+        await _storage.remove(_keyActiveScanStartMs);
+        _setStateIfMounted(() {
           _isScanning = false;
           _currentPhase = 'Error';
         });
-
-        _showError(
-          'Cannot Load Configs',
-          'Failed to refresh configs from subscription URL, and no cached configs are available.\n\n'
-              'Error: $e\n\n'
-              'Please check:\n'
-              '• Your internet connection\n'
-              '• The subscription URL is correct\n'
-              '• The URL is accessible',
-          showConfigButton: true,
-          showRetryButton: true,
-        );
+        if (mounted) {
+          _showError(
+            'Cannot Load Configs',
+            'Failed to refresh configs from subscription URL, and no cached configs are available.\n\n'
+                'Error: $e\n\n'
+                'Please check:\n'
+                '• Your internet connection\n'
+                '• The subscription URL is correct\n'
+                '• The URL is accessible',
+            showConfigButton: true,
+            showRetryButton: true,
+          );
+        }
         return;
       }
     }
 
     // Now we have configs - start the scan
-    setState(() {
+    _setStateIfMounted(() {
       _currentPhase = 'Preparing scan...';
       _phase0Tested = 0;
       _phase0Total = 0;
@@ -266,7 +284,6 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         fullScan: fullScan,
       );
 
-      if (!mounted) return;
       await _handleScanResult(result);
     } catch (e, stackTrace) {
       _log.logError('Config scan error: $e\n$stackTrace');
@@ -278,24 +295,27 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       _phase2ProgressSubscription = null;
       _completionSubscription = null;
 
-      if (!mounted) return;
+      _stopElapsedTimer();
+      await _storage.remove(_keyActiveScanStartMs);
 
-      setState(() {
+      _setStateIfMounted(() {
         _currentPhase = 'Error';
         _isScanning = false;
       });
 
-      _showError(
-        'Scan Error',
-        'An error occurred during scanning:\n\n$e',
-        showRetryButton: true,
-      );
+      if (mounted) {
+        _showError(
+          'Scan Error',
+          'An error occurred during scanning:\n\n$e',
+          showRetryButton: true,
+        );
+      }
     }
   }
 
   /// Attach to a scan that is already running (navigated back then returned).
   /// Subscribes to progress and completion streams without starting a new scan.
-  void _attachToExistingScan() {
+  Future<void> _attachToExistingScan() async {
     _log.logInfo('Attaching to existing scan in progress');
 
     // Immediately apply last known state for ALL phases so bars appear right away
@@ -332,7 +352,18 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       phase = 'Phase 3: Proxy Testing';
     }
 
-    _startElapsedTimer();
+    final activeStartMs = await _storage.getInt(_keyActiveScanStartMs);
+    final scanStartTime = activeStartMs != null
+        ? DateTime.fromMillisecondsSinceEpoch(activeStartMs)
+        : DateTime.now();
+    if (activeStartMs == null) {
+      await _storage.saveInt(
+        _keyActiveScanStartMs,
+        scanStartTime.millisecondsSinceEpoch,
+      );
+    }
+    if (!mounted) return;
+    _startElapsedTimer(scanStartTime);
     setState(() {
       _isScanning = true;
       _currentPhase = phase;
@@ -387,6 +418,27 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
 
   /// Handle the final scan result — called from both _startScan and _attachToExistingScan.
   Future<void> _handleScanResult(ConfigScanResult result) async {
+    final shouldAutoApply = await _storage.getAutoApplyAfterScan();
+    var finalResult = result;
+
+    if (shouldAutoApply && result.workingIPs.isNotEmpty) {
+      final outcome = await _autoApplyWorkingIPs(result.workingIPs);
+      if (outcome.message != null) {
+        finalResult = result.copyWith(
+          autoApplyStatus: outcome.message,
+          autoApplySucceeded: outcome.success,
+        );
+      }
+    } else if (shouldAutoApply && result.workingIPs.isEmpty) {
+      finalResult = result.copyWith(
+        autoApplyStatus: 'Auto-apply enabled, but no working IPs were found.',
+        autoApplySucceeded: false,
+      );
+    }
+
+    await _storage.saveInt(_keyLastScanElapsedMs, _elapsed.inMilliseconds);
+    await _storage.remove(_keyActiveScanStartMs);
+    await _storage.saveLastScanResult(finalResult.toJson());
     _stopElapsedTimer();
     await _progressSubscription?.cancel();
     await _phase2ProgressSubscription?.cancel();
@@ -395,41 +447,114 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     _phase2ProgressSubscription = null;
     _completionSubscription = null;
 
-    if (!mounted) return;
-
     final wasCancelling = _isCancelling;
-    if (result.workingIPCount > 0 || wasCancelling) {
-      setState(() {
-        _currentPhase = wasCancelling ? 'Cancelled' : 'Complete';
-        _isScanning = false;
-        _isCancelling = false;
-      });
+    _log.logOk(
+      wasCancelling
+          ? 'Scan cancelled - showing partial results'
+          : 'Config scan completed successfully',
+    );
 
-      _log.logOk(
-        wasCancelling
-            ? 'Scan cancelled - showing partial results'
-            : 'Config scan completed successfully',
-      );
+    if (finalResult.workingIPCount > 0 || wasCancelling) {
+      if (mounted) {
+        setState(() {
+          _currentPhase = wasCancelling ? 'Cancelled' : 'Complete';
+          _isScanning = false;
+          _isCancelling = false;
+        });
 
-      // Persist result so results screen can reload it after navigating away
-      await _storage.saveLastScanResult(result.toJson());
-
-      // ignore: use_build_context_synchronously
-      Navigator.pushReplacementNamed(context, '/results', arguments: result);
+        // ignore: use_build_context_synchronously
+        Navigator.pushReplacementNamed(
+          context,
+          '/results',
+          arguments: finalResult,
+        );
+      }
     } else {
-      setState(() {
-        _currentPhase = 'Complete - No IPs found';
-        _isScanning = false;
-      });
+      if (mounted) {
+        setState(() {
+          _currentPhase = 'Complete - No IPs found';
+          _isScanning = false;
+        });
 
-      _showError(
-        'No IPs Found',
-        'The scan completed but found no usable IPs.\n\n'
-            'Try:\n'
-            '• Increasing scan depth in Configuration\n'
-            '• Running the scan again (network conditions vary)',
-        showRetryButton: true,
+        _showError(
+          'No IPs Found',
+          'The scan completed but found no usable IPs.\n\n'
+              'Try:\n'
+              '• Increasing scan depth in Configuration\n'
+              '• Running the scan again (network conditions vary)',
+          showRetryButton: true,
+        );
+      }
+    }
+  }
+
+  Future<_AutoApplyOutcome> _autoApplyWorkingIPs(
+    List<String> workingIPs,
+  ) async {
+    _log.logInfo(
+      'Auto-apply enabled: updating BPB with ${workingIPs.length} working IPs',
+    );
+    _setStateIfMounted(() {
+      _currentPhase = 'Auto-applying updates to BPB panel...';
+    });
+
+    final mode = await _storage.getUpdateMode();
+
+    try {
+      if (mode == UpdateMode.cloudflareApi) {
+        final credentials = await _storage.getCredentials();
+        if (credentials == null) {
+          _log.logWarn(
+            'Auto-apply skipped: Cloudflare API credentials are not configured',
+          );
+          return const _AutoApplyOutcome(
+            message:
+                'Auto-apply skipped: Cloudflare API credentials are not configured.',
+            success: false,
+          );
+        }
+        await _cloudflareApi.updateCleanIPs(credentials, workingIPs);
+      } else {
+        final credentials = await _storage.getPanelCredentials();
+        if (credentials == null) {
+          _log.logWarn(
+            'Auto-apply skipped: Panel API credentials are not configured',
+          );
+          return const _AutoApplyOutcome(
+            message:
+                'Auto-apply skipped: Panel API credentials are not configured.',
+            success: false,
+          );
+        }
+        await _panelApi
+            .updateCleanIPs(credentials, workingIPs)
+            .timeout(const Duration(seconds: 45));
+      }
+
+      _log.logOk('Auto-apply completed successfully');
+      return _AutoApplyOutcome(
+        message:
+            'Auto-apply completed successfully via ${mode.displayName}. New settings may take up to 60 seconds to propagate.',
+        success: true,
       );
+    } catch (e, stackTrace) {
+      if (mode == UpdateMode.panelApi && _panelApi.isConnectivityError(e)) {
+        _log.logWarn(
+          'Auto-apply failed: panel unreachable from current network. '
+          'Switch to Cloudflare API mode for updates.',
+        );
+        return const _AutoApplyOutcome(
+          message:
+              'Auto-apply failed: panel is not reachable from this network. Switch Update Method to Cloudflare API.',
+          success: false,
+        );
+      } else {
+        _log.logError('Auto-apply failed: $e', e, stackTrace);
+        return _AutoApplyOutcome(
+          message: 'Auto-apply failed: $e',
+          success: false,
+        );
+      }
     }
   }
 
@@ -765,4 +890,11 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       ),
     );
   }
+}
+
+class _AutoApplyOutcome {
+  final String? message;
+  final bool? success;
+
+  const _AutoApplyOutcome({required this.message, required this.success});
 }

@@ -31,6 +31,7 @@ class StorageService {
   static const String _keyLastScanTime = 'last_scan_time';
   static const String _keyAutoUpdateEnabled = 'auto_update_enabled';
   static const String _keyAutoUpdateInterval = 'auto_update_interval_hours';
+  static const String _keyAutoApplyAfterScan = 'auto_apply_after_scan';
   static const String _keyNumIpsToUse = 'num_ips_to_use';
   static const String _keySubscriptionUrl = 'subscription_url';
   static const String _keyCachedConfigs = 'cached_configs';
@@ -326,6 +327,18 @@ class StorageService {
   /// Defaults to false if not set.
   Future<bool> getAutoUpdateEnabled() async {
     return _prefs.getBool(_keyAutoUpdateEnabled) ?? false;
+  }
+
+  /// Saves whether completed scans should auto-apply working IPs.
+  Future<void> saveAutoApplyAfterScan(bool enabled) async {
+    await _prefs.setBool(_keyAutoApplyAfterScan, enabled);
+  }
+
+  /// Returns whether completed scans should auto-apply working IPs.
+  ///
+  /// Defaults to false if not set.
+  Future<bool> getAutoApplyAfterScan() async {
+    return _prefs.getBool(_keyAutoApplyAfterScan) ?? false;
   }
 
   /// Saves the auto-update interval in hours.

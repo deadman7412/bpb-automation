@@ -34,6 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _obscurePanelPassword = true;
   bool _isNormalizingPanelUrl = false;
   bool _hasCredentials = false;
+  bool _autoApplyAfterScan = false;
   UpdateMode _updateMode = UpdateMode.panelApi;
 
   @override
@@ -59,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final mode = await _storage.getUpdateMode();
     final credentials = await _storage.getCredentials();
     final panelCredentials = await _storage.getPanelCredentials();
+    final autoApplyAfterScan = await _storage.getAutoApplyAfterScan();
 
     _updateMode = mode;
 
@@ -75,6 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() {
       _hasCredentials = _hasCredentialsForMode(_updateMode);
+      _autoApplyAfterScan = autoApplyAfterScan;
       _isLoading = false;
     });
 
@@ -193,6 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
 
       await _storage.saveUpdateMode(_updateMode);
+      await _storage.saveAutoApplyAfterScan(_autoApplyAfterScan);
 
       setState(() {
         _isLoading = false;
@@ -596,6 +600,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _buildUpdateModeSelector(),
+                      const SizedBox(height: 16),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Auto apply after scan'),
+                        subtitle: Text(
+                          'Automatically update BPB using ${_updateMode.displayName} when a scan finishes with working IPs.',
+                        ),
+                        value: _autoApplyAfterScan,
+                        onChanged: (value) {
+                          setState(() => _autoApplyAfterScan = value);
+                        },
+                      ),
                       const SizedBox(height: 24),
                       if (_updateMode == UpdateMode.cloudflareApi)
                         _buildCloudflareForm()

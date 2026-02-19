@@ -5,6 +5,29 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.2] - 2026-02-20
+
+### Added
+- **Auto apply after scan** setting in Settings to automatically push working IPs to BPB after scan completion.
+- **Persistent auto-apply status** on Results screen (success/failure/skipped) so users can return later and see what happened.
+
+### Changed
+- **Scan timer persistence improved**:
+  - elapsed timer now survives navigation away/back while a scan is in progress
+  - final elapsed duration is saved and shown on Results screen.
+- **Pre-scan config refresh resilience**:
+  - leaving Scan screen during config refresh no longer stops the underlying scan flow.
+- **Results UI polish for dark mode**:
+  - auto-apply status card now uses theme-aware colors
+  - stat icons/text contrast improved on dark backgrounds
+  - update button label now shows `Already Applied - Apply Again` when auto-apply already succeeded.
+
+### Fixed
+- Prevented scan interruption during early refresh phase when user navigates away.
+- Improved post-scan visibility for long-running automatic update operations.
+
+---
+
 ## [4.2.1] - 2026-02-20
 
 ### Added
