@@ -210,14 +210,8 @@ log("[ERROR] Error occurred: ${e.toString()}");
 ```
 
 #### No Dev Environment References
-```dart
-// WRONG
-const String devMachine = "some-machine";
-const String developer = "some-user";
 
-// CORRECT
-// No references to development environment at all
-```
+Do not reference the development machine, local paths, or developer identity anywhere in code, comments, or docs. Use generic placeholders when a path or name is needed in examples.
 
 ## Testing
 
