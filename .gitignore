@@ -151,3 +151,6 @@ temp/
 
 # Claude Code project files (keep these)
 !.claude/
+
+# Keep BPB Panel Source of the git
+/BPB Panel Source
