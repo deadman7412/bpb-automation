@@ -37,6 +37,13 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    packaging {
+        jniLibs {
+            // Prevent AGP from stripping the xray executable (packaged as libxray.so)
+            keepDebugSymbols += "**/libxray.so"
+        }
+    }
 }
 
 flutter {

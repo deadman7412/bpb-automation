@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:bpb_automation/services/log_service.dart';
@@ -47,7 +47,9 @@ class XrayService {
 
   /// Initialize the Xray service
   ///
-  /// Extracts the binary from assets if needed and sets up for use.
+  /// On Android, uses the binary installed by the package manager into
+  /// nativeLibraryDir (the only executable location on modern Android).
+  /// On other platforms, extracts the binary from assets if needed.
   /// Safe to call multiple times - will skip if already initialized.
   ///
   /// Returns true if initialization successful, false otherwise.
@@ -59,8 +61,16 @@ class XrayService {
 
     try {
       _logService.logInfo('Initializing XrayService...');
+      _logService.logInfo('Platform: ${Platform.operatingSystem}');
 
-      // Detect platform and get asset path
+      // Android: execute from nativeLibraryDir (the only exec-allowed path).
+      // All app-writable dirs (app_flutter, cache, files) are mounted noexec
+      // on Android 10+, so asset extraction + chmod cannot work there.
+      if (Platform.isAndroid) {
+        return await _initializeAndroid();
+      }
+
+      // Detect platform and get asset path for non-Android platforms
       final assetPath = _getAssetPath();
       if (assetPath == null) {
         _logService.logError(
@@ -69,7 +79,6 @@ class XrayService {
         return false;
       }
 
-      _logService.logInfo('Platform: ${Platform.operatingSystem}');
       _logService.logInfo('Asset path: $assetPath');
 
       // Get app documents directory
@@ -112,6 +121,61 @@ class XrayService {
       return true;
     } catch (e, stackTrace) {
       _logService.logError('Failed to initialize XrayService: $e');
+      _logService.logError('Stack trace: $stackTrace');
+      return false;
+    }
+  }
+
+  /// Android-specific initialization using nativeLibraryDir.
+  ///
+  /// The xray binary is packaged as libxray.so in jniLibs/arm64-v8a/.
+  /// Android extracts it to nativeLibraryDir at install time, which is
+  /// an exec-enabled filesystem location (unlike all app-writable dirs).
+  Future<bool> _initializeAndroid() async {
+    try {
+      const channel = MethodChannel('com.bpb.bpb_automation/native');
+      final nativeLibDir =
+          await channel.invokeMethod<String>('getNativeLibraryDir');
+
+      if (nativeLibDir == null || nativeLibDir.isEmpty) {
+        _logService.logError(
+          '[ERROR] Could not determine Android native library directory',
+        );
+        return false;
+      }
+
+      _logService.logInfo('Native library dir: $nativeLibDir');
+
+      final binaryPath = path.join(nativeLibDir, 'libxray.so');
+      final binaryFile = File(binaryPath);
+
+      if (!await binaryFile.exists()) {
+        _logService.logError(
+          '[ERROR] libxray.so not found at: $binaryPath',
+        );
+        _logService.logError(
+          '[ERROR] Reinstall the app to restore the binary',
+        );
+        return false;
+      }
+
+      final stat = await binaryFile.stat();
+      _logService.logInfo(
+        'Binary size: ${(stat.size / 1024 / 1024).toStringAsFixed(1)}MB',
+      );
+
+      // chmod is harmless here and ensures x bit is set just in case
+      await _setExecutePermissions(binaryPath);
+
+      _binaryPath = binaryPath;
+      _isInitialized = true;
+
+      _logService.logOk(
+        '[OK] XrayService initialized (Android nativeLibraryDir)',
+      );
+      return true;
+    } catch (e, stackTrace) {
+      _logService.logError('Android initialization failed: $e');
       _logService.logError('Stack trace: $stackTrace');
       return false;
     }

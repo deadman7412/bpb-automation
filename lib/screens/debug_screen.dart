@@ -22,6 +22,27 @@ class _DebugScreenState extends State<DebugScreen> {
 
   bool _isRunningTest = false;
   final List<String> _testResults = [];
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _resultsKey = GlobalKey();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToResults() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _resultsKey.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +52,7 @@ class _DebugScreenState extends State<DebugScreen> {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
+          controller: _scrollController,
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -85,15 +107,16 @@ class _DebugScreenState extends State<DebugScreen> {
                         label: const Text('Check Xray Setup'),
                       ),
                       const SizedBox(height: 8),
-                      ElevatedButton.icon(
-                        onPressed: _isRunningTest ? null : _fixXrayBinary,
-                        icon: const Icon(Icons.build),
-                        label: const Text('Fix Xray Permissions'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
+                      if (Platform.isMacOS || Platform.isLinux)
+                        ElevatedButton.icon(
+                          onPressed: _isRunningTest ? null : _fixXrayBinary,
+                          icon: const Icon(Icons.build),
+                          label: const Text('Fix Xray Permissions'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -183,6 +206,7 @@ class _DebugScreenState extends State<DebugScreen> {
               // Test Results Card
               if (_testResults.isNotEmpty)
                 Card(
+                  key: _resultsKey,
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -206,6 +230,7 @@ class _DebugScreenState extends State<DebugScreen> {
                         ),
                         const SizedBox(height: 12),
                         Container(
+                          width: double.infinity,
                           padding: const EdgeInsets.all(12.0),
                           decoration: BoxDecoration(
                             color: Colors.grey[900],
@@ -331,6 +356,7 @@ class _DebugScreenState extends State<DebugScreen> {
       _testResults.addAll(results);
       _isRunningTest = false;
     });
+    _scrollToResults();
   }
 
   Future<void> _testCloudflareAPI() async {
@@ -351,6 +377,7 @@ class _DebugScreenState extends State<DebugScreen> {
           _testResults.addAll(results);
           _isRunningTest = false;
         });
+        _scrollToResults();
         return;
       }
 
@@ -380,6 +407,7 @@ class _DebugScreenState extends State<DebugScreen> {
       _testResults.addAll(results);
       _isRunningTest = false;
     });
+    _scrollToResults();
   }
 
   Future<void> _testNetworkConnectivity() async {
@@ -442,6 +470,7 @@ class _DebugScreenState extends State<DebugScreen> {
       _testResults.addAll(results);
       _isRunningTest = false;
     });
+    _scrollToResults();
   }
 
   Future<void> _testCredentialsStorage() async {
@@ -469,6 +498,7 @@ class _DebugScreenState extends State<DebugScreen> {
         ..clear()
         ..addAll(results);
     });
+    _scrollToResults();
   }
 
   Future<void> _showStorageInfo() async {
@@ -497,9 +527,28 @@ class _DebugScreenState extends State<DebugScreen> {
         ..clear()
         ..addAll(results);
     });
+    _scrollToResults();
   }
 
   Future<String> _getXrayBinaryPath() async {
+    // On Android, the binary lives in nativeLibraryDir (installed by the OS).
+    // App-writable dirs are mounted noexec on Android 10+ so we cannot use them.
+    if (Platform.isAndroid) {
+      // Prefer the path already resolved by XrayService
+      final servicePath = XrayService.instance.binaryPath;
+      if (servicePath != null) return servicePath;
+
+      // Fallback: ask Android for the directory directly
+      try {
+        const channel = MethodChannel('com.bpb.bpb_automation/native');
+        final nativeLibDir =
+            await channel.invokeMethod<String>('getNativeLibraryDir');
+        if (nativeLibDir != null && nativeLibDir.isNotEmpty) {
+          return path.join(nativeLibDir, 'libxray.so');
+        }
+      } catch (_) {}
+    }
+
     final appDir = await getApplicationDocumentsDirectory();
     final binaryFileName = Platform.isWindows ? 'xray.exe' : 'xray';
     return path.join(appDir.path, 'xray', binaryFileName);
@@ -526,6 +575,7 @@ class _DebugScreenState extends State<DebugScreen> {
           _testResults.addAll(results);
           _isRunningTest = false;
         });
+        _scrollToResults();
         return;
       }
       results.add('[OK] Binary file exists');
@@ -610,6 +660,7 @@ class _DebugScreenState extends State<DebugScreen> {
       _testResults.addAll(results);
       _isRunningTest = false;
     });
+    _scrollToResults();
   }
 
   Future<void> _fixXrayBinary() async {
@@ -631,6 +682,7 @@ class _DebugScreenState extends State<DebugScreen> {
           _testResults.addAll(results);
           _isRunningTest = false;
         });
+        _scrollToResults();
         return;
       }
 
@@ -682,6 +734,7 @@ class _DebugScreenState extends State<DebugScreen> {
       _testResults.addAll(results);
       _isRunningTest = false;
     });
+    _scrollToResults();
   }
 
   void _clearResults() {
