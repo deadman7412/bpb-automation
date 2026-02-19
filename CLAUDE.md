@@ -32,6 +32,7 @@ This Flutter application wraps the Cloudflare Clean IP Scanner binary and provid
 - **STRICTLY FORBIDDEN**: Use of emojis anywhere in code, UI, or documentation
 - **Logging System**: Use tags `[OK]` `[INFO]` `[WARN]` `[ERROR]` for all logging
 - **Security**: NO references to development machine, environment, or developer information in the app
+- **STRICTLY FORBIDDEN - No Personal Info**: NEVER write real usernames, real machine names, real local paths, or any developer-identifying information anywhere in code, docs, comments, or examples. This includes but is not limited to: real usernames in paths (e.g. `/Users/<username>`), machine names (e.g. specific laptop/desktop names), developer names, or any environment-specific values. Always use generic placeholders: `/path/to/your/projects`, `<your-machine>`, `some-user`, etc.
 
 ## Technical Stack
 
