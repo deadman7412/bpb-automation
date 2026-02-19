@@ -1,5 +1,7 @@
 # Config-Based Clean IP Scanning - Implementation Plan
 
+> Note: This is an implementation-planning document and may not reflect all current runtime features. Refer to `README.md` and `docs/architecture.md` for current behavior.
+
 ## Overview
 
 Implement hybrid approach for finding clean Cloudflare IPs using actual BPB Panel configs. The system will:

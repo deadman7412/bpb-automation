@@ -4,7 +4,11 @@ Cross-platform application for automatically scanning and updating clean Cloudfl
 
 ## Overview
 
-BPB Automation helps you find working Cloudflare IPs for your network and automatically updates your BPB Panel configuration via Cloudflare Workers KV API.
+BPB Automation helps you find working Cloudflare IPs for your network and automatically updates your BPB Panel configuration.
+
+It supports two update methods:
+- **Panel API (default)** — Login to panel and update settings via panel endpoints
+- **Cloudflare API (fallback)** — Direct Workers KV read/modify/write
 
 The app fetches your BPB Panel's Xray subscription configs, then runs a 3-phase scan to find IPs that actually work as a proxy on your network.
 
@@ -15,7 +19,7 @@ The app fetches your BPB Panel's Xray subscription configs, then runs a 3-phase 
 - **Subnet-aware IP selection** - One IP per /24 subnet for maximum routing diversity
 - **Bundled Xray-core** - No external installation required; binary is bundled per platform
 - Scan from your actual network (mobile ISP, home internet, etc.)
-- Automatic BPB Panel settings update via Cloudflare Workers KV API
+- Automatic BPB Panel settings update (Panel API or Cloudflare API)
 - Cross-platform support: Android, iOS, macOS, Linux, Windows, Web
 - Offline-first design (no hosting required)
 - Secure credential storage
@@ -74,16 +78,19 @@ BPB-Automation-Windows-x64.zip
 
 1. Install the app
 2. Open **Configuration** and enter your BPB Panel subscription URL
-3. (Optional) Get your Cloudflare credentials — see [Cloudflare Setup Guide](docs/cloudflare-setup.md)
-4. Enter credentials in **Settings** (only needed for the auto-update feature)
+3. Open **Settings** and choose update method:
+   - **Panel API (default)** — see [Panel Setup Guide](docs/panel-setup.md)
+   - **Cloudflare API (fallback)** — see [Cloudflare Setup Guide](docs/cloudflare-setup.md)
+4. Enter credentials for the selected method (only needed for auto-update)
 5. Tap **Start Scan**
 6. After scan completes, tap **Update BPB Panel** to apply the results
 
-**Note:** Cloudflare credentials are only required for updating BPB Panel. You can scan and copy IPs without credentials.
+**Note:** Credentials are only required for auto-update. You can always scan and copy IPs manually without credentials.
 
 ## Documentation
 
 - [User Guide](docs/user-guide.md) - Complete usage instructions
+- [Panel Setup](docs/panel-setup.md) - Configure Panel API update mode
 - [Cloudflare Setup](docs/cloudflare-setup.md) - How to get credentials
 - [Scanner Configuration](docs/scanner-configuration.md) - Scan parameters explained
 - [Development Guide](docs/development.md) - For developers
@@ -96,9 +103,8 @@ BPB-Automation-Windows-x64.zip
 - BPB Panel subscription URL (for scanning)
 
 **For BPB Panel Updates:**
-- Cloudflare account with BPB Panel installed
-- API token with Workers KV Edit permission
-- Account ID and KV Namespace ID
+- **Panel API mode (default):** Panel base URL + panel password
+- **Cloudflare API mode (fallback):** API token + account ID + KV namespace ID
 
 ### For Developers
 - Flutter SDK (latest stable)
@@ -174,7 +180,9 @@ This phase tests actual proxy connectivity on your network, so results are speci
 
 #### Step 5: BPB Panel Update
 
-The top working IPs are written to your BPB Panel's Workers KV `cleanIPs` field via the Cloudflare API. All other KV settings are preserved.
+The top working IPs are written to your BPB Panel's `cleanIPs` field using the selected update method:
+- **Panel API mode:** `/login/authenticate` + `/panel/settings` + `/panel/update-settings`
+- **Cloudflare API mode:** direct Workers KV API (`proxySettings` read/modify/write)
 
 ### Why This Approach
 
@@ -187,7 +195,7 @@ The top working IPs are written to your BPB Panel's Workers KV `cleanIPs` field 
 - Credentials encrypted with platform keychain (Android Keystore, iOS Keychain, etc.)
 - No cloud storage or third-party services
 - No analytics or tracking
-- Only connects to Cloudflare API and your BPB Panel subscription URL
+- Only connects to your BPB Panel subscription URL and selected update endpoints (panel API and/or Cloudflare API)
 - All network requests are user-initiated
 
 ## Contributing
@@ -214,6 +222,7 @@ For issues and questions:
 
 - [x] Core scanning functionality
 - [x] Cloudflare API integration
+- [x] Panel API integration
 - [x] Multi-platform support
 - [x] Config-based 3-phase Xray scanning
 - [ ] Scheduled auto-scans
@@ -223,6 +232,6 @@ For issues and questions:
 
 ## Version
 
-Current: 4.1.2
+Current: 4.2.0
 
 See CHANGELOG.md for version history.

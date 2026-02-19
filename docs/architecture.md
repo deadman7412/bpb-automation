@@ -2,7 +2,7 @@
 
 ## Overview
 
-BPB Automation is a Flutter application that uses a **config-based, Xray-powered IP scanner** to find working Cloudflare IPs for BPB Panel and update them via the Cloudflare Workers KV API.
+BPB Automation is a Flutter application that uses a **config-based, Xray-powered IP scanner** to find working Cloudflare IPs for BPB Panel and update them with selectable update methods.
 
 The scanner fetches the user's BPB Panel Xray subscription, tests candidate IPs through three verification phases (TCP, TLS, live proxy), and writes the best results back to the panel.
 
@@ -15,7 +15,7 @@ The scanner fetches the user's BPB Panel Xray subscription, tests candidate IPs 
 │  Screens:                                       │
 │  - Home Screen (start scan / status)            │
 │  - Config Screen (subscription URL + params)    │
-│  - Settings Screen (Cloudflare credentials)     │
+│  - Settings Screen (update method + credentials)│
 │  - Scan Progress Screen (live progress)         │
 │  - Config Scan Results Screen (results + IPs)   │
 │  - Logs Screen (real-time log viewer)           │
@@ -35,6 +35,9 @@ The scanner fetches the user's BPB Panel Xray subscription, tests candidate IPs 
 │  CloudflareApiService                           │
 │    └─ Workers KV read/write                     │
 │                                                 │
+│  PanelApiService                                │
+│    └─ /login + /panel/settings + update-settings│
+│                                                 │
 │  StorageService                                 │
 │    └─ Secure credential + settings storage      │
 │                                                 │
@@ -47,6 +50,7 @@ The scanner fetches the user's BPB Panel Xray subscription, tests candidate IPs 
 ├─────────────────────────────────────────────────┤
 │  - Xray-core binary (bundled, platform-specific)│
 │  - Cloudflare Workers KV API                    │
+│  - BPB Panel API endpoints                      │
 │  - BPB Panel subscription endpoint             │
 │  - flutter_secure_storage                       │
 │  - IP lists (bundled assets: ip.txt, ipv6.txt)  │
@@ -255,6 +259,29 @@ Future<bool> validateCredentials(Credentials credentials)
 2. Decode JSON, replace `cleanIPs` array
 3. Re-encode JSON, PUT back to KV
 
+### 7b. PanelApiService
+
+Handles panel login/session and panel settings update endpoints.
+
+**Responsibilities:**
+- Authenticate using panel password
+- Read current panel settings (`proxySettings`)
+- Update only `cleanIPs` while preserving all other settings fields
+- Handle expired session (`401`) by re-auth + retry once
+
+**API Endpoints:**
+```
+POST /login/authenticate
+GET  /panel/settings
+PUT  /panel/update-settings
+```
+
+**Key Methods:**
+```dart
+Future<bool> validateCredentials(PanelCredentials credentials)
+Future<bool> updateCleanIPs(PanelCredentials credentials, List<String> ips)
+```
+
 ### 8. StorageService
 
 Manages local storage for credentials and app state.
@@ -271,8 +298,11 @@ Manages local storage for credentials and app state.
 - cf_api_token
 - cf_account_id
 - cf_kv_namespace_id
+- panel_base_url
+- panel_password
 
 // Preferences
+- update_mode: String (panel_api | cloudflare_api)
 - subscription_url: String
 - scan_params: Map (desiredIPCount, phase2TestDepth, enableIPv6, maxSamplesPerCIDR, scanBatchSize)
 - last_scan_timestamp: String (ISO 8601)
@@ -388,9 +418,9 @@ class Credentials {
   - **Desktop**: Platform-specific secure storage (libsecret, Keychain, DPAPI)
 
 ### Network Security
-- HTTPS only for Cloudflare API calls
+- HTTPS only for API calls
 - No third-party analytics or tracking
-- No data sent anywhere except Cloudflare API and user's own BPB Panel URL
+- No data sent anywhere except selected update API (panel and/or Cloudflare) and the user's BPB Panel URL
 
 ### Binary Execution
 - Xray binary is extracted to app-private temp directory before use
@@ -402,15 +432,16 @@ class Credentials {
 
 ### Error Types
 1. **Subscription Errors**: Unable to fetch or parse BPB Panel configs
-2. **Network Errors**: Cloudflare API unreachable
-3. **Auth Errors**: Invalid API token
+2. **Network Errors**: Selected update API unreachable
+3. **Auth Errors**: Invalid panel password or Cloudflare API token
 4. **Binary Errors**: Xray binary missing or failed to execute
 5. **Storage Errors**: Failed to save/load credentials or results
 
 ### Error Recovery
 - Subscription fetch: 3 retries with exponential backoff (1s, 2s, 4s), 30s timeout
 - Phase 2 proxy test: per-IP timeout (configurable), Xray process killed on failure
-- Cloudflare API: user shown error message with detail; no automatic retry
+- Cloudflare API: retry with exponential backoff, then show detailed error
+- Panel API: if session expired (401), auto re-authenticate and retry once
 
 ## Platform-Specific Considerations
 

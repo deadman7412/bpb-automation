@@ -2,6 +2,13 @@
 
 This guide explains how to obtain the Cloudflare credentials for BPB Automation.
 
+## Important
+
+Cloudflare API is the **fallback update method**.
+
+The app default is **Panel API** (panel base URL + panel password).  
+Use this Cloudflare guide if you choose **Settings > Update Method > Cloudflare API**.
+
 ## When Do You Need Credentials?
 
 **Credentials are OPTIONAL.** You only need them if you want to automatically update your BPB Panel.

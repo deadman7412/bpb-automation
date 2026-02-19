@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/config_scan_result.dart';
+import '../models/update_mode.dart';
 import '../services/storage_service.dart';
 import '../services/cloudflare_api_service.dart';
+import '../services/panel_api_service.dart';
 import '../services/config_generator_service.dart';
 import '../services/log_service.dart';
 
@@ -21,6 +23,7 @@ class ConfigScanResultsScreen extends StatefulWidget {
 class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
   final StorageService _storage = StorageService.instance;
   final CloudflareApiService _api = CloudflareApiService.instance;
+  final PanelApiService _panelApi = PanelApiService.instance;
   final ConfigGeneratorService _configGenerator =
       ConfigGeneratorService.instance;
   final LogService _log = LogService.instance;
@@ -76,12 +79,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       return;
     }
 
-    // Check credentials before showing loading state
-    final credentials = await _storage.getCredentials();
-    if (credentials == null) {
-      if (mounted) _showNoCredentialsDialog();
-      return;
-    }
+    final updateMode = await _storage.getUpdateMode();
 
     setState(() {
       _isUpdating = true;
@@ -92,7 +90,23 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     );
 
     try {
-      await _api.updateCleanIPs(credentials, _result!.workingIPs);
+      if (updateMode == UpdateMode.cloudflareApi) {
+        final credentials = await _storage.getCredentials();
+        if (credentials == null) {
+          if (mounted) _showNoCredentialsDialog(UpdateMode.cloudflareApi);
+          setState(() => _isUpdating = false);
+          return;
+        }
+        await _api.updateCleanIPs(credentials, _result!.workingIPs);
+      } else {
+        final credentials = await _storage.getPanelCredentials();
+        if (credentials == null) {
+          if (mounted) _showNoCredentialsDialog(UpdateMode.panelApi);
+          setState(() => _isUpdating = false);
+          return;
+        }
+        await _panelApi.updateCleanIPs(credentials, _result!.workingIPs);
+      }
 
       if (!mounted) return;
 
@@ -118,14 +132,17 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     }
   }
 
-  void _showNoCredentialsDialog() {
+  void _showNoCredentialsDialog(UpdateMode mode) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Credentials Required'),
-        content: const Text(
-          'Cloudflare credentials are not configured.\n\n'
-          'Please enter your API token, account ID, and KV namespace ID in Settings.',
+        content: Text(
+          mode == UpdateMode.cloudflareApi
+              ? 'Cloudflare credentials are not configured.\n\n'
+                    'Please enter your API token, account ID, and KV namespace ID in Settings.'
+              : 'Panel API credentials are not configured.\n\n'
+                    'Please enter your panel base URL and panel password in Settings.',
         ),
         actions: [
           TextButton(
@@ -500,7 +517,9 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                                 )
                               : const Icon(Icons.download),
                           label: Text(
-                            _isGenerating ? 'Generating...' : 'Download Configs',
+                            _isGenerating
+                                ? 'Generating...'
+                                : 'Download Configs',
                           ),
                           style: ElevatedButton.styleFrom(
                             minimumSize: const Size(0, 50),

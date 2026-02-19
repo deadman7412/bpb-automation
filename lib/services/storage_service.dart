@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/credentials.dart';
+import '../models/panel_credentials.dart';
+import '../models/update_mode.dart';
 import 'log_service.dart';
 
 /// Service for managing persistent storage of credentials and preferences.
@@ -23,6 +25,9 @@ class StorageService {
   static const String _keyApiToken = 'cf_api_token';
   static const String _keyAccountId = 'cf_account_id';
   static const String _keyKvNamespaceId = 'cf_kv_namespace_id';
+  static const String _keyPanelBaseUrl = 'panel_base_url';
+  static const String _keyPanelPassword = 'panel_password';
+  static const String _keyUpdateMode = 'update_mode';
   static const String _keyLastScanTime = 'last_scan_time';
   static const String _keyAutoUpdateEnabled = 'auto_update_enabled';
   static const String _keyAutoUpdateInterval = 'auto_update_interval_hours';
@@ -181,6 +186,113 @@ class StorageService {
   Future<bool> hasCredentials() async {
     final creds = await getCredentials();
     return creds != null && creds.isValid();
+  }
+
+  /// Saves BPB panel API credentials securely.
+  Future<void> savePanelCredentials(PanelCredentials credentials) async {
+    _logService.logInfo('Saving panel credentials to secure storage');
+    _logService.logInfo('Panel base URL: ${credentials.baseUrl}');
+
+    try {
+      await _secureStorage.write(
+        key: _keyPanelBaseUrl,
+        value: credentials.baseUrl,
+      );
+      await _secureStorage.write(
+        key: _keyPanelPassword,
+        value: credentials.password,
+      );
+      _logService.logOk(
+        'Panel credentials written to secure storage successfully',
+      );
+    } catch (e) {
+      _logService.logWarn(
+        'Failed to write panel credentials to secure storage, using SharedPreferences fallback: $e',
+      );
+      await _prefs.setString(
+        '${_keyPanelBaseUrl}_fallback',
+        credentials.baseUrl,
+      );
+      await _prefs.setString(
+        '${_keyPanelPassword}_fallback',
+        credentials.password,
+      );
+      _logService.logOk(
+        'Panel credentials saved to SharedPreferences fallback',
+      );
+    }
+  }
+
+  /// Retrieves stored panel API credentials.
+  Future<PanelCredentials?> getPanelCredentials() async {
+    _logService.logInfo(
+      'Attempting to load panel credentials from secure storage',
+    );
+    String? baseUrl;
+    String? password;
+
+    try {
+      baseUrl = await _secureStorage.read(key: _keyPanelBaseUrl);
+      password = await _secureStorage.read(key: _keyPanelPassword);
+    } catch (e) {
+      _logService.logWarn(
+        'Exception reading panel credentials from secure storage: $e',
+      );
+    }
+
+    if (baseUrl == null || password == null) {
+      _logService.logInfo(
+        'Panel secure storage empty, checking SharedPreferences fallback',
+      );
+      baseUrl = _prefs.getString('${_keyPanelBaseUrl}_fallback');
+      password = _prefs.getString('${_keyPanelPassword}_fallback');
+    }
+
+    if (baseUrl == null || password == null) {
+      _logService.logWarn('Panel credentials incomplete - returning null');
+      return null;
+    }
+
+    final credentials = PanelCredentials(baseUrl: baseUrl, password: password);
+    if (!credentials.isValid()) {
+      _logService.logWarn(
+        'Stored panel credentials are invalid - returning null',
+      );
+      return null;
+    }
+
+    _logService.logOk('Panel credentials loaded successfully');
+    return credentials;
+  }
+
+  /// Clears stored panel credentials.
+  Future<void> clearPanelCredentials() async {
+    try {
+      await _secureStorage.delete(key: _keyPanelBaseUrl);
+      await _secureStorage.delete(key: _keyPanelPassword);
+    } catch (e) {
+      // Silent fail for secure storage
+    }
+
+    await _prefs.remove('${_keyPanelBaseUrl}_fallback');
+    await _prefs.remove('${_keyPanelPassword}_fallback');
+  }
+
+  /// Returns true if panel credentials are stored.
+  Future<bool> hasPanelCredentials() async {
+    final creds = await getPanelCredentials();
+    return creds != null && creds.isValid();
+  }
+
+  /// Saves which update mode should be used for panel updates.
+  Future<void> saveUpdateMode(UpdateMode mode) async {
+    await _prefs.setString(_keyUpdateMode, mode.storageValue);
+  }
+
+  /// Returns the configured update mode. Defaults to Panel API.
+  Future<UpdateMode> getUpdateMode() async {
+    final value = _prefs.getString(_keyUpdateMode);
+    return UpdateModeX.fromStorageValue(value);
   }
 
   // ==================== App Preferences ====================
@@ -438,6 +550,7 @@ class StorageService {
   /// Clears all data (credentials and preferences).
   Future<void> clearAll() async {
     await clearCredentials();
+    await clearPanelCredentials();
     await clearPreferences();
   }
 

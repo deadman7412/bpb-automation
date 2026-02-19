@@ -5,6 +5,31 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0] - 2026-02-20
+
+### Added
+- **Panel API update mode** with full login/session flow:
+  - `POST /login/authenticate`
+  - `GET /panel/settings`
+  - `PUT /panel/update-settings`
+- **Update method selector in Settings**:
+  - Panel API (**default**)
+  - Cloudflare API (fallback)
+- **Panel credential storage** (base URL + password) with secure storage and SharedPreferences fallback.
+- **Automatic panel session recovery** on `401` (re-authenticate and retry once).
+- **Panel setup documentation** (`docs/panel-setup.md`) and full docs sync for dual update modes.
+
+### Changed
+- **Default update mode** switched from Cloudflare API to Panel API.
+- **Panel base URL input normalization** now auto-removes `/panel` when pasted (and `/panel/...` paths).
+- Updated `README.md`, `docs/user-guide.md`, and `docs/architecture.md` to reflect current behavior.
+
+### Fixed
+- CI failure in `config_tester_service_test.dart` sorting assertion:
+  test now validates the current TLS ranking metric (`sortScore = latency + jitter * 0.5`) instead of raw latency-only ordering.
+
+---
+
 ## [4.1.2] - 2026-02-20
 
 ### Fixed

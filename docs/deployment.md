@@ -444,7 +444,7 @@ The web version CANNOT execute binaries. For web deployment:
 1. **Backend Service Required**: Create a backend API that:
    - Runs the scanner binary
    - Exposes REST endpoints
-   - Handles Cloudflare API calls
+   - Handles selected update API calls (Panel API and/or Cloudflare API)
 
 2. **Alternative**: Use web as UI only, require users to run desktop/mobile app
 

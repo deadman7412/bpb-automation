@@ -6,7 +6,7 @@ Cross-platform automation tool for BPB Panel - automatically scan and update cle
 
 This Flutter application wraps the Cloudflare Clean IP Scanner binary and provides a user-friendly interface to:
 - Scan for clean Cloudflare IPs from your actual network (mobile ISP, home internet, etc.)
-- Automatically update BPB Panel's Workers KV settings via Cloudflare API
+- Automatically update BPB Panel settings via Panel API (default) or Cloudflare API (fallback)
 - Work offline-first (no hosting required, runs locally on device)
 - Support multiple platforms: Android, macOS, Linux, Windows, Web, iOS
 
@@ -26,7 +26,7 @@ This Flutter application wraps the Cloudflare Clean IP Scanner binary and provid
 - Secure credential storage (encrypted locally)
 - Default scanner settings with advanced configuration menu
 - Real-time scan progress and results display
-- Direct Cloudflare Workers KV API integration
+- Dual update integration: Panel API + Cloudflare Workers KV API
 
 ### Critical Rules
 - **STRICTLY FORBIDDEN**: Use of emojis anywhere in code, UI, or documentation
@@ -38,7 +38,7 @@ This Flutter application wraps the Cloudflare Clean IP Scanner binary and provid
 
 - **Framework**: Flutter (Dart)
 - **Scanner**: Cloudflare-Clean-IP-Scanner binaries (Go)
-- **API**: Cloudflare Workers KV REST API
+- **API**: BPB Panel API + Cloudflare Workers KV REST API
 - **Storage**: flutter_secure_storage for credentials
 
 ## Architecture
@@ -48,6 +48,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed technical architec
 ## Documentation Structure
 
 - [docs/architecture.md](docs/architecture.md) - Technical architecture and design
+- [docs/panel-setup.md](docs/panel-setup.md) - How to configure Panel API credentials
 - [docs/cloudflare-setup.md](docs/cloudflare-setup.md) - How to obtain Cloudflare credentials
 - [docs/scanner-configuration.md](docs/scanner-configuration.md) - Scanner parameters and configuration
 - [docs/development.md](docs/development.md) - Development setup and guidelines
@@ -66,8 +67,9 @@ bpb-automation/
 │   ├── main.dart
 │   ├── models/              # Data models
 │   ├── services/            # Business logic
-│   │   ├── scanner_service.dart
+│   │   ├── dart_scanner_service.dart
 │   │   ├── cloudflare_api_service.dart
+│   │   ├── panel_api_service.dart
 │   │   └── storage_service.dart
 │   ├── screens/             # UI screens
 │   └── widgets/             # Reusable widgets
@@ -96,7 +98,7 @@ See [docs/development.md](docs/development.md) for setup instructions.
 
 ## User Guide
 
-See [docs/user-guide.md](docs/user-guide.md) for end-user documentation including how to obtain Cloudflare credentials.
+See [docs/user-guide.md](docs/user-guide.md) for end-user documentation including both update methods.
 
 ## Security Considerations
 
@@ -104,7 +106,7 @@ See [docs/user-guide.md](docs/user-guide.md) for end-user documentation includin
 - No hardcoded credentials
 - No telemetry or analytics
 - Runs completely local, no data sent to third parties
-- All network requests only to Cloudflare API
+- All network requests only to BPB panel endpoints, Cloudflare API endpoints, and required scan targets
 
 ## Project Development Workflow
 

@@ -157,9 +157,11 @@ void main() {
           // If we have multiple successful results, verify sorting
           if (results.length > 1) {
             for (int i = 0; i < results.length - 1; i++) {
+              // Service sorts by TLS sortScore = latency + jitter * 0.5
+              // (not raw latency only).
               expect(
-                results[i].finalLatencyMs,
-                lessThanOrEqualTo(results[i + 1].finalLatencyMs),
+                results[i].tlsTestResult!.sortScore,
+                lessThanOrEqualTo(results[i + 1].tlsTestResult!.sortScore),
               );
             }
           }

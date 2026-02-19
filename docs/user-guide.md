@@ -66,22 +66,25 @@ Your URL should look like:
 https://your-worker.workers.dev/sub/YOUR-UUID
 ```
 
-### Step 2: Get Cloudflare Credentials (Optional)
+### Step 2: Choose Update Method (Optional)
 
 You only need credentials if you want the app to automatically update your BPB Panel. If you prefer to copy IPs manually, skip this step.
 
-See [Cloudflare Setup Guide](cloudflare-setup.md) for detailed instructions.
+Available methods:
+- **Panel API (default):** Panel base URL + panel password
+- **Cloudflare API (fallback):** API token + account ID + KV namespace ID
 
-You need three values:
-1. **API Token** — Create at Cloudflare Profile > API Tokens (Workers KV Edit permission)
-2. **Account ID** — Found in the Cloudflare Dashboard sidebar
-3. **KV Namespace ID** — Found in Workers & Pages > KV
+Setup guides:
+- [Panel Setup Guide](panel-setup.md)
+- [Cloudflare Setup Guide](cloudflare-setup.md)
 
 ### Step 3: Enter Credentials (Optional)
 
 1. Tap **Settings**
-2. Enter your Cloudflare API Token, Account ID, and KV Namespace ID
-3. Tap **Save**
+2. Select **Update Method**
+3. Enter credentials for that method
+4. Tap **Validate**
+5. Tap **Save**
 
 ## Basic Usage
 
@@ -152,7 +155,11 @@ Where you set your BPB Panel subscription URL and scan parameters. See [Scanner 
 
 ### Settings Screen
 
-Where you enter Cloudflare API credentials (API token, account ID, KV namespace ID). Credentials are stored encrypted on your device.
+Where you configure auto-update method and credentials:
+- **Panel API (default):** panel base URL + panel password
+- **Cloudflare API (fallback):** API token + account ID + KV namespace ID
+
+Credentials are stored encrypted on your device (with secure-storage fallback when needed).
 
 ### Scan Progress Screen
 
@@ -215,9 +222,13 @@ The scanner tests IPs from your device on your current network. IPs that work on
 ### Update Fails
 
 **"Failed to update BPB Panel":**
-1. Check Cloudflare credentials are entered correctly (Settings)
-2. Verify API token has Workers KV Edit permission
-3. Confirm the KV Namespace ID matches your BPB Panel namespace
+1. Check which **Update Method** is selected in Settings
+2. If using **Panel API**:
+   - Verify panel base URL and password
+   - Re-run **Validate** in Settings
+3. If using **Cloudflare API**:
+   - Verify API token, account ID, and namespace ID
+   - Verify token has Workers KV Edit permission
 4. Check internet connection
 5. View Logs for the specific error message
 
@@ -246,9 +257,15 @@ To speed it up:
 
 ## FAQ
 
-### Q: Do I need Cloudflare credentials to use the app?
+### Q: Do I need credentials to use the app?
 
-No. Credentials are only required for the "Update BPB Panel" feature. You can scan and copy working IPs without any credentials.
+No. Credentials are only required for the "Update BPB Panel" feature.
+
+For auto-update you can use either:
+- Panel API credentials (default method), or
+- Cloudflare API credentials (fallback method).
+
+You can always scan and copy working IPs without credentials.
 
 ### Q: What does "working IP" mean exactly?
 
@@ -272,7 +289,7 @@ Yes. After scanning, tap the copy button next to any IP or use "Copy All IPs" to
 
 ### Q: Is it safe?
 
-All data stays local on your device. The app only connects to your BPB Panel subscription URL, to Cloudflare's connectivity check endpoint (via the proxy being tested), and to Cloudflare API (for KV updates). No analytics, no third-party services.
+All data stays local on your device. The app only connects to your BPB Panel subscription URL, to Cloudflare's connectivity check endpoint (via the proxy being tested), and the selected update API (Panel API and/or Cloudflare API). No analytics, no third-party services.
 
 ### Q: Can I use multiple BPB Panels?
 
@@ -290,7 +307,8 @@ Tap **About** from the home screen Quick Actions grid.
 
 ### What Data is Stored Locally
 
-- Cloudflare credentials (encrypted with platform keychain)
+- Panel API credentials (encrypted with platform keychain)
+- Cloudflare API credentials (encrypted with platform keychain)
 - BPB Panel subscription URL
 - Scan parameters
 - Last scan result (working IPs + stats)
@@ -299,7 +317,8 @@ Tap **About** from the home screen Quick Actions grid.
 ### What Network Requests are Made
 
 - **BPB Panel subscription URL**: to fetch Xray configs (user-initiated, on scan start)
-- **Cloudflare API**: to read/write Workers KV `proxySettings` (user-initiated, on "Update BPB Panel")
+- **Panel API** (`/login/authenticate`, `/panel/settings`, `/panel/update-settings`): used in Panel API mode on "Update BPB Panel"
+- **Cloudflare API**: to read/write Workers KV `proxySettings` in Cloudflare API mode on "Update BPB Panel"
 - **Cloudflare IPs**: TLS handshakes during Phase 1 (scan only)
 - **Google connectivity check** (`connectivitycheck.gstatic.com/generate_204`): via Xray proxy during Phase 2 (scan only)
 
@@ -307,8 +326,8 @@ No telemetry, no analytics, no third-party tracking.
 
 ### Credential Security
 
-- API token, account ID, and KV namespace ID are stored using the platform's secure encrypted keychain
-- Credentials are never sent anywhere except the Cloudflare API
+- Panel and Cloudflare credentials are stored using the platform's secure encrypted keychain
+- Credentials are only sent to the selected update API endpoints
 - Can be deleted anytime from Settings
 
 ## Getting Help
@@ -320,6 +339,7 @@ No telemetry, no analytics, no third-party tracking.
 
 ### Documentation
 
+- [Panel Setup Guide](panel-setup.md) — how to configure Panel API credentials
 - [Cloudflare Setup Guide](cloudflare-setup.md) — how to get Cloudflare API credentials
 - [Scanner Configuration Guide](scanner-configuration.md) — scan parameter tuning
 

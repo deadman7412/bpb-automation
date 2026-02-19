@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bpb_automation/services/storage_service.dart';
 import 'package:bpb_automation/models/credentials.dart';
+import 'package:bpb_automation/models/panel_credentials.dart';
+import 'package:bpb_automation/models/update_mode.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -87,6 +89,49 @@ void main() {
 
         expect(retrieved1, equals(testCreds));
         expect(retrieved2, equals(testCreds));
+      });
+    });
+
+    group('Panel Credentials and Update Mode', () {
+      const panelCreds = PanelCredentials(
+        baseUrl: 'https://example.workers.dev',
+        password: 'panel-password',
+      );
+
+      test('savePanelCredentials and getPanelCredentials work', () async {
+        await storage.savePanelCredentials(panelCreds);
+        final retrieved = await storage.getPanelCredentials();
+
+        expect(retrieved, isNotNull);
+        expect(retrieved!.baseUrl, equals(panelCreds.baseUrl));
+        expect(retrieved.password, equals(panelCreds.password));
+      });
+
+      test(
+        'hasPanelCredentials returns true when valid panel credentials exist',
+        () async {
+          await storage.savePanelCredentials(panelCreds);
+          final result = await storage.hasPanelCredentials();
+          expect(result, isTrue);
+        },
+      );
+
+      test('clearPanelCredentials removes saved panel credentials', () async {
+        await storage.savePanelCredentials(panelCreds);
+        await storage.clearPanelCredentials();
+        final retrieved = await storage.getPanelCredentials();
+        expect(retrieved, isNull);
+      });
+
+      test('saveUpdateMode and getUpdateMode work', () async {
+        await storage.saveUpdateMode(UpdateMode.panelApi);
+        final mode = await storage.getUpdateMode();
+        expect(mode, equals(UpdateMode.panelApi));
+      });
+
+      test('getUpdateMode defaults to panelApi', () async {
+        final mode = await storage.getUpdateMode();
+        expect(mode, equals(UpdateMode.panelApi));
       });
     });
 

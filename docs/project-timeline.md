@@ -1,5 +1,7 @@
 # Project Timeline and Phases
 
+> Note: This file is a historical development timeline. Current runtime behavior may include newer features (for example Panel API update mode) that were implemented after some timeline entries were written.
+
 ## Overview
 
 This document tracks the development of BPB Automation through distinct phases. Each phase must be completed with all tasks finished and documented before moving to the next phase.
