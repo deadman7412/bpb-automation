@@ -413,7 +413,7 @@ class _AboutScreenState extends State<AboutScreen> {
               ),
               const SizedBox(height: 32),
 
-              // License & Copyright
+              // License & copyright
               Text(
                 '© 2025 deadman7412',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -423,7 +423,7 @@ class _AboutScreenState extends State<AboutScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'All rights reserved',
+                'Open-source under the MIT License.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Colors.grey,
                     ),
