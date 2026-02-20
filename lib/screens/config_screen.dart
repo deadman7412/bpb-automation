@@ -17,6 +17,7 @@ class ConfigScreen extends StatefulWidget {
 }
 
 class _ConfigScreenState extends State<ConfigScreen> {
+  static const String _localSchedulerEnabledKey = 'local_scheduler_enabled';
   static const String _localSchedulerIntervalKey =
       'local_scheduler_interval_hours';
   final StorageService _storage = StorageService.instance;
@@ -32,6 +33,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
   bool _fullScan = false; // Default: use depth slider, not all survivors
   int _ipPoolSize = 1000; // default: 1000 IPs total
   int _batchSize = 200; // default: 200 concurrent connections
+  bool _localSchedulerEnabled = false;
   int _localSchedulerIntervalHours = 6;
   List<XrayConfig>? _cachedConfigs;
 
@@ -54,6 +56,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     final params = await _storage.getScanParameters();
     final fullScan = await _storage.getFullScan();
     final cachedConfigsJson = await _storage.getCachedConfigs();
+    final schedulerEnabled = await _storage.getBool(_localSchedulerEnabledKey);
     final schedulerInterval = await _storage.getInt(_localSchedulerIntervalKey);
 
     // Convert JSON to XrayConfig objects
@@ -75,6 +78,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _ipPoolSize = params['ipPoolSize'] ?? 1000;
       _batchSize = params['scanBatchSize'] ?? 200;
       _fullScan = fullScan;
+      _localSchedulerEnabled = schedulerEnabled ?? false;
       _localSchedulerIntervalHours = schedulerInterval ?? 6;
       _cachedConfigs = configs;
       _isLoading = false;
@@ -223,6 +227,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _localSchedulerIntervalKey,
       _localSchedulerIntervalHours,
     );
+    await _storage.saveBool(_localSchedulerEnabledKey, _localSchedulerEnabled);
 
     _log.logOk('Configuration saved successfully');
 
@@ -994,8 +999,27 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               ],
                             ),
                             const SizedBox(height: 12),
+                            SwitchListTile(
+                              value: _localSchedulerEnabled,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text(
+                                'Enable local scheduler',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              subtitle: Text(
+                                _localSchedulerEnabled
+                                    ? 'Enabled: scans can run on your configured OS schedule.'
+                                    : 'Disabled by default: no local auto-scheduling.',
+                              ),
+                              onChanged: (value) {
+                                setState(() => _localSchedulerEnabled = value);
+                              },
+                            ),
+                            const SizedBox(height: 12),
                             Text(
-                              'Preferred interval: every $_localSchedulerIntervalHours hour(s)',
+                              _localSchedulerEnabled
+                                  ? 'Preferred interval: every $_localSchedulerIntervalHours hour(s)'
+                                  : 'Preferred interval (disabled): every $_localSchedulerIntervalHours hour(s)',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -1007,15 +1031,19 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               max: 24,
                               divisions: 23,
                               label: '$_localSchedulerIntervalHours h',
-                              onChanged: (value) {
-                                setState(
-                                  () => _localSchedulerIntervalHours = value
-                                      .round(),
-                                );
-                              },
+                              onChanged: _localSchedulerEnabled
+                                  ? (value) {
+                                      setState(
+                                        () => _localSchedulerIntervalHours =
+                                            value.round(),
+                                      );
+                                    }
+                                  : null,
                             ),
                             Text(
-                              'This saves your preferred interval in the app. You must still update your OS scheduler separately.',
+                              _localSchedulerEnabled
+                                  ? 'This saves your preferred interval in the app. You must still update your OS scheduler separately.'
+                                  : 'Scheduler is disabled. Enable it first, then update your OS scheduler separately.',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(color: Colors.orange.shade800),
                             ),
