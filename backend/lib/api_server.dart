@@ -25,6 +25,7 @@ class ApiServerApp {
     final scanCmd = opts['scan-cmd'];
     final applyCmd = opts['apply-cmd'];
     final applyEnabled = opts['apply'] == 'true';
+    final updateMode = opts['update-mode'] ?? 'command';
     final hostLabel = opts['host-label'] ?? 'server-host';
     final token =
         opts['internal-token'] ?? Platform.environment['BPB_INTERNAL_TOKEN'];
@@ -49,6 +50,7 @@ class ApiServerApp {
           scanCmd: scanCmd,
           applyCmd: applyCmd,
           applyEnabled: applyEnabled,
+          updateMode: updateMode,
           hostLabel: hostLabel,
           token: token,
           retentionDays: retentionDays,
@@ -66,6 +68,7 @@ class ApiServerApp {
     required String? scanCmd,
     required String? applyCmd,
     required bool applyEnabled,
+    required String updateMode,
     required String hostLabel,
     required String? token,
     required int retentionDays,
@@ -186,6 +189,8 @@ class ApiServerApp {
           trigger,
           '--host-label',
           hostLabel,
+          '--update-mode',
+          updateMode,
         ];
         if (scanCmd != null && scanCmd.trim().isNotEmpty) {
           workerArgs.addAll(['--scan-cmd', scanCmd]);
@@ -331,6 +336,7 @@ Options:
   --log-dir <path>          log dir (default: $_defaultLogDir)
   --retention-days <n>      log retention days (default: $_defaultRetentionDays)
   --host-label <name>       host/device label for run history
+  --update-mode <name>      update mode label passed to run metadata
   --scan-cmd <cmd>          scan command used by POST /internal/scheduler/run
   --apply                   enable apply step after scan
   --apply-cmd <cmd>         apply command

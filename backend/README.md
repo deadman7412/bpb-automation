@@ -28,7 +28,8 @@ dart run bin/bpb_api.dart [options]
 - `--log-dir <path>` default `/var/log/bpb-automation`
 - `--retention-days <n>` default `7`
 - `--trigger <name>` default `manual`
-- `--host-label <name>` default local hostname
+- `--host-label <name>` default `server-host`
+- `--update-mode <name>` default `command`
 - `--scan-cmd <cmd>` shell command that returns JSON on stdout
 - `--apply` enable apply step after successful scan
 - `--apply-cmd <cmd>` apply shell command
@@ -47,7 +48,8 @@ dart run bin/bpb_api.dart [options]
 }
 ```
 
-If `status` is not `success`, worker records a failed run.
+If `status` is not `success`, worker records a failed run.  
+`--scan-cmd` is required for `run-once`.
 
 ## Apply Command Contract
 
@@ -62,6 +64,7 @@ dart run bin/bpb_autoscan.dart run-once \
   --state-dir /tmp/bpb-state \
   --log-dir /tmp/bpb-logs \
   --trigger scheduled \
+  --update-mode cloudflare_api \
   --scan-cmd "echo '{\"status\":\"success\",\"phase1_passed\":12,\"phase2_tested\":10,\"working_ips\":[\"1.1.1.1\"]}'"
 ```
 

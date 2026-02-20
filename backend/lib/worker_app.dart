@@ -39,6 +39,7 @@ class WorkerApp {
     final scanCmd = opts['scan-cmd'];
     final applyCmd = opts['apply-cmd'];
     final applyEnabled = opts['apply'] == 'true';
+    final updateMode = opts['update-mode'] ?? 'command';
 
     await _ensureDirectory(stateDir);
     await _ensureDirectory(logDir);
@@ -103,9 +104,9 @@ class WorkerApp {
 
     final runEnd = DateTime.now().toUtc();
     final durationMs = runEnd.difference(runStart).inMilliseconds;
-    final finalStatus = (result.status == 'success' && applyError == null)
-        ? 'success'
-        : result.status;
+    final finalStatus = result.status != 'success'
+        ? 'failed'
+        : (applyEnabled && applyError != null ? 'partial' : 'success');
 
     final runSummary = <String, dynamic>{
       'run_id': runId,
@@ -120,7 +121,9 @@ class WorkerApp {
       'working_count': result.workingIps.length,
       'selected_ips': result.workingIps,
       'applied': applied,
+      'update_mode': updateMode,
       'error_summary': applyError ?? result.errorSummary,
+      'apply_error': applyError,
     };
 
     await _persistRun(stateDir: stateDir, runId: runId, payload: runSummary);
@@ -200,15 +203,7 @@ class WorkerApp {
     required WorkerLogger logger,
   }) async {
     if (scanCmd == null || scanCmd.trim().isEmpty) {
-      await logger.warn(
-        runId,
-        'No --scan-cmd provided. Using fallback mock run result.',
-      );
-      return RunResult.success(
-        phase1Passed: 0,
-        phase2Tested: 0,
-        workingIps: const [],
-      );
+      throw StateError('--scan-cmd is required for run-once');
     }
 
     await logger.info(runId, 'Executing scan command');
@@ -343,6 +338,7 @@ Options:
   --retention-days <n>     log retention days (default: $_defaultRetentionDays)
   --trigger <name>         trigger label (manual|scheduled|api)
   --host-label <name>      host/device label for history records
+  --update-mode <name>     update mode label (panel_api|cloudflare_api|command)
   --scan-cmd <cmd>         shell command returning scan JSON on stdout
   --apply                  enable apply step after successful scan
   --apply-cmd <cmd>        shell command for apply step

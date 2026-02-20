@@ -227,6 +227,21 @@ Phase D:
 - Add hardening (auth, firewall, audit logs, rollback)
 - Add automatic log retention cleanup verification
 
+### Phase Completion Status
+
+As of 2026-02-20:
+
+- Phase A: COMPLETE
+  - Implemented headless `run-once` worker command
+  - Added exclusive lock (`run.lock`) to prevent overlapping runs
+  - Added daily file logging with 7-day cleanup
+  - Added per-run persistence (`runs/*.json`, `runs_index.jsonl`, `latest.json`, `status.json`)
+  - Added explicit run metadata (`trigger`, `host_label`, `update_mode`, `status`, `error_summary`)
+  - Added `partial` status when scan succeeds but apply fails
+- Phase B: IN PROGRESS
+- Phase C: MOSTLY COMPLETE
+- Phase D: NOT STARTED
+
 ## 11) Success Criteria
 
 - Scheduled jobs run reliably on configured scheduler (cron/timer/etc.) and survive reboot
