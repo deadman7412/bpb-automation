@@ -264,45 +264,64 @@ class WorkerApp {
     await _ensureDirectory(stateDir);
     await _ensureDirectory(logDir);
     final logger = WorkerLogger(logDir: logDir);
-    final runId = 'rollback-${_buildRunId(DateTime.now().toUtc())}';
-    final rollbackIps = await _readRollbackIps(stateDir);
-    if (rollbackIps.isEmpty) {
-      await logger.warn(runId, 'Rollback skipped: no rollback snapshot found');
+    final lock = File('${stateDir.path}/run.lock');
+    final raf = await lock.open(mode: FileMode.write);
+    try {
+      await raf.lock(FileLock.blockingExclusive);
+    } catch (e) {
+      stderr.writeln('Failed to acquire lock: $e');
+      await raf.close();
       return 1;
     }
-
-    await logger.info(
-      runId,
-      'Rollback started (requested_by=$requestedBy, request_ip=$requestIp, ips=${rollbackIps.length})',
-    );
+    final runId = 'rollback-${_buildRunId(DateTime.now().toUtc())}';
     try {
-      await _withRetries<void>(
-        runId: runId,
-        logger: logger,
-        opName: 'rollback',
-        maxAttempts: applyRetries,
-        initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
-        maxRetryDelay: Duration(milliseconds: maxRetryDelayMs),
-        operation: () => _executeApply(
+      final rollbackIps = await _readRollbackIps(stateDir);
+      if (rollbackIps.isEmpty) {
+        await logger.warn(
+          runId,
+          'Rollback skipped: no rollback snapshot found',
+        );
+        return 1;
+      }
+
+      await logger.info(
+        runId,
+        'Rollback started (requested_by=$requestedBy, request_ip=$requestIp, ips=${rollbackIps.length})',
+      );
+      try {
+        await _withRetries<void>(
           runId: runId,
-          applyCmd: applyCmd,
-          workingIps: rollbackIps,
           logger: logger,
-        ),
-      );
-      await _writeCurrentAppliedSnapshot(
-        stateDir: stateDir,
-        runId: runId,
-        ips: rollbackIps,
-        updateMode: opts['update-mode'] ?? 'command',
-        requestedBy: requestedBy,
-        requestIp: requestIp,
-      );
-      await logger.info(runId, 'Rollback applied successfully');
-      return 0;
-    } catch (e) {
-      await logger.error(runId, 'Rollback failed: $e');
-      return 1;
+          opName: 'rollback',
+          maxAttempts: applyRetries,
+          initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
+          maxRetryDelay: Duration(milliseconds: maxRetryDelayMs),
+          operation: () => _executeApply(
+            runId: runId,
+            applyCmd: applyCmd,
+            workingIps: rollbackIps,
+            logger: logger,
+          ),
+        );
+        await _writeCurrentAppliedSnapshot(
+          stateDir: stateDir,
+          runId: runId,
+          ips: rollbackIps,
+          updateMode: opts['update-mode'] ?? 'command',
+          requestedBy: requestedBy,
+          requestIp: requestIp,
+        );
+        await logger.info(runId, 'Rollback applied successfully');
+        return 0;
+      } catch (e) {
+        await logger.error(runId, 'Rollback failed: $e');
+        return 1;
+      }
+    } finally {
+      try {
+        await raf.unlock();
+      } catch (_) {}
+      await raf.close();
     }
   }
 

@@ -7,14 +7,47 @@ if "%BPB_SCAN_CMD%"=="" (
 )
 
 rem Defensive validation: reject unsafe shell metacharacters in command env vars.
-echo(%BPB_SCAN_CMD%| findstr /r "[&|<>]" >nul
-if %ERRORLEVEL%==0 (
+set "SCAN_CHECK=%BPB_SCAN_CMD%"
+set "SCAN_TEST=!SCAN_CHECK:^&=!"
+if not "!SCAN_TEST!"=="!SCAN_CHECK!" (
   echo BPB_SCAN_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
   exit /b 1
 )
+set "SCAN_TEST=!SCAN_CHECK:|=!"
+if not "!SCAN_TEST!"=="!SCAN_CHECK!" (
+  echo BPB_SCAN_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
+  exit /b 1
+)
+set "SCAN_TEST=!SCAN_CHECK:^<=!"
+if not "!SCAN_TEST!"=="!SCAN_CHECK!" (
+  echo BPB_SCAN_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
+  exit /b 1
+)
+set "SCAN_TEST=!SCAN_CHECK:^>=!"
+if not "!SCAN_TEST!"=="!SCAN_CHECK!" (
+  echo BPB_SCAN_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
+  exit /b 1
+)
+
 if not "%BPB_APPLY_CMD%"=="" (
-  echo(%BPB_APPLY_CMD%| findstr /r "[&|<>]" >nul
-  if %ERRORLEVEL%==0 (
+  set "APPLY_CHECK=%BPB_APPLY_CMD%"
+  set "APPLY_TEST=!APPLY_CHECK:^&=!"
+  if not "!APPLY_TEST!"=="!APPLY_CHECK!" (
+    echo BPB_APPLY_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
+    exit /b 1
+  )
+  set "APPLY_TEST=!APPLY_CHECK:|=!"
+  if not "!APPLY_TEST!"=="!APPLY_CHECK!" (
+    echo BPB_APPLY_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
+    exit /b 1
+  )
+  set "APPLY_TEST=!APPLY_CHECK:^<=!"
+  if not "!APPLY_TEST!"=="!APPLY_CHECK!" (
+    echo BPB_APPLY_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
+    exit /b 1
+  )
+  set "APPLY_TEST=!APPLY_CHECK:^>=!"
+  if not "!APPLY_TEST!"=="!APPLY_CHECK!" (
     echo BPB_APPLY_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
     exit /b 1
   )

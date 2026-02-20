@@ -52,7 +52,7 @@ PORT=8799
     --log-dir "$LOG_DIR" \
     --internal-token testtoken \
     --allowed-trigger-ips '127.0.0.1' \
-    --scan-cmd 'sleep 1; printf "{\"status\":\"success\",\"phase1_passed\":1,\"phase2_tested\":1,\"working_ips\":[\"1.1.1.1\"]}"'
+    --scan-cmd 'sleep 2; printf "{\"status\":\"success\",\"phase1_passed\":1,\"phase2_tested\":1,\"working_ips\":[\"1.1.1.1\"]}"'
 ) >/tmp/bpb-validate-api.log 2>&1 &
 API_PID=$!
 sleep 1.2
@@ -65,6 +65,13 @@ pass "path traversal guard"
 curl -s -X POST -H 'x-internal-token: testtoken' \
   "http://127.0.0.1:${PORT}/internal/scheduler/run?trigger=api" >/tmp/bpb-r1.json &
 sleep 0.1
+code="$(curl -s -o /tmp/bpb-rb.json -w "%{http_code}" -X POST \
+  -H 'x-internal-token: testtoken' \
+  "http://127.0.0.1:${PORT}/internal/scheduler/rollback")"
+[[ "$code" == "409" ]] || fail "rollback conflict while run active"
+pass "rollback conflict while run active"
+
+sleep 0.05
 code="$(curl -s -o /tmp/bpb-r2.json -w "%{http_code}" -X POST \
   -H 'x-internal-token: testtoken' \
   "http://127.0.0.1:${PORT}/internal/scheduler/run?trigger=api")"

@@ -374,6 +374,23 @@ class ApiServerApp {
           });
           return;
         }
+        final status = await _readJsonFile(
+          File('${stateDir.path}/status.json'),
+        );
+        final running = (status?['running'] == true);
+        if (running || _activeRunFuture != null) {
+          await audit.log(
+            event: 'rollback',
+            outcome: 'conflict_running',
+            method: req.method,
+            path: path,
+            clientIp: clientIp,
+          );
+          await _json(req.response, HttpStatus.conflict, {
+            'error': 'run already active',
+          });
+          return;
+        }
 
         final rollbackArgs = <String>[
           'rollback',
@@ -398,7 +415,16 @@ class ApiServerApp {
           rollbackArgs.addAll(['--apply-cmd', applyCmd]);
         }
 
-        final code = await worker.run(rollbackArgs);
+        final rollbackFuture = worker.run(rollbackArgs);
+        _activeRunFuture = rollbackFuture;
+        int code;
+        try {
+          code = await rollbackFuture;
+        } finally {
+          if (identical(_activeRunFuture, rollbackFuture)) {
+            _activeRunFuture = null;
+          }
+        }
         if (code == 0) {
           await audit.log(
             event: 'rollback',
