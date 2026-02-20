@@ -40,6 +40,10 @@ class WorkerApp {
     final applyCmd = opts['apply-cmd'];
     final applyEnabled = opts['apply'] == 'true';
     final updateMode = opts['update-mode'] ?? 'command';
+    final scanRetries = int.tryParse(opts['scan-retries'] ?? '3') ?? 3;
+    final applyRetries = int.tryParse(opts['apply-retries'] ?? '3') ?? 3;
+    final initialRetryDelayMs =
+        int.tryParse(opts['initial-retry-delay-ms'] ?? '1000') ?? 1000;
 
     await _ensureDirectory(stateDir);
     await _ensureDirectory(logDir);
@@ -73,10 +77,14 @@ class WorkerApp {
 
     RunResult result;
     try {
-      result = await _executeScan(
+      result = await _withRetries<RunResult>(
         runId: runId,
-        scanCmd: scanCmd,
         logger: logger,
+        opName: 'scan',
+        maxAttempts: scanRetries,
+        initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
+        operation: () =>
+            _executeScan(runId: runId, scanCmd: scanCmd, logger: logger),
       );
     } catch (e) {
       await logger.error(runId, 'Scan execution failed: $e');
@@ -89,11 +97,18 @@ class WorkerApp {
         result.status == 'success' &&
         result.workingIps.isNotEmpty) {
       try {
-        await _executeApply(
+        await _withRetries<void>(
           runId: runId,
-          applyCmd: applyCmd,
-          workingIps: result.workingIps,
           logger: logger,
+          opName: 'apply',
+          maxAttempts: applyRetries,
+          initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
+          operation: () => _executeApply(
+            runId: runId,
+            applyCmd: applyCmd,
+            workingIps: result.workingIps,
+            logger: logger,
+          ),
         );
         applied = true;
       } catch (e) {
@@ -243,6 +258,34 @@ class WorkerApp {
     );
   }
 
+  Future<T> _withRetries<T>({
+    required String runId,
+    required WorkerLogger logger,
+    required String opName,
+    required int maxAttempts,
+    required Duration initialRetryDelay,
+    required Future<T> Function() operation,
+  }) async {
+    var attempt = 0;
+    var delay = initialRetryDelay;
+    final attempts = maxAttempts < 1 ? 1 : maxAttempts;
+
+    while (true) {
+      attempt++;
+      try {
+        return await operation();
+      } catch (e) {
+        if (attempt >= attempts) rethrow;
+        await logger.warn(
+          runId,
+          '$opName attempt $attempt failed, retrying in ${delay.inMilliseconds}ms: $e',
+        );
+        await Future.delayed(delay);
+        delay *= 2;
+      }
+    }
+  }
+
   Future<void> _persistRun({
     required Directory stateDir,
     required String runId,
@@ -339,6 +382,9 @@ Options:
   --trigger <name>         trigger label (manual|scheduled|api)
   --host-label <name>      host/device label for history records
   --update-mode <name>     update mode label (panel_api|cloudflare_api|command)
+  --scan-retries <n>       scan retries with backoff (default: 3)
+  --apply-retries <n>      apply retries with backoff (default: 3)
+  --initial-retry-delay-ms retry backoff initial delay in ms (default: 1000)
   --scan-cmd <cmd>         shell command returning scan JSON on stdout
   --apply                  enable apply step after successful scan
   --apply-cmd <cmd>        shell command for apply step

@@ -1,0 +1,5 @@
+# BPB autoscan - every 6 hours
+# Install with:
+#   crontab backend/deploy/schedulers/cron/bpb-autoscan.cron
+
+0 */6 * * * /usr/bin/env bash /opt/bpb-automation/backend/deploy/schedulers/run-once.sh scheduled >> /var/log/bpb-automation/cron.log 2>&1

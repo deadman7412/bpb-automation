@@ -238,7 +238,14 @@ As of 2026-02-20:
   - Added per-run persistence (`runs/*.json`, `runs_index.jsonl`, `latest.json`, `status.json`)
   - Added explicit run metadata (`trigger`, `host_label`, `update_mode`, `status`, `error_summary`)
   - Added `partial` status when scan succeeds but apply fails
-- Phase B: IN PROGRESS
+- Phase B: COMPLETE
+  - Added scheduler adapter artifacts:
+    - Linux cron template
+    - Linux systemd service/timer + env example
+    - Windows Task Scheduler registration script + runner
+    - Android WorkManager integration plan
+  - Added scan/apply retry with exponential backoff in worker
+  - Added overlap protection via lock file for all adapter-invoked runs
 - Phase C: MOSTLY COMPLETE
 - Phase D: NOT STARTED
 

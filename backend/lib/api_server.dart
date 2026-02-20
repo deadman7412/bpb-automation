@@ -26,6 +26,9 @@ class ApiServerApp {
     final applyCmd = opts['apply-cmd'];
     final applyEnabled = opts['apply'] == 'true';
     final updateMode = opts['update-mode'] ?? 'command';
+    final scanRetries = opts['scan-retries'] ?? '3';
+    final applyRetries = opts['apply-retries'] ?? '3';
+    final initialRetryDelayMs = opts['initial-retry-delay-ms'] ?? '1000';
     final hostLabel = opts['host-label'] ?? 'server-host';
     final token =
         opts['internal-token'] ?? Platform.environment['BPB_INTERNAL_TOKEN'];
@@ -51,6 +54,9 @@ class ApiServerApp {
           applyCmd: applyCmd,
           applyEnabled: applyEnabled,
           updateMode: updateMode,
+          scanRetries: scanRetries,
+          applyRetries: applyRetries,
+          initialRetryDelayMs: initialRetryDelayMs,
           hostLabel: hostLabel,
           token: token,
           retentionDays: retentionDays,
@@ -69,6 +75,9 @@ class ApiServerApp {
     required String? applyCmd,
     required bool applyEnabled,
     required String updateMode,
+    required String scanRetries,
+    required String applyRetries,
+    required String initialRetryDelayMs,
     required String hostLabel,
     required String? token,
     required int retentionDays,
@@ -191,6 +200,12 @@ class ApiServerApp {
           hostLabel,
           '--update-mode',
           updateMode,
+          '--scan-retries',
+          scanRetries,
+          '--apply-retries',
+          applyRetries,
+          '--initial-retry-delay-ms',
+          initialRetryDelayMs,
         ];
         if (scanCmd != null && scanCmd.trim().isNotEmpty) {
           workerArgs.addAll(['--scan-cmd', scanCmd]);
@@ -337,6 +352,9 @@ Options:
   --retention-days <n>      log retention days (default: $_defaultRetentionDays)
   --host-label <name>       host/device label for run history
   --update-mode <name>      update mode label passed to run metadata
+  --scan-retries <n>        scan retries with backoff (default: 3)
+  --apply-retries <n>       apply retries with backoff (default: 3)
+  --initial-retry-delay-ms  initial retry delay in milliseconds
   --scan-cmd <cmd>          scan command used by POST /internal/scheduler/run
   --apply                   enable apply step after scan
   --apply-cmd <cmd>         apply command

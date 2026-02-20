@@ -33,6 +33,9 @@ dart run bin/bpb_api.dart [options]
 - `--scan-cmd <cmd>` shell command that returns JSON on stdout
 - `--apply` enable apply step after successful scan
 - `--apply-cmd <cmd>` apply shell command
+- `--scan-retries <n>` default `3`
+- `--apply-retries <n>` default `3`
+- `--initial-retry-delay-ms <n>` default `1000`
 
 ## Scan Command Contract
 
@@ -79,6 +82,9 @@ dart run bin/bpb_api.dart \
   --state-dir /tmp/bpb-state \
   --log-dir /tmp/bpb-logs \
   --internal-token local-dev-token \
+  --scan-retries 3 \
+  --apply-retries 3 \
+  --initial-retry-delay-ms 1000 \
   --scan-cmd "echo '{\"status\":\"success\",\"phase1_passed\":3,\"phase2_tested\":2,\"working_ips\":[\"1.1.1.1\"]}'"
 ```
 
