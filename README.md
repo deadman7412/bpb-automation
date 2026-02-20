@@ -412,6 +412,6 @@ For issues and questions:
 
 ## Version
 
-Current: 4.3.1
+Current: 4.3.2
 
 See CHANGELOG.md for version history.
