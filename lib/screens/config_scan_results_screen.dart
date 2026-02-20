@@ -8,6 +8,7 @@ import '../services/cloudflare_api_service.dart';
 import '../services/panel_api_service.dart';
 import '../services/config_generator_service.dart';
 import '../services/log_service.dart';
+import '../services/server_backend_service.dart';
 import '../widgets/logs_action_button.dart';
 
 /// Screen for displaying config-based scan results
@@ -29,6 +30,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
   final ConfigGeneratorService _configGenerator =
       ConfigGeneratorService.instance;
   final LogService _log = LogService.instance;
+  final ServerBackendService _serverApi = ServerBackendService.instance;
   static const String _keyLastScanElapsedMs = 'last_scan_elapsed_ms';
 
   ConfigScanResult? _result;
@@ -37,6 +39,10 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
   bool _isUpdating = false;
   bool _isGenerating = false;
   bool _isCopying = false;
+  bool _useServerBackend = false;
+  bool _isServerLoading = false;
+  Map<String, dynamic>? _serverLatest;
+  String? _serverError;
 
   @override
   void didChangeDependencies() {
@@ -50,6 +56,12 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
   Future<void> _loadResults() async {
     final args = ModalRoute.of(context)?.settings.arguments;
+    final useServerBackend = await _storage.getUseServerBackend();
+    if (useServerBackend) {
+      await _loadServerLatest();
+      return;
+    }
+    _useServerBackend = false;
     final savedElapsedMs = await _storage.getInt(_keyLastScanElapsedMs);
     final savedDuration = savedElapsedMs != null
         ? Duration(milliseconds: savedElapsedMs)
@@ -81,6 +93,38 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       } else {
         _log.logWarn('No config scan result available');
       }
+    }
+  }
+
+  Future<void> _loadServerLatest() async {
+    setState(() {
+      _useServerBackend = true;
+      _isServerLoading = true;
+      _serverError = null;
+    });
+
+    final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
+    if (baseUrl.isEmpty) {
+      setState(() {
+        _isServerLoading = false;
+        _serverError = 'Server backend URL is not set in Settings.';
+      });
+      return;
+    }
+
+    try {
+      final latest = await _serverApi.getLatestResult(baseUrl: baseUrl);
+      if (!mounted) return;
+      setState(() {
+        _serverLatest = latest;
+        _isServerLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isServerLoading = false;
+        _serverError = e.toString();
+      });
     }
   }
 
@@ -371,8 +415,193 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     );
   }
 
+  Future<void> _triggerServerRun() async {
+    final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
+    final token = (await _storage.getServerBackendToken())?.trim() ?? '';
+    if (baseUrl.isEmpty || token.isEmpty) {
+      _showMessage(
+        'Set server backend URL and token in Settings first.',
+        isError: true,
+      );
+      return;
+    }
+    setState(() => _isUpdating = true);
+    try {
+      await _serverApi.triggerRun(baseUrl: baseUrl, token: token);
+      _showMessage('Server run accepted');
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      await _loadServerLatest();
+    } catch (e) {
+      _showMessage('Failed to trigger run: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isUpdating = false);
+    }
+  }
+
+  List<String> _serverIps() {
+    final list = _serverLatest?['selected_ips'] as List<dynamic>? ?? const [];
+    return list.map((e) => e.toString()).toList();
+  }
+
+  Widget _buildServerModeBody() {
+    if (_isServerLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_serverError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Text(_serverError!, textAlign: TextAlign.center),
+        ),
+      );
+    }
+
+    if (_serverLatest == null) {
+      return const Center(child: Text('No server results available'));
+    }
+
+    final status = _serverLatest!['status']?.toString() ?? 'unknown';
+    final runId = _serverLatest!['run_id']?.toString() ?? '-';
+    final durationMs = (_serverLatest!['duration_ms'] as num?)?.toInt() ?? 0;
+    final phase1 = (_serverLatest!['phase1_passed'] as num?)?.toInt() ?? 0;
+    final phase2 = (_serverLatest!['phase2_tested'] as num?)?.toInt() ?? 0;
+    final working = (_serverLatest!['working_count'] as num?)?.toInt() ?? 0;
+    final applied = _serverLatest!['applied'] == true;
+    final ips = _serverIps();
+
+    return SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: ListView(
+            padding: const EdgeInsets.all(24.0),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      Icon(
+                        status == 'success' ? Icons.check_circle : Icons.error,
+                        size: 56,
+                        color: status == 'success' ? Colors.green : Colors.red,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Latest Server Run: $status',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      Text('Run ID: $runId'),
+                      Text(
+                        'Duration: ${(durationMs / 1000).toStringAsFixed(1)}s',
+                      ),
+                      Text('Applied: ${applied ? "Yes" : "No"}'),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                childAspectRatio: 1.2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                children: [
+                  _buildStatCard('Phase 1 Passed', '$phase1', Icons.done),
+                  _buildStatCard('Phase 2 Tested', '$phase2', Icons.verified),
+                  _buildStatCard('Working IPs', '$working', Icons.cloud_done),
+                  _buildStatCard(
+                    'Status',
+                    status,
+                    status == 'success' ? Icons.check : Icons.error,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _isUpdating ? null : _triggerServerRun,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Trigger Server Run'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/server-history'),
+                      icon: const Icon(Icons.history),
+                      label: const Text('Open Run History'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (ips.isNotEmpty) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Selected IPs',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy),
+                      tooltip: 'Copy all IPs',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: ips.join('\n')));
+                        _showMessage('Copied ${ips.length} IPs');
+                      },
+                    ),
+                  ],
+                ),
+                Card(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: ips.length,
+                    separatorBuilder: (_, index) => const Divider(),
+                    itemBuilder: (context, index) => ListTile(
+                      title: Text(
+                        ips[index],
+                        style: const TextStyle(fontFamily: 'monospace'),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_useServerBackend) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Server Results'),
+          actions: [
+            const LogsActionButton(),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _isServerLoading ? null : _loadServerLatest,
+              tooltip: 'Refresh',
+            ),
+          ],
+        ),
+        body: _buildServerModeBody(),
+      );
+    }
+
     if (_result == null) {
       return Scaffold(
         appBar: AppBar(
