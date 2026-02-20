@@ -6,6 +6,7 @@ Headless worker for scheduled server-side runs.
 
 ```bash
 dart run bin/bpb_autoscan.dart run-once [options]
+dart run bin/bpb_autoscan.dart rollback [options]
 dart run bin/bpb_autoscan.dart cleanup [options]
 dart run bin/bpb_api.dart [options]
 ```
@@ -21,6 +22,13 @@ dart run bin/bpb_api.dart [options]
 - Writes daily log files:
   - `app-YYYY-MM-DD.log`
 - Deletes log files older than `--retention-days` (default: 7)
+- Writes retention verification metadata:
+  - `cleanup_status.json`
+- Keeps apply snapshots for rollback:
+  - `current_applied.json`
+  - `rollback_candidate.json`
+- Writes internal action audit trail:
+  - `audit.jsonl`
 
 ## Options
 
@@ -36,6 +44,9 @@ dart run bin/bpb_api.dart [options]
 - `--scan-retries <n>` default `3`
 - `--apply-retries <n>` default `3`
 - `--initial-retry-delay-ms <n>` default `1000`
+- `--min-working-ips <n>` default `1` (apply guardrail)
+- `--requested-by <id>` audit caller label
+- `--request-ip <ip>` caller IP metadata
 
 ## Scan Command Contract
 
@@ -97,6 +108,15 @@ Endpoints:
 - `GET /api/results/{run_id}`
 - `GET /api/logs/latest?lines=200`
 - `POST /internal/scheduler/run?trigger=api` (requires token)
+- `POST /internal/scheduler/rollback` (requires token)
+- `GET /api/logs?page=1&page_size=200`
+- `GET /api/maintenance/log-retention`
+
+Hardening flags:
+
+- `--allowed-trigger-ips <csv>` source IP allowlist for internal endpoints
+- `--trust-forwarded-for` trust `x-forwarded-for` when API is behind reverse proxy
+- `--min-working-ips <n>` prevent apply when working IP count is below threshold
 
 Trigger example:
 
@@ -104,4 +124,12 @@ Trigger example:
 curl -X POST \
   -H "Authorization: Bearer local-dev-token" \
   "http://127.0.0.1:8787/internal/scheduler/run?trigger=api"
+```
+
+Rollback example:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer local-dev-token" \
+  "http://127.0.0.1:8787/internal/scheduler/rollback"
 ```

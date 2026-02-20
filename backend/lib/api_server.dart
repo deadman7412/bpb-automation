@@ -28,6 +28,7 @@ class ApiServerApp {
     final updateMode = opts['update-mode'] ?? 'command';
     final scanRetries = opts['scan-retries'] ?? '3';
     final applyRetries = opts['apply-retries'] ?? '3';
+    final minWorkingIps = opts['min-working-ips'] ?? '1';
     final initialRetryDelayMs = opts['initial-retry-delay-ms'] ?? '1000';
     final hostLabel = opts['host-label'] ?? 'server-host';
     final token =
@@ -35,10 +36,22 @@ class ApiServerApp {
     final retentionDays =
         int.tryParse(opts['retention-days'] ?? '$_defaultRetentionDays') ??
         _defaultRetentionDays;
+    final allowedTriggerIps = _parseCsv(
+      opts['allowed-trigger-ips'] ??
+          Platform.environment['BPB_ALLOWED_TRIGGER_IPS'] ??
+          '127.0.0.1,::1',
+    );
+    final trustForwardedFor =
+        (opts['trust-forwarded-for'] ??
+                Platform.environment['BPB_TRUST_FORWARDED_FOR'] ??
+                'false')
+            .toLowerCase() ==
+        'true';
 
     await _ensureDirectory(stateDir);
     await _ensureDirectory(logDir);
     final worker = WorkerApp();
+    final audit = AuditLogger(stateDir: stateDir);
 
     final server = await HttpServer.bind(host, port);
     stdout.writeln('API server listening on http://$host:$port');
@@ -56,10 +69,14 @@ class ApiServerApp {
           updateMode: updateMode,
           scanRetries: scanRetries,
           applyRetries: applyRetries,
+          minWorkingIps: minWorkingIps,
           initialRetryDelayMs: initialRetryDelayMs,
           hostLabel: hostLabel,
           token: token,
           retentionDays: retentionDays,
+          audit: audit,
+          allowedTriggerIps: allowedTriggerIps,
+          trustForwardedFor: trustForwardedFor,
         ),
       );
     }
@@ -77,10 +94,14 @@ class ApiServerApp {
     required String updateMode,
     required String scanRetries,
     required String applyRetries,
+    required String minWorkingIps,
     required String initialRetryDelayMs,
     required String hostLabel,
     required String? token,
     required int retentionDays,
+    required AuditLogger audit,
+    required Set<String> allowedTriggerIps,
+    required bool trustForwardedFor,
   }) async {
     try {
       _addCors(req.response);
@@ -180,8 +201,42 @@ class ApiServerApp {
         return;
       }
 
+      if (req.method == 'GET' && path == '/api/maintenance/log-retention') {
+        final status =
+            await _readJsonFile(File('${stateDir.path}/cleanup_status.json')) ??
+            {'error': 'cleanup status not available yet', 'compliant': false};
+        await _json(req.response, HttpStatus.ok, status);
+        return;
+      }
+
       if (req.method == 'POST' && path == '/internal/scheduler/run') {
+        final clientIp = _clientIp(req, trustForwardedFor: trustForwardedFor);
+        if (!_isSourceAllowed(
+          clientIp: clientIp,
+          allowedIps: allowedTriggerIps,
+        )) {
+          await audit.log(
+            event: 'trigger_run',
+            outcome: 'denied_ip',
+            method: req.method,
+            path: path,
+            clientIp: clientIp,
+            details: {'trigger': req.uri.queryParameters['trigger'] ?? 'api'},
+          );
+          await _json(req.response, HttpStatus.forbidden, {
+            'error': 'forbidden source ip',
+          });
+          return;
+        }
         if (!_isAuthorized(req, token)) {
+          await audit.log(
+            event: 'trigger_run',
+            outcome: 'unauthorized',
+            method: req.method,
+            path: path,
+            clientIp: clientIp,
+            details: {'trigger': req.uri.queryParameters['trigger'] ?? 'api'},
+          );
           await _json(req.response, HttpStatus.unauthorized, {
             'error': 'unauthorized',
           });
@@ -192,6 +247,14 @@ class ApiServerApp {
         );
         final running = (status?['running'] == true);
         if (running) {
+          await audit.log(
+            event: 'trigger_run',
+            outcome: 'conflict_running',
+            method: req.method,
+            path: path,
+            clientIp: clientIp,
+            details: {'trigger': req.uri.queryParameters['trigger'] ?? 'api'},
+          );
           await _json(req.response, HttpStatus.conflict, {
             'error': 'run already active',
           });
@@ -217,8 +280,14 @@ class ApiServerApp {
           scanRetries,
           '--apply-retries',
           applyRetries,
+          '--min-working-ips',
+          minWorkingIps,
           '--initial-retry-delay-ms',
           initialRetryDelayMs,
+          '--requested-by',
+          'api',
+          '--request-ip',
+          clientIp,
         ];
         if (scanCmd != null && scanCmd.trim().isNotEmpty) {
           workerArgs.addAll(['--scan-cmd', scanCmd]);
@@ -231,9 +300,96 @@ class ApiServerApp {
         }
 
         unawaited(worker.run(workerArgs));
+        await audit.log(
+          event: 'trigger_run',
+          outcome: 'accepted',
+          method: req.method,
+          path: path,
+          clientIp: clientIp,
+          details: {'trigger': trigger},
+        );
         await _json(req.response, HttpStatus.accepted, {
           'accepted': true,
           'trigger': trigger,
+        });
+        return;
+      }
+
+      if (req.method == 'POST' && path == '/internal/scheduler/rollback') {
+        final clientIp = _clientIp(req, trustForwardedFor: trustForwardedFor);
+        if (!_isSourceAllowed(
+          clientIp: clientIp,
+          allowedIps: allowedTriggerIps,
+        )) {
+          await audit.log(
+            event: 'rollback',
+            outcome: 'denied_ip',
+            method: req.method,
+            path: path,
+            clientIp: clientIp,
+          );
+          await _json(req.response, HttpStatus.forbidden, {
+            'error': 'forbidden source ip',
+          });
+          return;
+        }
+        if (!_isAuthorized(req, token)) {
+          await audit.log(
+            event: 'rollback',
+            outcome: 'unauthorized',
+            method: req.method,
+            path: path,
+            clientIp: clientIp,
+          );
+          await _json(req.response, HttpStatus.unauthorized, {
+            'error': 'unauthorized',
+          });
+          return;
+        }
+
+        final rollbackArgs = <String>[
+          'rollback',
+          '--state-dir',
+          stateDir.path,
+          '--log-dir',
+          logDir.path,
+          '--update-mode',
+          updateMode,
+          '--apply-retries',
+          applyRetries,
+          '--initial-retry-delay-ms',
+          initialRetryDelayMs,
+          '--requested-by',
+          'api',
+          '--request-ip',
+          clientIp,
+        ];
+        if (applyCmd != null && applyCmd.trim().isNotEmpty) {
+          rollbackArgs.addAll(['--apply-cmd', applyCmd]);
+        }
+
+        final code = await worker.run(rollbackArgs);
+        if (code == 0) {
+          await audit.log(
+            event: 'rollback',
+            outcome: 'success',
+            method: req.method,
+            path: path,
+            clientIp: clientIp,
+          );
+          await _json(req.response, HttpStatus.ok, {'rolled_back': true});
+          return;
+        }
+        await audit.log(
+          event: 'rollback',
+          outcome: 'failed',
+          method: req.method,
+          path: path,
+          clientIp: clientIp,
+        );
+        await _json(req.response, HttpStatus.badRequest, {
+          'rolled_back': false,
+          'error': 'rollback failed',
         });
         return;
       }
@@ -383,6 +539,24 @@ class ApiServerApp {
     return header != null && header == token;
   }
 
+  String _clientIp(HttpRequest req, {required bool trustForwardedFor}) {
+    if (trustForwardedFor) {
+      final forwardedFor = req.headers.value('x-forwarded-for');
+      if (forwardedFor != null && forwardedFor.trim().isNotEmpty) {
+        return forwardedFor.split(',').first.trim();
+      }
+    }
+    return req.connectionInfo?.remoteAddress.address ?? '-';
+  }
+
+  bool _isSourceAllowed({
+    required String clientIp,
+    required Set<String> allowedIps,
+  }) {
+    if (allowedIps.isEmpty) return false;
+    return allowedIps.contains(clientIp);
+  }
+
   Future<void> _json(
     HttpResponse response,
     int statusCode,
@@ -431,6 +605,14 @@ class ApiServerApp {
     return out;
   }
 
+  Set<String> _parseCsv(String input) {
+    return input
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+  }
+
   void _printUsage() {
     stdout.writeln('''
 BPB autoscan API server
@@ -448,11 +630,14 @@ Options:
   --update-mode <name>      update mode label passed to run metadata
   --scan-retries <n>        scan retries with backoff (default: 3)
   --apply-retries <n>       apply retries with backoff (default: 3)
+  --min-working-ips <n>     minimum working IPs before apply (default: 1)
   --initial-retry-delay-ms  initial retry delay in milliseconds
   --scan-cmd <cmd>          scan command used by POST /internal/scheduler/run
   --apply                   enable apply step after scan
   --apply-cmd <cmd>         apply command
   --internal-token <token>  required token for POST /internal/scheduler/run
+  --allowed-trigger-ips <csv> allowed source IPs for /internal endpoints (default: 127.0.0.1,::1)
+  --trust-forwarded-for    trust x-forwarded-for for source IP checks
 
 Endpoints:
   GET  /health
@@ -460,9 +645,38 @@ Endpoints:
   GET  /api/results
   GET  /api/results/latest
   GET  /api/results/{run_id}
+  GET  /api/maintenance/log-retention
   GET  /api/logs?page=1&page_size=200
   GET  /api/logs/latest?lines=200
   POST /internal/scheduler/run?trigger=api
+  POST /internal/scheduler/rollback
 ''');
+  }
+}
+
+class AuditLogger {
+  AuditLogger({required this.stateDir});
+
+  final Directory stateDir;
+
+  Future<void> log({
+    required String event,
+    required String outcome,
+    required String method,
+    required String path,
+    required String clientIp,
+    Map<String, dynamic>? details,
+  }) async {
+    final file = File('${stateDir.path}/audit.jsonl');
+    final payload = {
+      'ts': DateTime.now().toUtc().toIso8601String(),
+      'event': event,
+      'outcome': outcome,
+      'method': method,
+      'path': path,
+      'client_ip': clientIp,
+      'details': details ?? const <String, dynamic>{},
+    };
+    await file.writeAsString('${jsonEncode(payload)}\n', mode: FileMode.append);
   }
 }

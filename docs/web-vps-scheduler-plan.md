@@ -248,7 +248,13 @@ As of 2026-02-20:
   - Added scan/apply retry with exponential backoff in worker
   - Added overlap protection via lock file for all adapter-invoked runs
 - Phase C: COMPLETE
-- Phase D: NOT STARTED
+- Phase D: COMPLETE
+  - Added internal endpoint source-IP allowlisting (`allowed-trigger-ips`)
+  - Added trusted proxy mode for source-IP checks (`trust-forwarded-for`)
+  - Added audit trail file (`audit.jsonl`) for trigger/rollback outcomes
+  - Added apply guardrail (`min-working-ips`) to prevent low-quality updates
+  - Added rollback path using previous applied IP snapshot
+  - Added retention cleanup verification status (`cleanup_status.json`) via API endpoint
 
 ## 11) Success Criteria
 

@@ -90,6 +90,27 @@ class ServerBackendService {
     }
   }
 
+  Future<void> rollback({
+    required String baseUrl,
+    required String token,
+  }) async {
+    final uri = Uri.parse('$baseUrl/internal/scheduler/rollback');
+    final response = await http
+        .post(
+          uri,
+          headers: {
+            'Authorization': 'Bearer $token',
+            'X-Internal-Token': token,
+          },
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Rollback failed: HTTP ${response.statusCode} ${response.body}',
+      );
+    }
+  }
+
   Map<String, dynamic> _decodeObject(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('HTTP ${response.statusCode}: ${response.body}');

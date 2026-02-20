@@ -92,6 +92,46 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
     }
   }
 
+  Future<void> _rollbackLastApply() async {
+    if (_baseUrl.isEmpty || _token.isEmpty) {
+      _show('Set server URL + token in Settings first.', isError: true);
+      return;
+    }
+    final shouldRollback = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rollback Last Apply'),
+        content: const Text(
+          'This will re-apply the previous snapshot of IPs on the server. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Rollback'),
+          ),
+        ],
+      ),
+    );
+    if (shouldRollback != true) return;
+
+    setState(() => _triggering = true);
+    try {
+      await _api.rollback(baseUrl: _baseUrl, token: _token);
+      if (!mounted) return;
+      _show('Rollback applied successfully.');
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      await _load();
+    } catch (e) {
+      _show('Rollback failed: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _triggering = false);
+    }
+  }
+
   void _show(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -166,6 +206,12 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
                             label: Text(
                               _triggering ? 'Triggering...' : 'Trigger Run Now',
                             ),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: _triggering ? null : _rollbackLastApply,
+                            icon: const Icon(Icons.restore),
+                            label: const Text('Rollback Last Apply'),
                           ),
                         ],
                       ),

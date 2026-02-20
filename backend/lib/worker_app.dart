@@ -6,6 +6,7 @@ class WorkerApp {
   static const _defaultStateDir = '/var/lib/bpb-automation';
   static const _defaultLogDir = '/var/log/bpb-automation';
   static const _defaultRetentionDays = 7;
+  static const _defaultMinWorkingIps = 1;
 
   Future<int> run(List<String> args) async {
     if (args.isEmpty || args.contains('--help') || args.contains('-h')) {
@@ -19,6 +20,8 @@ class WorkerApp {
     switch (command) {
       case 'run-once':
         return _runOnce(opts);
+      case 'rollback':
+        return _rollback(opts);
       case 'cleanup':
         return _cleanupOnly(opts);
       default:
@@ -42,8 +45,13 @@ class WorkerApp {
     final updateMode = opts['update-mode'] ?? 'command';
     final scanRetries = int.tryParse(opts['scan-retries'] ?? '3') ?? 3;
     final applyRetries = int.tryParse(opts['apply-retries'] ?? '3') ?? 3;
+    final minWorkingIps =
+        int.tryParse(opts['min-working-ips'] ?? '$_defaultMinWorkingIps') ??
+        _defaultMinWorkingIps;
     final initialRetryDelayMs =
         int.tryParse(opts['initial-retry-delay-ms'] ?? '1000') ?? 1000;
+    final requestedBy = opts['requested-by'] ?? 'unknown';
+    final requestIp = opts['request-ip'] ?? '-';
 
     await _ensureDirectory(stateDir);
     await _ensureDirectory(logDir);
@@ -73,7 +81,10 @@ class WorkerApp {
       }),
     );
 
-    await logger.info(runId, 'Run started (trigger=$trigger, host=$hostLabel)');
+    await logger.info(
+      runId,
+      'Run started (trigger=$trigger, host=$hostLabel, requested_by=$requestedBy, request_ip=$requestIp)',
+    );
 
     RunResult result;
     try {
@@ -93,27 +104,49 @@ class WorkerApp {
 
     bool applied = false;
     String? applyError;
+    String? applySkippedReason;
+    List<String> previousAppliedIps = const [];
+    List<String> rollbackIps = const [];
     if (applyEnabled &&
         result.status == 'success' &&
         result.workingIps.isNotEmpty) {
-      try {
-        await _withRetries<void>(
-          runId: runId,
-          logger: logger,
-          opName: 'apply',
-          maxAttempts: applyRetries,
-          initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
-          operation: () => _executeApply(
+      if (result.workingIps.length < minWorkingIps) {
+        applySkippedReason =
+            'apply skipped: working_count ${result.workingIps.length} below min-working-ips $minWorkingIps';
+        await logger.warn(runId, applySkippedReason);
+      } else {
+        previousAppliedIps = await _readCurrentAppliedIps(stateDir);
+        if (previousAppliedIps.isNotEmpty) {
+          rollbackIps = List<String>.from(previousAppliedIps);
+        }
+        try {
+          await _withRetries<void>(
             runId: runId,
-            applyCmd: applyCmd,
-            workingIps: result.workingIps,
             logger: logger,
-          ),
-        );
-        applied = true;
-      } catch (e) {
-        applyError = e.toString();
-        await logger.error(runId, 'Apply failed: $applyError');
+            opName: 'apply',
+            maxAttempts: applyRetries,
+            initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
+            operation: () => _executeApply(
+              runId: runId,
+              applyCmd: applyCmd,
+              workingIps: result.workingIps,
+              logger: logger,
+            ),
+          );
+          applied = true;
+          await _writeApplySnapshots(
+            stateDir: stateDir,
+            runId: runId,
+            newIps: result.workingIps,
+            previousIps: previousAppliedIps,
+            updateMode: updateMode,
+            requestedBy: requestedBy,
+            requestIp: requestIp,
+          );
+        } catch (e) {
+          applyError = e.toString();
+          await logger.error(runId, 'Apply failed: $applyError');
+        }
       }
     }
 
@@ -121,7 +154,9 @@ class WorkerApp {
     final durationMs = runEnd.difference(runStart).inMilliseconds;
     final finalStatus = result.status != 'success'
         ? 'failed'
-        : (applyEnabled && applyError != null ? 'partial' : 'success');
+        : (applyEnabled && (applyError != null || applySkippedReason != null)
+              ? 'partial'
+              : 'success');
 
     final runSummary = <String, dynamic>{
       'run_id': runId,
@@ -136,9 +171,15 @@ class WorkerApp {
       'working_count': result.workingIps.length,
       'selected_ips': result.workingIps,
       'applied': applied,
+      'min_working_ips': minWorkingIps,
+      'apply_skipped_reason': applySkippedReason,
+      'rollback_available': rollbackIps.isNotEmpty,
+      'rollback_ips_count': rollbackIps.length,
       'update_mode': updateMode,
       'error_summary': applyError ?? result.errorSummary,
       'apply_error': applyError,
+      'requested_by': requestedBy,
+      'request_ip': requestIp,
     };
 
     await _persistRun(stateDir: stateDir, runId: runId, payload: runSummary);
@@ -157,29 +198,87 @@ class WorkerApp {
       runId,
       'Run finished (status=$finalStatus, applied=$applied)',
     );
-    await _cleanupLogs(
+    final cleanupReport = await _cleanupLogs(
       logDir: logDir,
       retentionDays: retentionDays,
       logger: logger,
     );
+    await _writeCleanupReport(stateDir: stateDir, report: cleanupReport);
 
     await raf.unlock();
     await raf.close();
     return finalStatus == 'success' ? 0 : 1;
   }
 
+  Future<int> _rollback(Map<String, String> opts) async {
+    final stateDir = Directory(opts['state-dir'] ?? _defaultStateDir);
+    final logDir = Directory(opts['log-dir'] ?? _defaultLogDir);
+    final applyCmd = opts['apply-cmd'];
+    final applyRetries = int.tryParse(opts['apply-retries'] ?? '3') ?? 3;
+    final initialRetryDelayMs =
+        int.tryParse(opts['initial-retry-delay-ms'] ?? '1000') ?? 1000;
+    final requestedBy = opts['requested-by'] ?? 'unknown';
+    final requestIp = opts['request-ip'] ?? '-';
+
+    await _ensureDirectory(stateDir);
+    await _ensureDirectory(logDir);
+    final logger = WorkerLogger(logDir: logDir);
+    final runId = 'rollback-${_buildRunId(DateTime.now().toUtc())}';
+    final rollbackIps = await _readRollbackIps(stateDir);
+    if (rollbackIps.isEmpty) {
+      await logger.warn(runId, 'Rollback skipped: no rollback snapshot found');
+      return 1;
+    }
+
+    await logger.info(
+      runId,
+      'Rollback started (requested_by=$requestedBy, request_ip=$requestIp, ips=${rollbackIps.length})',
+    );
+    try {
+      await _withRetries<void>(
+        runId: runId,
+        logger: logger,
+        opName: 'rollback',
+        maxAttempts: applyRetries,
+        initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
+        operation: () => _executeApply(
+          runId: runId,
+          applyCmd: applyCmd,
+          workingIps: rollbackIps,
+          logger: logger,
+        ),
+      );
+      await _writeCurrentAppliedSnapshot(
+        stateDir: stateDir,
+        runId: runId,
+        ips: rollbackIps,
+        updateMode: opts['update-mode'] ?? 'command',
+        requestedBy: requestedBy,
+        requestIp: requestIp,
+      );
+      await logger.info(runId, 'Rollback applied successfully');
+      return 0;
+    } catch (e) {
+      await logger.error(runId, 'Rollback failed: $e');
+      return 1;
+    }
+  }
+
   Future<int> _cleanupOnly(Map<String, String> opts) async {
+    final stateDir = Directory(opts['state-dir'] ?? _defaultStateDir);
     final logDir = Directory(opts['log-dir'] ?? _defaultLogDir);
     final retentionDays =
         int.tryParse(opts['retention-days'] ?? '$_defaultRetentionDays') ??
         _defaultRetentionDays;
+    await _ensureDirectory(stateDir);
     await _ensureDirectory(logDir);
     final logger = WorkerLogger(logDir: logDir);
-    await _cleanupLogs(
+    final cleanupReport = await _cleanupLogs(
       logDir: logDir,
       retentionDays: retentionDays,
       logger: logger,
     );
+    await _writeCleanupReport(stateDir: stateDir, report: cleanupReport);
     return 0;
   }
 
@@ -309,7 +408,94 @@ class WorkerApp {
     await file.writeAsString('${jsonEncode(payload)}\n', mode: FileMode.append);
   }
 
-  Future<void> _cleanupLogs({
+  Future<List<String>> _readCurrentAppliedIps(Directory stateDir) async {
+    final file = File('${stateDir.path}/current_applied.json');
+    if (!await file.exists()) return const [];
+    try {
+      final data =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      final ips = data['ips'] as List<dynamic>? ?? const [];
+      return ips.map((e) => e.toString()).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<String>> _readRollbackIps(Directory stateDir) async {
+    final file = File('${stateDir.path}/rollback_candidate.json');
+    if (!await file.exists()) return const [];
+    try {
+      final data =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      final ips = data['ips'] as List<dynamic>? ?? const [];
+      return ips.map((e) => e.toString()).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _writeApplySnapshots({
+    required Directory stateDir,
+    required String runId,
+    required List<String> newIps,
+    required List<String> previousIps,
+    required String updateMode,
+    required String requestedBy,
+    required String requestIp,
+  }) async {
+    if (previousIps.isNotEmpty) {
+      final rollbackFile = File('${stateDir.path}/rollback_candidate.json');
+      await rollbackFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert({
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+          'from_run_id': runId,
+          'ips': previousIps,
+          'source': 'previous_current_applied',
+        }),
+      );
+    }
+    await _writeCurrentAppliedSnapshot(
+      stateDir: stateDir,
+      runId: runId,
+      ips: newIps,
+      updateMode: updateMode,
+      requestedBy: requestedBy,
+      requestIp: requestIp,
+    );
+  }
+
+  Future<void> _writeCurrentAppliedSnapshot({
+    required Directory stateDir,
+    required String runId,
+    required List<String> ips,
+    required String updateMode,
+    required String requestedBy,
+    required String requestIp,
+  }) async {
+    final file = File('${stateDir.path}/current_applied.json');
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert({
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+        'run_id': runId,
+        'update_mode': updateMode,
+        'requested_by': requestedBy,
+        'request_ip': requestIp,
+        'ips': ips,
+      }),
+    );
+  }
+
+  Future<void> _writeCleanupReport({
+    required Directory stateDir,
+    required CleanupReport report,
+  }) async {
+    final file = File('${stateDir.path}/cleanup_status.json');
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(report.toJson()),
+    );
+  }
+
+  Future<CleanupReport> _cleanupLogs({
     required Directory logDir,
     required int retentionDays,
     required WorkerLogger logger,
@@ -317,6 +503,10 @@ class WorkerApp {
     final cutoff = DateTime.now().toUtc().subtract(
       Duration(days: retentionDays),
     );
+    var deletedFiles = 0;
+    var remainingFiles = 0;
+    var nonCompliantFiles = 0;
+    DateTime? oldestRemainingModifiedAt;
     final entities = await logDir.list().toList();
     for (final entity in entities) {
       if (entity is! File) continue;
@@ -325,12 +515,31 @@ class WorkerApp {
       final stat = await entity.stat();
       if (stat.modified.toUtc().isBefore(cutoff)) {
         await entity.delete();
+        deletedFiles++;
         await logger.info(
           'maintenance',
           'Deleted old log file: ${entity.path}',
         );
+        continue;
+      }
+      remainingFiles++;
+      final modified = stat.modified.toUtc();
+      if (oldestRemainingModifiedAt == null ||
+          modified.isBefore(oldestRemainingModifiedAt)) {
+        oldestRemainingModifiedAt = modified;
+      }
+      if (modified.isBefore(cutoff)) {
+        nonCompliantFiles++;
       }
     }
+    return CleanupReport(
+      checkedAt: DateTime.now().toUtc(),
+      retentionDays: retentionDays,
+      deletedFiles: deletedFiles,
+      remainingFiles: remainingFiles,
+      nonCompliantFiles: nonCompliantFiles,
+      oldestRemainingModifiedAt: oldestRemainingModifiedAt,
+    );
   }
 
   Future<void> _ensureDirectory(Directory dir) async {
@@ -373,6 +582,7 @@ BPB autoscan worker
 
 Usage:
   bpb_autoscan.dart run-once [options]
+  bpb_autoscan.dart rollback [options]
   bpb_autoscan.dart cleanup [options]
 
 Options:
@@ -384,12 +594,45 @@ Options:
   --update-mode <name>     update mode label (panel_api|cloudflare_api|command)
   --scan-retries <n>       scan retries with backoff (default: 3)
   --apply-retries <n>      apply retries with backoff (default: 3)
+  --min-working-ips <n>    require at least n working IPs before apply (default: $_defaultMinWorkingIps)
   --initial-retry-delay-ms retry backoff initial delay in ms (default: 1000)
+  --requested-by <id>      audit label for caller (default: unknown)
+  --request-ip <ip>        caller IP for audit metadata
   --scan-cmd <cmd>         shell command returning scan JSON on stdout
   --apply                  enable apply step after successful scan
   --apply-cmd <cmd>        shell command for apply step
 ''');
   }
+}
+
+class CleanupReport {
+  CleanupReport({
+    required this.checkedAt,
+    required this.retentionDays,
+    required this.deletedFiles,
+    required this.remainingFiles,
+    required this.nonCompliantFiles,
+    required this.oldestRemainingModifiedAt,
+  });
+
+  final DateTime checkedAt;
+  final int retentionDays;
+  final int deletedFiles;
+  final int remainingFiles;
+  final int nonCompliantFiles;
+  final DateTime? oldestRemainingModifiedAt;
+
+  Map<String, dynamic> toJson() => {
+    'checked_at': checkedAt.toUtc().toIso8601String(),
+    'retention_days': retentionDays,
+    'deleted_files': deletedFiles,
+    'remaining_files': remainingFiles,
+    'non_compliant_files': nonCompliantFiles,
+    'compliant': nonCompliantFiles == 0,
+    'oldest_remaining_modified_at': oldestRemainingModifiedAt
+        ?.toUtc()
+        .toIso8601String(),
+  };
 }
 
 class RunResult {
