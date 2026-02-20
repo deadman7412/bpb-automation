@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import '../lib/worker_app.dart';
+import 'package:bpb_autoscan_worker/worker_app.dart';
 
 Future<void> main(List<String> args) async {
   final app = WorkerApp();

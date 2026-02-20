@@ -36,8 +36,9 @@ jobs:
         run: |
           mkdir -p server-pkg/bpb-server-linux-x64/bin
           mkdir -p server-pkg/bpb-server-linux-x64/deploy
-          dart compile exe backend/bin/bpb_api.dart -o server-pkg/bpb-server-linux-x64/bin/bpb_api
-          dart compile exe backend/bin/bpb_autoscan.dart -o server-pkg/bpb-server-linux-x64/bin/bpb_autoscan
+          (cd backend && dart pub get)
+          (cd backend && dart compile exe bin/bpb_api.dart -o ../server-pkg/bpb-server-linux-x64/bin/bpb_api)
+          (cd backend && dart compile exe bin/bpb_autoscan.dart -o ../server-pkg/bpb-server-linux-x64/bin/bpb_autoscan)
           cp -R backend/deploy/schedulers server-pkg/bpb-server-linux-x64/deploy/
           cp -R backend/deploy/vps server-pkg/bpb-server-linux-x64/deploy/
           cp backend/README.md server-pkg/bpb-server-linux-x64/README-BACKEND.md
