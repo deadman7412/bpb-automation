@@ -97,6 +97,62 @@ BPB-Automation-Windows-x64.zip
 - [Development Guide](docs/development.md) - For developers
 - [Deployment Guide](docs/deployment.md) - Building and distributing
 
+## Web + VPS Scheduler (Ubuntu)
+
+Use this mode when you want:
+- Web dashboard access from any device
+- Server-side scheduled scans
+- Automatic apply from a Linux host (for example Ubuntu LTS VPS)
+
+Architecture:
+1. Flutter app/web UI talks to backend API
+2. Backend runs `run-once` worker
+3. Scheduler (cron/systemd) triggers backend runs
+4. Backend stores run history/logs and serves dashboard endpoints
+
+### Ubuntu Quick Start (Backend)
+
+```bash
+sudo apt update
+sudo apt install -y curl jq ca-certificates
+
+# Example working dirs
+sudo mkdir -p /opt/bpb-automation/backend /var/lib/bpb-automation /var/log/bpb-automation
+```
+
+Run backend API (example):
+
+```bash
+cd /opt/bpb-automation/backend
+dart run bin/bpb_api.dart \
+  --host 127.0.0.1 \
+  --port 8787 \
+  --state-dir /var/lib/bpb-automation \
+  --log-dir /var/log/bpb-automation \
+  --internal-token "CHANGE_ME" \
+  --allowed-trigger-ips "127.0.0.1,::1" \
+  --scan-cmd "YOUR_REAL_SCAN_COMMAND" \
+  --apply \
+  --apply-cmd "YOUR_REAL_APPLY_COMMAND"
+```
+
+### Scheduler Options
+
+Linux scheduler adapters are included under:
+
+`backend/deploy/schedulers/`
+
+- `cron/` template
+- `systemd/` service + timer + env example
+- `windows/` task scheduler helpers
+- `android/` planning notes
+
+For production hardening:
+- Keep backend bound to localhost
+- Put Nginx reverse proxy in front
+- Restrict internal trigger endpoints to trusted source IPs only
+- Use a strong internal token
+
 ## Requirements
 
 ### For Users
@@ -113,6 +169,18 @@ BPB-Automation-Windows-x64.zip
 - See [Development Guide](docs/development.md)
 
 ## Testing
+
+### Full Validation Script (Recommended)
+
+```bash
+./scripts/run_validation_suite.sh
+```
+
+This runs:
+- `backend` analyzer
+- Flutter analyzer
+- Flutter test suite
+- Isolated backend/API smoke checks (path traversal guard, trigger race conflict, CORS default deny)
 
 ### Run All Tests (Recommended for CI)
 ```bash
@@ -226,7 +294,7 @@ For issues and questions:
 - [x] Panel API integration
 - [x] Multi-platform support
 - [x] Config-based 3-phase Xray scanning
-- [ ] Scheduled auto-scans
+- [x] Scheduled auto-scans (Linux backend worker + scheduler adapters)
 - [ ] Multi-account support
 - [ ] Custom IP lists
 - [ ] In-app updates

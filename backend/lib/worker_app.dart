@@ -7,6 +7,7 @@ class WorkerApp {
   static const _defaultLogDir = '/var/log/bpb-automation';
   static const _defaultRetentionDays = 7;
   static const _defaultMinWorkingIps = 1;
+  static const _defaultMaxRetryDelayMs = 60000;
 
   Future<int> run(List<String> args) async {
     if (args.isEmpty || args.contains('--help') || args.contains('-h')) {
@@ -50,6 +51,11 @@ class WorkerApp {
         _defaultMinWorkingIps;
     final initialRetryDelayMs =
         int.tryParse(opts['initial-retry-delay-ms'] ?? '1000') ?? 1000;
+    final maxRetryDelayMs =
+        int.tryParse(
+          opts['max-retry-delay-ms'] ?? '$_defaultMaxRetryDelayMs',
+        ) ??
+        _defaultMaxRetryDelayMs;
     final requestedBy = opts['requested-by'] ?? 'unknown';
     final requestIp = opts['request-ip'] ?? '-';
 
@@ -73,141 +79,171 @@ class WorkerApp {
     final runId = _buildRunId(runStart);
 
     final statusFile = File('${stateDir.path}/status.json');
-    await statusFile.writeAsString(
-      jsonEncode({
-        'running': true,
-        'run_id': runId,
-        'started_at': runStart.toIso8601String(),
-      }),
-    );
-
-    await logger.info(
-      runId,
-      'Run started (trigger=$trigger, host=$hostLabel, requested_by=$requestedBy, request_ip=$requestIp)',
-    );
-
-    RunResult result;
     try {
-      result = await _withRetries<RunResult>(
-        runId: runId,
-        logger: logger,
-        opName: 'scan',
-        maxAttempts: scanRetries,
-        initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
-        operation: () =>
-            _executeScan(runId: runId, scanCmd: scanCmd, logger: logger),
+      await statusFile.writeAsString(
+        jsonEncode({
+          'running': true,
+          'run_id': runId,
+          'started_at': runStart.toIso8601String(),
+        }),
       );
-    } catch (e) {
-      await logger.error(runId, 'Scan execution failed: $e');
-      result = RunResult.failure(errorSummary: e.toString());
-    }
 
-    bool applied = false;
-    String? applyError;
-    String? applySkippedReason;
-    List<String> previousAppliedIps = const [];
-    List<String> rollbackIps = const [];
-    if (applyEnabled &&
-        result.status == 'success' &&
-        result.workingIps.isNotEmpty) {
-      if (result.workingIps.length < minWorkingIps) {
-        applySkippedReason =
-            'apply skipped: working_count ${result.workingIps.length} below min-working-ips $minWorkingIps';
-        await logger.warn(runId, applySkippedReason);
-      } else {
-        previousAppliedIps = await _readCurrentAppliedIps(stateDir);
-        if (previousAppliedIps.isNotEmpty) {
-          rollbackIps = List<String>.from(previousAppliedIps);
-        }
-        try {
-          await _withRetries<void>(
-            runId: runId,
-            logger: logger,
-            opName: 'apply',
-            maxAttempts: applyRetries,
-            initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
-            operation: () => _executeApply(
+      await logger.info(
+        runId,
+        'Run started (trigger=$trigger, host=$hostLabel, requested_by=$requestedBy, request_ip=$requestIp)',
+      );
+
+      RunResult result;
+      try {
+        result = await _withRetries<RunResult>(
+          runId: runId,
+          logger: logger,
+          opName: 'scan',
+          maxAttempts: scanRetries,
+          initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
+          maxRetryDelay: Duration(milliseconds: maxRetryDelayMs),
+          operation: () =>
+              _executeScan(runId: runId, scanCmd: scanCmd, logger: logger),
+        );
+      } catch (e) {
+        await logger.error(runId, 'Scan execution failed: $e');
+        result = RunResult.failure(errorSummary: e.toString());
+      }
+
+      bool applied = false;
+      String? applyError;
+      String? applySkippedReason;
+      List<String> previousAppliedIps = const [];
+      List<String> rollbackIps = const [];
+      if (applyEnabled &&
+          result.status == 'success' &&
+          result.workingIps.isNotEmpty) {
+        if (result.workingIps.length < minWorkingIps) {
+          applySkippedReason =
+              'apply skipped: working_count ${result.workingIps.length} below min-working-ips $minWorkingIps';
+          await logger.warn(runId, applySkippedReason);
+        } else {
+          previousAppliedIps = await _readCurrentAppliedIps(stateDir);
+          if (previousAppliedIps.isNotEmpty) {
+            rollbackIps = List<String>.from(previousAppliedIps);
+          }
+          try {
+            await _withRetries<void>(
               runId: runId,
-              applyCmd: applyCmd,
-              workingIps: result.workingIps,
               logger: logger,
-            ),
-          );
-          applied = true;
-          await _writeApplySnapshots(
-            stateDir: stateDir,
-            runId: runId,
-            newIps: result.workingIps,
-            previousIps: previousAppliedIps,
-            updateMode: updateMode,
-            requestedBy: requestedBy,
-            requestIp: requestIp,
-          );
-        } catch (e) {
-          applyError = e.toString();
-          await logger.error(runId, 'Apply failed: $applyError');
+              opName: 'apply',
+              maxAttempts: applyRetries,
+              initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
+              maxRetryDelay: Duration(milliseconds: maxRetryDelayMs),
+              operation: () => _executeApply(
+                runId: runId,
+                applyCmd: applyCmd,
+                workingIps: result.workingIps,
+                logger: logger,
+              ),
+            );
+            applied = true;
+            await _writeApplySnapshots(
+              stateDir: stateDir,
+              runId: runId,
+              newIps: result.workingIps,
+              previousIps: previousAppliedIps,
+              updateMode: updateMode,
+              requestedBy: requestedBy,
+              requestIp: requestIp,
+            );
+          } catch (e) {
+            applyError = e.toString();
+            await logger.error(runId, 'Apply failed: $applyError');
+          }
         }
       }
+
+      final runEnd = DateTime.now().toUtc();
+      final durationMs = runEnd.difference(runStart).inMilliseconds;
+      final finalStatus = result.status != 'success'
+          ? 'failed'
+          : (applyEnabled && (applyError != null || applySkippedReason != null)
+                ? 'partial'
+                : 'success');
+
+      final runSummary = <String, dynamic>{
+        'run_id': runId,
+        'trigger': trigger,
+        'host_label': hostLabel,
+        'status': finalStatus,
+        'started_at': runStart.toIso8601String(),
+        'finished_at': runEnd.toIso8601String(),
+        'duration_ms': durationMs,
+        'phase1_passed': result.phase1Passed,
+        'phase2_tested': result.phase2Tested,
+        'working_count': result.workingIps.length,
+        'selected_ips': result.workingIps,
+        'applied': applied,
+        'min_working_ips': minWorkingIps,
+        'apply_skipped_reason': applySkippedReason,
+        'rollback_available': rollbackIps.isNotEmpty,
+        'rollback_ips_count': rollbackIps.length,
+        'update_mode': updateMode,
+        'error_summary': applyError ?? result.errorSummary,
+        'apply_error': applyError,
+        'requested_by': requestedBy,
+        'request_ip': requestIp,
+      };
+
+      await _persistRun(stateDir: stateDir, runId: runId, payload: runSummary);
+      await _appendRunIndex(stateDir: stateDir, payload: runSummary);
+
+      await statusFile.writeAsString(
+        jsonEncode({
+          'running': false,
+          'last_run_id': runId,
+          'last_status': finalStatus,
+          'last_finished_at': runEnd.toIso8601String(),
+        }),
+      );
+
+      await logger.info(
+        runId,
+        'Run finished (status=$finalStatus, applied=$applied)',
+      );
+      final cleanupReport = await _cleanupLogs(
+        logDir: logDir,
+        retentionDays: retentionDays,
+        logger: logger,
+      );
+      final runCleanupReport = await _cleanupRunArtifacts(
+        stateDir: stateDir,
+        retentionDays: retentionDays,
+        logger: logger,
+      );
+      await _writeCleanupReport(
+        stateDir: stateDir,
+        report: cleanupReport.withRunStats(
+          runFilesDeleted: runCleanupReport.runFilesDeleted,
+          runsIndexPruned: runCleanupReport.runsIndexPruned,
+        ),
+      );
+
+      return finalStatus == 'success' ? 0 : 1;
+    } catch (e) {
+      final failedAt = DateTime.now().toUtc();
+      await logger.error(runId, 'Run crashed unexpectedly: $e');
+      await statusFile.writeAsString(
+        jsonEncode({
+          'running': false,
+          'last_run_id': runId,
+          'last_status': 'failed',
+          'last_finished_at': failedAt.toIso8601String(),
+        }),
+      );
+      return 1;
+    } finally {
+      try {
+        await raf.unlock();
+      } catch (_) {}
+      await raf.close();
     }
-
-    final runEnd = DateTime.now().toUtc();
-    final durationMs = runEnd.difference(runStart).inMilliseconds;
-    final finalStatus = result.status != 'success'
-        ? 'failed'
-        : (applyEnabled && (applyError != null || applySkippedReason != null)
-              ? 'partial'
-              : 'success');
-
-    final runSummary = <String, dynamic>{
-      'run_id': runId,
-      'trigger': trigger,
-      'host_label': hostLabel,
-      'status': finalStatus,
-      'started_at': runStart.toIso8601String(),
-      'finished_at': runEnd.toIso8601String(),
-      'duration_ms': durationMs,
-      'phase1_passed': result.phase1Passed,
-      'phase2_tested': result.phase2Tested,
-      'working_count': result.workingIps.length,
-      'selected_ips': result.workingIps,
-      'applied': applied,
-      'min_working_ips': minWorkingIps,
-      'apply_skipped_reason': applySkippedReason,
-      'rollback_available': rollbackIps.isNotEmpty,
-      'rollback_ips_count': rollbackIps.length,
-      'update_mode': updateMode,
-      'error_summary': applyError ?? result.errorSummary,
-      'apply_error': applyError,
-      'requested_by': requestedBy,
-      'request_ip': requestIp,
-    };
-
-    await _persistRun(stateDir: stateDir, runId: runId, payload: runSummary);
-    await _appendRunIndex(stateDir: stateDir, payload: runSummary);
-
-    await statusFile.writeAsString(
-      jsonEncode({
-        'running': false,
-        'last_run_id': runId,
-        'last_status': finalStatus,
-        'last_finished_at': runEnd.toIso8601String(),
-      }),
-    );
-
-    await logger.info(
-      runId,
-      'Run finished (status=$finalStatus, applied=$applied)',
-    );
-    final cleanupReport = await _cleanupLogs(
-      logDir: logDir,
-      retentionDays: retentionDays,
-      logger: logger,
-    );
-    await _writeCleanupReport(stateDir: stateDir, report: cleanupReport);
-
-    await raf.unlock();
-    await raf.close();
-    return finalStatus == 'success' ? 0 : 1;
   }
 
   Future<int> _rollback(Map<String, String> opts) async {
@@ -217,6 +253,11 @@ class WorkerApp {
     final applyRetries = int.tryParse(opts['apply-retries'] ?? '3') ?? 3;
     final initialRetryDelayMs =
         int.tryParse(opts['initial-retry-delay-ms'] ?? '1000') ?? 1000;
+    final maxRetryDelayMs =
+        int.tryParse(
+          opts['max-retry-delay-ms'] ?? '$_defaultMaxRetryDelayMs',
+        ) ??
+        _defaultMaxRetryDelayMs;
     final requestedBy = opts['requested-by'] ?? 'unknown';
     final requestIp = opts['request-ip'] ?? '-';
 
@@ -241,6 +282,7 @@ class WorkerApp {
         opName: 'rollback',
         maxAttempts: applyRetries,
         initialRetryDelay: Duration(milliseconds: initialRetryDelayMs),
+        maxRetryDelay: Duration(milliseconds: maxRetryDelayMs),
         operation: () => _executeApply(
           runId: runId,
           applyCmd: applyCmd,
@@ -278,7 +320,18 @@ class WorkerApp {
       retentionDays: retentionDays,
       logger: logger,
     );
-    await _writeCleanupReport(stateDir: stateDir, report: cleanupReport);
+    final runCleanupReport = await _cleanupRunArtifacts(
+      stateDir: stateDir,
+      retentionDays: retentionDays,
+      logger: logger,
+    );
+    await _writeCleanupReport(
+      stateDir: stateDir,
+      report: cleanupReport.withRunStats(
+        runFilesDeleted: runCleanupReport.runFilesDeleted,
+        runsIndexPruned: runCleanupReport.runsIndexPruned,
+      ),
+    );
     return 0;
   }
 
@@ -363,6 +416,7 @@ class WorkerApp {
     required String opName,
     required int maxAttempts,
     required Duration initialRetryDelay,
+    required Duration maxRetryDelay,
     required Future<T> Function() operation,
   }) async {
     var attempt = 0;
@@ -380,7 +434,8 @@ class WorkerApp {
           '$opName attempt $attempt failed, retrying in ${delay.inMilliseconds}ms: $e',
         );
         await Future.delayed(delay);
-        delay *= 2;
+        final nextDelay = delay * 2;
+        delay = nextDelay > maxRetryDelay ? maxRetryDelay : nextDelay;
       }
     }
   }
@@ -514,12 +569,21 @@ class WorkerApp {
       if (!name.startsWith('app-') || !name.endsWith('.log')) continue;
       final stat = await entity.stat();
       if (stat.modified.toUtc().isBefore(cutoff)) {
-        await entity.delete();
-        deletedFiles++;
-        await logger.info(
-          'maintenance',
-          'Deleted old log file: ${entity.path}',
-        );
+        try {
+          await entity.delete();
+          deletedFiles++;
+          await logger.info(
+            'maintenance',
+            'Deleted old log file: ${entity.path}',
+          );
+        } catch (_) {
+          nonCompliantFiles++;
+          remainingFiles++;
+          await logger.warn(
+            'maintenance',
+            'Failed to delete expired log file: ${entity.path}',
+          );
+        }
         continue;
       }
       remainingFiles++;
@@ -527,9 +591,6 @@ class WorkerApp {
       if (oldestRemainingModifiedAt == null ||
           modified.isBefore(oldestRemainingModifiedAt)) {
         oldestRemainingModifiedAt = modified;
-      }
-      if (modified.isBefore(cutoff)) {
-        nonCompliantFiles++;
       }
     }
     return CleanupReport(
@@ -539,6 +600,76 @@ class WorkerApp {
       remainingFiles: remainingFiles,
       nonCompliantFiles: nonCompliantFiles,
       oldestRemainingModifiedAt: oldestRemainingModifiedAt,
+    );
+  }
+
+  Future<RunCleanupReport> _cleanupRunArtifacts({
+    required Directory stateDir,
+    required int retentionDays,
+    required WorkerLogger logger,
+  }) async {
+    final cutoff = DateTime.now().toUtc().subtract(
+      Duration(days: retentionDays),
+    );
+    final runsDir = Directory('${stateDir.path}/runs');
+    var runFilesDeleted = 0;
+    if (await runsDir.exists()) {
+      await for (final entity in runsDir.list()) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.last;
+        if (!name.endsWith('.json')) continue;
+        final stat = await entity.stat();
+        if (stat.modified.toUtc().isBefore(cutoff)) {
+          try {
+            await entity.delete();
+            runFilesDeleted++;
+            await logger.info(
+              'maintenance',
+              'Deleted old run artifact: ${entity.path}',
+            );
+          } catch (_) {
+            await logger.warn(
+              'maintenance',
+              'Failed to delete old run artifact: ${entity.path}',
+            );
+          }
+        }
+      }
+    }
+
+    final indexFile = File('${stateDir.path}/runs_index.jsonl');
+    var runsIndexPruned = 0;
+    if (await indexFile.exists()) {
+      final lines = await indexFile.readAsLines();
+      final kept = <String>[];
+      for (final line in lines) {
+        final t = line.trim();
+        if (t.isEmpty) continue;
+        var keep = true;
+        try {
+          final decoded = jsonDecode(t) as Map<String, dynamic>;
+          final finishedAtRaw = decoded['finished_at']?.toString();
+          if (finishedAtRaw != null) {
+            final finishedAt = DateTime.tryParse(finishedAtRaw)?.toUtc();
+            if (finishedAt != null && finishedAt.isBefore(cutoff)) {
+              keep = false;
+            }
+          }
+        } catch (_) {
+          keep = false;
+        }
+        if (keep) {
+          kept.add(t);
+        } else {
+          runsIndexPruned++;
+        }
+      }
+      await indexFile.writeAsString(kept.isEmpty ? '' : '${kept.join('\n')}\n');
+    }
+
+    return RunCleanupReport(
+      runFilesDeleted: runFilesDeleted,
+      runsIndexPruned: runsIndexPruned,
     );
   }
 
@@ -596,6 +727,7 @@ Options:
   --apply-retries <n>      apply retries with backoff (default: 3)
   --min-working-ips <n>    require at least n working IPs before apply (default: $_defaultMinWorkingIps)
   --initial-retry-delay-ms retry backoff initial delay in ms (default: 1000)
+  --max-retry-delay-ms <n> retry backoff cap in ms (default: $_defaultMaxRetryDelayMs)
   --requested-by <id>      audit label for caller (default: unknown)
   --request-ip <ip>        caller IP for audit metadata
   --scan-cmd <cmd>         shell command returning scan JSON on stdout
@@ -613,6 +745,8 @@ class CleanupReport {
     required this.remainingFiles,
     required this.nonCompliantFiles,
     required this.oldestRemainingModifiedAt,
+    this.runFilesDeleted = 0,
+    this.runsIndexPruned = 0,
   });
 
   final DateTime checkedAt;
@@ -621,6 +755,24 @@ class CleanupReport {
   final int remainingFiles;
   final int nonCompliantFiles;
   final DateTime? oldestRemainingModifiedAt;
+  final int runFilesDeleted;
+  final int runsIndexPruned;
+
+  CleanupReport withRunStats({
+    required int runFilesDeleted,
+    required int runsIndexPruned,
+  }) {
+    return CleanupReport(
+      checkedAt: checkedAt,
+      retentionDays: retentionDays,
+      deletedFiles: deletedFiles,
+      remainingFiles: remainingFiles,
+      nonCompliantFiles: nonCompliantFiles,
+      oldestRemainingModifiedAt: oldestRemainingModifiedAt,
+      runFilesDeleted: runFilesDeleted,
+      runsIndexPruned: runsIndexPruned,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'checked_at': checkedAt.toUtc().toIso8601String(),
@@ -629,10 +781,22 @@ class CleanupReport {
     'remaining_files': remainingFiles,
     'non_compliant_files': nonCompliantFiles,
     'compliant': nonCompliantFiles == 0,
+    'run_files_deleted': runFilesDeleted,
+    'runs_index_pruned': runsIndexPruned,
     'oldest_remaining_modified_at': oldestRemainingModifiedAt
         ?.toUtc()
         .toIso8601String(),
   };
+}
+
+class RunCleanupReport {
+  RunCleanupReport({
+    required this.runFilesDeleted,
+    required this.runsIndexPruned,
+  });
+
+  final int runFilesDeleted;
+  final int runsIndexPruned;
 }
 
 class RunResult {

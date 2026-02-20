@@ -7,6 +7,17 @@
 
 ## Recommended Commands
 
+### Full Validation Script (RECOMMENDED)
+Run the project validation suite:
+```bash
+./scripts/run_validation_suite.sh
+```
+What it includes:
+- `backend` static analysis (`dart analyze`)
+- app static analysis (`flutter analyze --no-fatal-infos`)
+- full test suite (`flutter test`)
+- isolated backend/API smoke checks (security and scheduler API guards)
+
 ### Daily Development (RECOMMENDED)
 Run all fast tests:
 ```bash
@@ -43,8 +54,7 @@ Use app scan logs (`app_log.txt`) to validate Phase 0/1/2 behavior in your real 
 
 Use this in your CI pipeline:
 ```bash
-flutter test --exclude-tags=integration
-flutter analyze
+./scripts/run_validation_suite.sh
 ```
 
 ## Test Coverage

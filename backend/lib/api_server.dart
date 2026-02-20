@@ -10,6 +10,7 @@ class ApiServerApp {
   static const _defaultRetentionDays = 7;
   static const _defaultHost = '127.0.0.1';
   static const _defaultPort = 8787;
+  Future<int>? _activeRunFuture;
 
   Future<int> run(List<String> args) async {
     if (args.contains('--help') || args.contains('-h')) {
@@ -30,13 +31,14 @@ class ApiServerApp {
     final applyRetries = opts['apply-retries'] ?? '3';
     final minWorkingIps = opts['min-working-ips'] ?? '1';
     final initialRetryDelayMs = opts['initial-retry-delay-ms'] ?? '1000';
+    final maxRetryDelayMs = opts['max-retry-delay-ms'] ?? '60000';
     final hostLabel = opts['host-label'] ?? 'server-host';
     final token =
         opts['internal-token'] ?? Platform.environment['BPB_INTERNAL_TOKEN'];
     final retentionDays =
         int.tryParse(opts['retention-days'] ?? '$_defaultRetentionDays') ??
         _defaultRetentionDays;
-    final allowedTriggerIps = _parseCsv(
+    final allowedTriggerIps = _parseIpCsv(
       opts['allowed-trigger-ips'] ??
           Platform.environment['BPB_ALLOWED_TRIGGER_IPS'] ??
           '127.0.0.1,::1',
@@ -47,6 +49,16 @@ class ApiServerApp {
                 'false')
             .toLowerCase() ==
         'true';
+    final trustedProxyIps = _parseIpCsv(
+      opts['trusted-proxy-ips'] ??
+          Platform.environment['BPB_TRUSTED_PROXY_IPS'] ??
+          '127.0.0.1,::1',
+    );
+    final corsAllowedOrigins = _parseCsv(
+      opts['cors-allowed-origins'] ??
+          Platform.environment['BPB_CORS_ALLOWED_ORIGINS'] ??
+          '',
+    );
 
     await _ensureDirectory(stateDir);
     await _ensureDirectory(logDir);
@@ -71,12 +83,15 @@ class ApiServerApp {
           applyRetries: applyRetries,
           minWorkingIps: minWorkingIps,
           initialRetryDelayMs: initialRetryDelayMs,
+          maxRetryDelayMs: maxRetryDelayMs,
           hostLabel: hostLabel,
           token: token,
           retentionDays: retentionDays,
           audit: audit,
           allowedTriggerIps: allowedTriggerIps,
           trustForwardedFor: trustForwardedFor,
+          trustedProxyIps: trustedProxyIps,
+          corsAllowedOrigins: corsAllowedOrigins,
         ),
       );
     }
@@ -96,15 +111,18 @@ class ApiServerApp {
     required String applyRetries,
     required String minWorkingIps,
     required String initialRetryDelayMs,
+    required String maxRetryDelayMs,
     required String hostLabel,
     required String? token,
     required int retentionDays,
     required AuditLogger audit,
     required Set<String> allowedTriggerIps,
     required bool trustForwardedFor,
+    required Set<String> trustedProxyIps,
+    required Set<String> corsAllowedOrigins,
   }) async {
     try {
-      _addCors(req.response);
+      _addCors(req, req.response, corsAllowedOrigins: corsAllowedOrigins);
       if (req.method == 'OPTIONS') {
         req.response.statusCode = HttpStatus.noContent;
         await req.response.close();
@@ -143,25 +161,18 @@ class ApiServerApp {
         final page = int.tryParse(req.uri.queryParameters['page'] ?? '1') ?? 1;
         final pageSize =
             int.tryParse(req.uri.queryParameters['page_size'] ?? '20') ?? 20;
-        final items = await _readRunsIndex(stateDir);
-        final total = items.length;
-        final start = (page - 1) * pageSize;
-        final end = (start + pageSize).clamp(0, total);
-        final sliced = (start >= 0 && start < total)
-            ? items.sublist(start, end)
-            : <Map<String, dynamic>>[];
-        await _json(req.response, HttpStatus.ok, {
-          'page': page,
-          'page_size': pageSize,
-          'total': total,
-          'items': sliced,
-        });
+        final payload = await _readRunsIndexPage(
+          stateDir,
+          page: page,
+          pageSize: pageSize,
+        );
+        await _json(req.response, HttpStatus.ok, payload);
         return;
       }
 
       if (req.method == 'GET' && path.startsWith('/api/results/')) {
         final runId = path.substring('/api/results/'.length);
-        if (runId.isEmpty || runId == 'latest') {
+        if (runId.isEmpty || runId == 'latest' || !_isSafeRunId(runId)) {
           await _json(req.response, HttpStatus.badRequest, {
             'error': 'invalid run id',
           });
@@ -210,7 +221,11 @@ class ApiServerApp {
       }
 
       if (req.method == 'POST' && path == '/internal/scheduler/run') {
-        final clientIp = _clientIp(req, trustForwardedFor: trustForwardedFor);
+        final clientIp = _clientIp(
+          req,
+          trustForwardedFor: trustForwardedFor,
+          trustedProxyIps: trustedProxyIps,
+        );
         if (!_isSourceAllowed(
           clientIp: clientIp,
           allowedIps: allowedTriggerIps,
@@ -246,7 +261,7 @@ class ApiServerApp {
           File('${stateDir.path}/status.json'),
         );
         final running = (status?['running'] == true);
-        if (running) {
+        if (running || _activeRunFuture != null) {
           await audit.log(
             event: 'trigger_run',
             outcome: 'conflict_running',
@@ -284,6 +299,8 @@ class ApiServerApp {
           minWorkingIps,
           '--initial-retry-delay-ms',
           initialRetryDelayMs,
+          '--max-retry-delay-ms',
+          maxRetryDelayMs,
           '--requested-by',
           'api',
           '--request-ip',
@@ -298,8 +315,15 @@ class ApiServerApp {
             workerArgs.addAll(['--apply-cmd', applyCmd]);
           }
         }
-
-        unawaited(worker.run(workerArgs));
+        final runFuture = worker.run(workerArgs);
+        _activeRunFuture = runFuture;
+        unawaited(
+          runFuture.whenComplete(() {
+            if (identical(_activeRunFuture, runFuture)) {
+              _activeRunFuture = null;
+            }
+          }),
+        );
         await audit.log(
           event: 'trigger_run',
           outcome: 'accepted',
@@ -316,7 +340,11 @@ class ApiServerApp {
       }
 
       if (req.method == 'POST' && path == '/internal/scheduler/rollback') {
-        final clientIp = _clientIp(req, trustForwardedFor: trustForwardedFor);
+        final clientIp = _clientIp(
+          req,
+          trustForwardedFor: trustForwardedFor,
+          trustedProxyIps: trustedProxyIps,
+        );
         if (!_isSourceAllowed(
           clientIp: clientIp,
           allowedIps: allowedTriggerIps,
@@ -359,6 +387,8 @@ class ApiServerApp {
           applyRetries,
           '--initial-retry-delay-ms',
           initialRetryDelayMs,
+          '--max-retry-delay-ms',
+          maxRetryDelayMs,
           '--requested-by',
           'api',
           '--request-ip',
@@ -402,19 +432,47 @@ class ApiServerApp {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _readRunsIndex(Directory stateDir) async {
+  Future<Map<String, dynamic>> _readRunsIndexPage(
+    Directory stateDir, {
+    required int page,
+    required int pageSize,
+  }) async {
     final f = File('${stateDir.path}/runs_index.jsonl');
-    if (!await f.exists()) return [];
-    final lines = await f.readAsLines();
-    final items = <Map<String, dynamic>>[];
-    for (final line in lines) {
-      final t = line.trim();
-      if (t.isEmpty) continue;
-      try {
-        items.add(jsonDecode(t) as Map<String, dynamic>);
-      } catch (_) {}
+    if (!await f.exists()) {
+      return {
+        'page': page,
+        'page_size': pageSize,
+        'total': 0,
+        'items': const [],
+      };
     }
-    return items.reversed.toList();
+    final lines = await f.readAsLines();
+    final nonEmpty = lines.where((e) => e.trim().isNotEmpty).toList();
+    final total = nonEmpty.length;
+    final start = (page - 1) * pageSize;
+    if (start < 0 || start >= total) {
+      return {
+        'page': page,
+        'page_size': pageSize,
+        'total': total,
+        'items': const <Map<String, dynamic>>[],
+      };
+    }
+
+    final out = <Map<String, dynamic>>[];
+    var seen = 0;
+    for (var i = nonEmpty.length - 1; i >= 0; i--) {
+      if (seen < start) {
+        seen++;
+        continue;
+      }
+      if (out.length >= pageSize) break;
+      try {
+        out.add(jsonDecode(nonEmpty[i]) as Map<String, dynamic>);
+      } catch (_) {}
+      seen++;
+    }
+    return {'page': page, 'page_size': pageSize, 'total': total, 'items': out};
   }
 
   Future<Map<String, dynamic>?> _readJsonFile(File file) async {
@@ -458,25 +516,25 @@ class ApiServerApp {
         .toList();
     files.sort((a, b) => b.path.compareTo(a.path));
 
-    final all = <String>[];
+    final start = (page - 1) * pageSize;
+    final endExclusive = start + pageSize;
+    var total = 0;
+    final paged = <String>[];
     for (final file in files) {
       final lines = await file.readAsLines();
       for (final line in lines.reversed) {
-        all.add(_redactLogLine(line));
+        if (total >= start && total < endExclusive) {
+          paged.add(_redactLogLine(line));
+        }
+        total++;
       }
     }
-    final total = all.length;
-    final start = (page - 1) * pageSize;
-    final end = (start + pageSize).clamp(0, total);
-    final sliced = (start >= 0 && start < total)
-        ? all.sublist(start, end)
-        : <String>[];
     return {
       'page': page,
       'page_size': pageSize,
       'total': total,
       // keep newest first for log browsing UX
-      'items': sliced,
+      'items': paged,
     };
   }
 
@@ -539,14 +597,25 @@ class ApiServerApp {
     return header != null && header == token;
   }
 
-  String _clientIp(HttpRequest req, {required bool trustForwardedFor}) {
-    if (trustForwardedFor) {
+  String _clientIp(
+    HttpRequest req, {
+    required bool trustForwardedFor,
+    required Set<String> trustedProxyIps,
+  }) {
+    final remoteRaw = req.connectionInfo?.remoteAddress.address ?? '-';
+    final remoteIp = _normalizeIp(remoteRaw);
+    if (trustForwardedFor && trustedProxyIps.contains(remoteIp)) {
       final forwardedFor = req.headers.value('x-forwarded-for');
       if (forwardedFor != null && forwardedFor.trim().isNotEmpty) {
-        return forwardedFor.split(',').first.trim();
+        for (final candidate in forwardedFor.split(',')) {
+          final normalized = _normalizeIp(candidate.trim());
+          if (normalized != '-') {
+            return normalized;
+          }
+        }
       }
     }
-    return req.connectionInfo?.remoteAddress.address ?? '-';
+    return remoteIp;
   }
 
   bool _isSourceAllowed({
@@ -568,8 +637,25 @@ class ApiServerApp {
     await response.close();
   }
 
-  void _addCors(HttpResponse response) {
-    response.headers.set('Access-Control-Allow-Origin', '*');
+  bool _isSafeRunId(String runId) {
+    return RegExp(r'^[A-Za-z0-9._-]+$').hasMatch(runId);
+  }
+
+  String _normalizeIp(String value) {
+    final parsed = InternetAddress.tryParse(value.trim());
+    return parsed?.address ?? '-';
+  }
+
+  void _addCors(
+    HttpRequest req,
+    HttpResponse response, {
+    required Set<String> corsAllowedOrigins,
+  }) {
+    final origin = req.headers.value('origin');
+    if (origin != null && corsAllowedOrigins.contains(origin)) {
+      response.headers.set('Access-Control-Allow-Origin', origin);
+      response.headers.set('Vary', 'Origin');
+    }
     response.headers.set(
       'Access-Control-Allow-Headers',
       'Content-Type, Authorization, X-Internal-Token',
@@ -613,6 +699,14 @@ class ApiServerApp {
         .toSet();
   }
 
+  Set<String> _parseIpCsv(String input) {
+    return input
+        .split(',')
+        .map((e) => _normalizeIp(e))
+        .where((e) => e != '-')
+        .toSet();
+  }
+
   void _printUsage() {
     stdout.writeln('''
 BPB autoscan API server
@@ -632,12 +726,15 @@ Options:
   --apply-retries <n>       apply retries with backoff (default: 3)
   --min-working-ips <n>     minimum working IPs before apply (default: 1)
   --initial-retry-delay-ms  initial retry delay in milliseconds
+  --max-retry-delay-ms <n>  retry backoff cap in milliseconds (default: 60000)
   --scan-cmd <cmd>          scan command used by POST /internal/scheduler/run
   --apply                   enable apply step after scan
   --apply-cmd <cmd>         apply command
   --internal-token <token>  required token for POST /internal/scheduler/run
   --allowed-trigger-ips <csv> allowed source IPs for /internal endpoints (default: 127.0.0.1,::1)
   --trust-forwarded-for    trust x-forwarded-for for source IP checks
+  --trusted-proxy-ips <csv> proxies allowed to supply x-forwarded-for (default: 127.0.0.1,::1)
+  --cors-allowed-origins <csv> allowed browser origins for CORS reads (default: disabled)
 
 Endpoints:
   GET  /health

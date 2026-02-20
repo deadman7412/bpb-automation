@@ -545,12 +545,32 @@ class StorageService {
 
   /// Saves server backend internal token for trigger endpoint.
   Future<void> saveServerBackendToken(String token) async {
-    await _prefs.setString(_keyServerBackendToken, token);
+    await _secureStorage.write(key: _keyServerBackendToken, value: token);
+    // Remove legacy plaintext value if present.
+    await _prefs.remove(_keyServerBackendToken);
   }
 
   /// Returns stored server backend token or null.
   Future<String?> getServerBackendToken() async {
-    return _prefs.getString(_keyServerBackendToken);
+    try {
+      final secure = await _secureStorage.read(key: _keyServerBackendToken);
+      if (secure != null) return secure;
+    } catch (_) {}
+    // Legacy fallback migration path.
+    final legacy = _prefs.getString(_keyServerBackendToken);
+    if (legacy != null && legacy.isNotEmpty) {
+      await _secureStorage.write(key: _keyServerBackendToken, value: legacy);
+      await _prefs.remove(_keyServerBackendToken);
+      return legacy;
+    }
+    return null;
+  }
+
+  Future<void> clearServerBackendToken() async {
+    try {
+      await _secureStorage.delete(key: _keyServerBackendToken);
+    } catch (_) {}
+    await _prefs.remove(_keyServerBackendToken);
   }
 
   // ==================== Generic Preferences ====================
@@ -609,6 +629,7 @@ class StorageService {
   Future<void> clearAll() async {
     await clearCredentials();
     await clearPanelCredentials();
+    await clearServerBackendToken();
     await clearPreferences();
   }
 

@@ -6,6 +6,20 @@ if "%BPB_SCAN_CMD%"=="" (
   exit /b 1
 )
 
+rem Defensive validation: reject unsafe shell metacharacters in command env vars.
+echo(%BPB_SCAN_CMD%| findstr /r "[&|<>]" >nul
+if %ERRORLEVEL%==0 (
+  echo BPB_SCAN_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
+  exit /b 1
+)
+if not "%BPB_APPLY_CMD%"=="" (
+  echo(%BPB_APPLY_CMD%| findstr /r "[&|<>]" >nul
+  if %ERRORLEVEL%==0 (
+    echo BPB_APPLY_CMD contains unsupported shell metacharacters (^& ^| ^< ^>)
+    exit /b 1
+  )
+)
+
 set "STATE_DIR=%BPB_STATE_DIR%"
 if "%STATE_DIR%"=="" set "STATE_DIR=C:\bpb-automation\state"
 
@@ -32,11 +46,9 @@ if "%TRIGGER%"=="" set "TRIGGER=scheduled"
 
 cd /d C:\bpb-automation\backend
 
-set "CMD=dart run bin\bpb_autoscan.dart run-once --state-dir "%STATE_DIR%" --log-dir "%LOG_DIR%" --trigger "%TRIGGER%" --host-label "%HOST_LABEL%" --update-mode "%UPDATE_MODE%" --scan-retries "%SCAN_RETRIES%" --apply-retries "%APPLY_RETRIES%" --initial-retry-delay-ms "%RETRY_DELAY_MS%" --scan-cmd "%BPB_SCAN_CMD%""
-
-if not "%BPB_APPLY_CMD%"=="" (
-  set "CMD=%CMD% --apply --apply-cmd "%BPB_APPLY_CMD%""
+if "%BPB_APPLY_CMD%"=="" (
+  dart run bin\bpb_autoscan.dart run-once --state-dir "%STATE_DIR%" --log-dir "%LOG_DIR%" --trigger "%TRIGGER%" --host-label "%HOST_LABEL%" --update-mode "%UPDATE_MODE%" --scan-retries "%SCAN_RETRIES%" --apply-retries "%APPLY_RETRIES%" --initial-retry-delay-ms "%RETRY_DELAY_MS%" --scan-cmd "%BPB_SCAN_CMD%"
+) else (
+  dart run bin\bpb_autoscan.dart run-once --state-dir "%STATE_DIR%" --log-dir "%LOG_DIR%" --trigger "%TRIGGER%" --host-label "%HOST_LABEL%" --update-mode "%UPDATE_MODE%" --scan-retries "%SCAN_RETRIES%" --apply-retries "%APPLY_RETRIES%" --initial-retry-delay-ms "%RETRY_DELAY_MS%" --scan-cmd "%BPB_SCAN_CMD%" --apply --apply-cmd "%BPB_APPLY_CMD%"
 )
-
-cmd /c %CMD%
 exit /b %ERRORLEVEL%

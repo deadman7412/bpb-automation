@@ -625,6 +625,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             border: OutlineInputBorder(),
             prefixIcon: Icon(Icons.dns),
           ),
+          validator: (value) {
+            if (!_useServerBackend) return null;
+            final raw = (value ?? '').trim();
+            if (raw.isEmpty) {
+              return 'Backend base URL is required when server mode is enabled';
+            }
+            final uri = Uri.tryParse(raw);
+            if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+              return 'Enter a valid absolute URL';
+            }
+            return null;
+          },
         ),
         const SizedBox(height: 12),
         TextFormField(

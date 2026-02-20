@@ -462,6 +462,8 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     }
 
     final status = _serverLatest!['status']?.toString() ?? 'unknown';
+    final isPartial = status == 'partial';
+    final isSuccess = status == 'success';
     final runId = _serverLatest!['run_id']?.toString() ?? '-';
     final durationMs = (_serverLatest!['duration_ms'] as num?)?.toInt() ?? 0;
     final phase1 = (_serverLatest!['phase1_passed'] as num?)?.toInt() ?? 0;
@@ -483,9 +485,13 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                   child: Column(
                     children: [
                       Icon(
-                        status == 'success' ? Icons.check_circle : Icons.error,
+                        isSuccess
+                            ? Icons.check_circle
+                            : (isPartial ? Icons.warning : Icons.error),
                         size: 56,
-                        color: status == 'success' ? Colors.green : Colors.red,
+                        color: isSuccess
+                            ? Colors.green
+                            : (isPartial ? Colors.orange : Colors.red),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -517,7 +523,9 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                   _buildStatCard(
                     'Status',
                     status,
-                    status == 'success' ? Icons.check : Icons.error,
+                    isSuccess
+                        ? Icons.check
+                        : (isPartial ? Icons.warning : Icons.error),
                   ),
                 ],
               ),

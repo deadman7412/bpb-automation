@@ -17,18 +17,21 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
   final ServerBackendService _api = ServerBackendService.instance;
 
   bool _loading = true;
+  bool _loadInFlight = false;
   String? _error;
   Map<String, dynamic>? _run;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_loading) {
+    if (_loading && !_loadInFlight) {
       _load();
     }
   }
 
   Future<void> _load() async {
+    if (_loadInFlight) return;
+    _loadInFlight = true;
     final args = ModalRoute.of(context)?.settings.arguments;
     final runId = (args is Map<String, dynamic>)
         ? args['run_id']?.toString()
@@ -38,6 +41,7 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
         _loading = false;
         _error = 'Missing run ID';
       });
+      _loadInFlight = false;
       return;
     }
 
@@ -47,6 +51,7 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
         _loading = false;
         _error = 'Server backend URL not configured.';
       });
+      _loadInFlight = false;
       return;
     }
 
@@ -63,6 +68,8 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
         _loading = false;
         _error = e.toString();
       });
+    } finally {
+      _loadInFlight = false;
     }
   }
 
