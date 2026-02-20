@@ -190,6 +190,11 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
                             'Trigger: ${run['trigger'] ?? '-'}',
                           ),
                           trailing: Text(run['finished_at']?.toString() ?? '-'),
+                          onTap: () => Navigator.pushNamed(
+                            context,
+                            '/server-run-detail',
+                            arguments: {'run_id': run['run_id']?.toString()},
+                          ),
                         ),
                       ),
                     ),

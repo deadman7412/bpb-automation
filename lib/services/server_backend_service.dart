@@ -20,6 +20,15 @@ class ServerBackendService {
     return _decodeObject(response);
   }
 
+  Future<Map<String, dynamic>> getResultById({
+    required String baseUrl,
+    required String runId,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/results/$runId');
+    final response = await http.get(uri).timeout(const Duration(seconds: 20));
+    return _decodeObject(response);
+  }
+
   Future<List<Map<String, dynamic>>> getResults({
     required String baseUrl,
     int page = 1,

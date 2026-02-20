@@ -8,6 +8,7 @@ import 'screens/config_scan_results_screen.dart';
 import 'screens/about_screen.dart';
 import 'screens/debug_screen.dart';
 import 'screens/server_history_screen.dart';
+import 'screens/server_run_detail_screen.dart';
 import 'services/storage_service.dart';
 
 void main() async {
@@ -82,6 +83,7 @@ class BPBAutomationApp extends StatelessWidget {
         '/about': (context) => const AboutScreen(),
         '/debug': (context) => const DebugScreen(),
         '/server-history': (context) => const ServerHistoryScreen(),
+        '/server-run-detail': (context) => const ServerRunDetailScreen(),
       },
     );
   }
