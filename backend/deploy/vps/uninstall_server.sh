@@ -44,8 +44,12 @@ confirm() {
   if [[ "$NON_INTERACTIVE" == "true" ]]; then
     return 0
   fi
-  printf "This will remove BPB server services and install files. Continue? [y/N] "
-  read -r ans
+  if [[ -r /dev/tty ]]; then
+    printf "This will remove BPB server services and install files. Continue? [y/N] " >/dev/tty
+    read -r ans </dev/tty
+  else
+    die "Interactive confirmation requires a TTY. Re-run with --non-interactive if intentional."
+  fi
   [[ "$ans" == "y" || "$ans" == "Y" ]] || die "Aborted."
 }
 
