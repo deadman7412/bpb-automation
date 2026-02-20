@@ -464,6 +464,8 @@ class Credentials {
 - Xray binary cannot run in browser; Phase 2 proxy testing unavailable
 - Falls back to Phase 1 TLS results only
 - Config download available as an alternative to auto-update
+- For full Phase 1 + Phase 2 scanning with web UI, deploy browser frontend with a Linux backend worker and scheduler adapter
+- Scheduler integration should be adapter-based per platform (cron/systemd/Task Scheduler/WorkManager), all invoking the same headless "run once" workflow
 
 ## Performance Considerations
 
@@ -486,8 +488,9 @@ class Credentials {
 ## Future Enhancements
 
 - Multi-account support
-- Scan history and analytics
+- Scan history and analytics (server-side persisted run history)
 - Export/import settings
 - Custom IP range input
 - Notification system
-- Background/scheduled scans
+- Background/scheduled scans across platforms via scheduler adapters
+- Server log lifecycle management (rotation + 7-day retention)
