@@ -10,6 +10,7 @@ import 'screens/debug_screen.dart';
 import 'screens/server_history_screen.dart';
 import 'screens/server_run_detail_screen.dart';
 import 'screens/server_logs_screen.dart';
+import 'screens/server_backend_settings_screen.dart';
 import 'services/storage_service.dart';
 
 void main() async {
@@ -86,6 +87,8 @@ class BPBAutomationApp extends StatelessWidget {
         '/server-history': (context) => const ServerHistoryScreen(),
         '/server-run-detail': (context) => const ServerRunDetailScreen(),
         '/server-logs': (context) => const ServerLogsScreen(),
+        '/server-backend-settings': (context) =>
+            const ServerBackendSettingsScreen(),
       },
     );
   }

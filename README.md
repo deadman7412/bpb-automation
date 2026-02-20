@@ -68,6 +68,20 @@ cd bundle
 ./bpb_automation
 ```
 
+#### Linux VPS (Server Package, Recommended)
+One-command installer/update on Ubuntu:
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
+  | sudo bash -s -- --domain scan.example.com --email admin@example.com
+```
+What it does:
+- Downloads latest `BPB-Automation-Server-Linux-x64` from GitHub Releases
+- Installs/updates backend binaries under `/opt/bpb-automation/server`
+- Creates and enables systemd services/timer (auto-start on reboot)
+- Detects nginx/caddy and configures reverse proxy for your domain
+- Tries automatic TLS provisioning (nginx+certbot or caddy native TLS)
+- Blocks `/internal/*` endpoints at proxy layer (public internet cannot reach trigger/rollback routes)
+
 #### Windows
 ```
 Download and extract:
@@ -120,7 +134,7 @@ sudo apt install -y curl jq ca-certificates
 sudo mkdir -p /opt/bpb-automation/backend /var/lib/bpb-automation /var/log/bpb-automation
 ```
 
-Run backend API (example):
+Run backend API manually (advanced/debug path):
 
 ```bash
 cd /opt/bpb-automation/backend
@@ -136,6 +150,8 @@ dart run bin/bpb_api.dart \
   --apply-cmd "YOUR_REAL_APPLY_COMMAND"
 ```
 
+For production, prefer the installer command above.
+
 ### Scheduler Options
 
 Linux scheduler adapters are included under:
@@ -145,7 +161,8 @@ Linux scheduler adapters are included under:
 - `cron/` template
 - `systemd/` service + timer + env example
 - `windows/` task scheduler helpers
-- `android/` planning notes
+- `macos/` launchd adapter scripts
+- `android/` WorkManager integration notes
 
 For production hardening:
 - Keep backend bound to localhost

@@ -23,16 +23,38 @@ class ApiServerApp {
     final port = int.tryParse(opts['port'] ?? '$_defaultPort') ?? _defaultPort;
     final stateDir = Directory(opts['state-dir'] ?? _defaultStateDir);
     final logDir = Directory(opts['log-dir'] ?? _defaultLogDir);
-    final scanCmd = opts['scan-cmd'];
-    final applyCmd = opts['apply-cmd'];
-    final applyEnabled = opts['apply'] == 'true';
-    final updateMode = opts['update-mode'] ?? 'command';
-    final scanRetries = opts['scan-retries'] ?? '3';
-    final applyRetries = opts['apply-retries'] ?? '3';
-    final minWorkingIps = opts['min-working-ips'] ?? '1';
-    final initialRetryDelayMs = opts['initial-retry-delay-ms'] ?? '1000';
-    final maxRetryDelayMs = opts['max-retry-delay-ms'] ?? '60000';
-    final hostLabel = opts['host-label'] ?? 'server-host';
+    final scanCmd = opts['scan-cmd'] ?? Platform.environment['BPB_SCAN_CMD'];
+    final applyCmd = opts['apply-cmd'] ?? Platform.environment['BPB_APPLY_CMD'];
+    final applyEnabled =
+        opts['apply'] == 'true' ||
+        (Platform.environment['BPB_ENABLE_APPLY'] ?? '').toLowerCase() ==
+            'true';
+    final updateMode =
+        opts['update-mode'] ??
+        Platform.environment['BPB_UPDATE_MODE'] ??
+        'command';
+    final scanRetries =
+        opts['scan-retries'] ?? Platform.environment['BPB_SCAN_RETRIES'] ?? '3';
+    final applyRetries =
+        opts['apply-retries'] ??
+        Platform.environment['BPB_APPLY_RETRIES'] ??
+        '3';
+    final minWorkingIps =
+        opts['min-working-ips'] ??
+        Platform.environment['BPB_MIN_WORKING_IPS'] ??
+        '1';
+    final initialRetryDelayMs =
+        opts['initial-retry-delay-ms'] ??
+        Platform.environment['BPB_INITIAL_RETRY_DELAY_MS'] ??
+        '1000';
+    final maxRetryDelayMs =
+        opts['max-retry-delay-ms'] ??
+        Platform.environment['BPB_MAX_RETRY_DELAY_MS'] ??
+        '60000';
+    final hostLabel =
+        opts['host-label'] ??
+        Platform.environment['BPB_HOST_LABEL'] ??
+        'server-host';
     final token =
         opts['internal-token'] ?? Platform.environment['BPB_INTERNAL_TOKEN'];
     final retentionDays =

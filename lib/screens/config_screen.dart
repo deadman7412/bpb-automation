@@ -17,6 +17,8 @@ class ConfigScreen extends StatefulWidget {
 }
 
 class _ConfigScreenState extends State<ConfigScreen> {
+  static const String _localSchedulerIntervalKey =
+      'local_scheduler_interval_hours';
   final StorageService _storage = StorageService.instance;
   final LogService _log = LogService.instance;
   final SubscriptionService _subscription = SubscriptionService.instance;
@@ -30,6 +32,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
   bool _fullScan = false; // Default: use depth slider, not all survivors
   int _ipPoolSize = 1000; // default: 1000 IPs total
   int _batchSize = 200; // default: 200 concurrent connections
+  int _localSchedulerIntervalHours = 6;
   List<XrayConfig>? _cachedConfigs;
 
   @override
@@ -51,6 +54,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     final params = await _storage.getScanParameters();
     final fullScan = await _storage.getFullScan();
     final cachedConfigsJson = await _storage.getCachedConfigs();
+    final schedulerInterval = await _storage.getInt(_localSchedulerIntervalKey);
 
     // Convert JSON to XrayConfig objects
     List<XrayConfig>? configs;
@@ -71,6 +75,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _ipPoolSize = params['ipPoolSize'] ?? 1000;
       _batchSize = params['scanBatchSize'] ?? 200;
       _fullScan = fullScan;
+      _localSchedulerIntervalHours = schedulerInterval ?? 6;
       _cachedConfigs = configs;
       _isLoading = false;
     });
@@ -213,6 +218,10 @@ class _ConfigScreenState extends State<ConfigScreen> {
       ipPoolSize: _ipPoolSize,
       scanBatchSize: _batchSize,
       fullScan: _fullScan,
+    );
+    await _storage.saveInt(
+      _localSchedulerIntervalKey,
+      _localSchedulerIntervalHours,
     );
 
     _log.logOk('Configuration saved successfully');
@@ -963,6 +972,84 @@ class _ConfigScreenState extends State<ConfigScreen> {
                       ),
                     ),
                     const SizedBox(height: 32),
+
+                    // Local Scheduler Section
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.schedule,
+                                  color: Colors.indigo,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Local Scheduler',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Preferred interval: every $_localSchedulerIntervalHours hour(s)',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Slider(
+                              value: _localSchedulerIntervalHours.toDouble(),
+                              min: 1,
+                              max: 24,
+                              divisions: 23,
+                              label: '$_localSchedulerIntervalHours h',
+                              onChanged: (value) {
+                                setState(
+                                  () => _localSchedulerIntervalHours = value
+                                      .round(),
+                                );
+                              },
+                            ),
+                            Text(
+                              'This saves your preferred interval in the app. You must still update your OS scheduler separately.',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: Colors.orange.shade800),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Use this interval when configuring scheduler adapters:',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            SelectableText(
+                              'Linux VPS installer: --timer-hours $_localSchedulerIntervalHours',
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            SelectableText(
+                              'macOS launchd: install-launchd.sh --interval-hours $_localSchedulerIntervalHours',
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Windows: update task trigger repetition to match this interval.',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
 
                     // Save Button
                     SizedBox(

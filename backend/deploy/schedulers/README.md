@@ -19,6 +19,13 @@ dart run bin/bpb_autoscan.dart run-once ...
 - `windows/register-task.ps1`
 - `windows/run-once.cmd`
 
+## macOS
+
+- `macos/com.bpb.automation.autoscan.plist`
+- `macos/install-launchd.sh`
+- `macos/uninstall-launchd.sh`
+- `macos/README.md`
+
 ## Android
 
 - `android/README.md` contains integration guidance using WorkManager.

@@ -11,6 +11,26 @@ dart run bin/bpb_autoscan.dart cleanup [options]
 dart run bin/bpb_api.dart [options]
 ```
 
+## VPS Installer (Ubuntu)
+
+One-command install/update from latest GitHub Release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
+  | sudo bash -s -- --domain scan.example.com --email admin@example.com
+```
+
+The installer will:
+- download latest server package artifact
+- install/update backend files in `/opt/bpb-automation/server/current`
+- create/enable `bpb-api.service` and `bpb-autoscan.timer`
+- configure nginx/caddy reverse proxy for your domain
+- block `/internal/*` endpoints at reverse-proxy layer
+- verify downloaded server package with SHA-256 checksum asset
+
+After install, set real runtime commands in:
+- `/etc/bpb-automation/server.env`
+
 ## Key Behavior
 
 - Acquires exclusive lock (`run.lock`) to prevent overlapping runs
