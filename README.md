@@ -124,7 +124,27 @@ Architecture:
 3. Scheduler (cron/systemd) triggers backend runs
 4. Backend stores run history/logs and serves dashboard endpoints
 
-### Ubuntu Quick Start (Backend)
+### Easy Install (Recommended)
+
+Use the installer. It handles install/update, systemd services/timer, reverse proxy, TLS, and internal route blocking:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
+  | sudo bash -s -- --domain scan.example.com --email admin@example.com
+```
+
+After install:
+1. Edit `/etc/bpb-automation/server.env` and set real `BPB_SCAN_CMD` (and optional `BPB_APPLY_CMD`).
+2. Restart API service:
+```bash
+sudo systemctl restart bpb-api.service
+```
+3. Check status:
+```bash
+systemctl status bpb-api.service bpb-autoscan.timer --no-pager
+```
+
+### Manual Backend Setup (Advanced / Debug)
 
 ```bash
 sudo apt update
