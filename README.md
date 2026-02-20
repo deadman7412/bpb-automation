@@ -97,7 +97,9 @@ curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/bac
 ```
 What it does:
 - Downloads latest `BPB-Automation-Server-Linux-x64` from GitHub Releases
+- Downloads latest `BPB-Automation-Web` bundle from GitHub Releases
 - Installs/updates backend binaries under `/opt/bpb-automation/server`
+- Installs/updates web UI files under `/opt/bpb-automation/web`
 - Creates and enables systemd services/timer (auto-start on reboot)
 - Detects nginx/caddy and configures reverse proxy for your domain
 - Tries automatic TLS provisioning (nginx+certbot or caddy native TLS)
@@ -188,6 +190,10 @@ sudo systemctl restart bpb-api.service
 3. Check status:
 ```bash
 systemctl status bpb-api.service bpb-autoscan.timer --no-pager
+```
+4. Open web UI:
+```bash
+https://scan.example.com
 ```
 
 If certbot fails with `Timeout during connect`, verify:

@@ -29,7 +29,9 @@ curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/bac
 
 The installer will:
 - download latest server package artifact
+- download latest web UI package artifact
 - install/update backend files in `/opt/bpb-automation/server/current`
+- install/update web files in `/opt/bpb-automation/web/current`
 - create/enable `bpb-api.service` and `bpb-autoscan.timer`
 - configure nginx/caddy reverse proxy for your domain
 - block `/internal/*` endpoints at reverse-proxy layer

@@ -7,6 +7,7 @@ CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 SKIP_TLS="${SKIP_TLS:-false}"
 ALLOW_FIREWALL="${ALLOW_FIREWALL:-false}"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/bpb-automation/server}"
+WEB_ROOT="${WEB_ROOT:-/opt/bpb-automation/web}"
 STATE_DIR="${STATE_DIR:-/var/lib/bpb-automation}"
 LOG_DIR="${LOG_DIR:-/var/log/bpb-automation}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/bpb-automation}"
@@ -26,6 +27,7 @@ Options:
   --allow-firewall                Auto-allow 80/tcp and 443/tcp in UFW if needed
   --repo <owner/repo>             GitHub repo (default: $REPO)
   --install-root <path>           Install root (default: $INSTALL_ROOT)
+  --web-root <path>               Web root (default: $WEB_ROOT)
   --state-dir <path>              Runtime state dir (default: $STATE_DIR)
   --log-dir <path>                Runtime log dir (default: $LOG_DIR)
   --api-port <port>               Local API port (default: $API_PORT)
@@ -51,6 +53,7 @@ parse_args() {
       --allow-firewall) ALLOW_FIREWALL="true"; shift ;;
       --repo) REPO="${2:-}"; shift 2 ;;
       --install-root) INSTALL_ROOT="${2:-}"; shift 2 ;;
+      --web-root) WEB_ROOT="${2:-}"; shift 2 ;;
       --state-dir) STATE_DIR="${2:-}"; shift 2 ;;
       --log-dir) LOG_DIR="${2:-}"; shift 2 ;;
       --api-port) API_PORT="${2:-}"; shift 2 ;;
@@ -186,42 +189,65 @@ ensure_firewall_ports() {
   log "UFW updated: allowed 80/tcp and 443/tcp."
 }
 
-fetch_latest_server_package() {
+fetch_latest_release_assets() {
   local api_url="https://api.github.com/repos/$REPO/releases/latest"
   log "Fetching latest release from $REPO"
   local release_json
   release_json="$(curl -fsSL "$api_url")" || die "Failed to fetch release metadata."
   RELEASE_TAG="$(echo "$release_json" | jq -r '.tag_name')"
-  ASSET_URL="$(echo "$release_json" | jq -r '.assets[] | select(.name | test("^BPB-Automation-Server-Linux-x64-.*\\.tar\\.gz$")) | .browser_download_url' | head -n1)"
-  CHECKSUM_URL="$(echo "$release_json" | jq -r '.assets[] | select(.name | test("^BPB-Automation-Server-Linux-x64-.*\\.tar\\.gz\\.sha256$")) | .browser_download_url' | head -n1)"
-  [[ -n "$ASSET_URL" && "$ASSET_URL" != "null" ]] || die "Server package asset not found in latest release."
-  [[ -n "$CHECKSUM_URL" && "$CHECKSUM_URL" != "null" ]] || die "Server package checksum asset not found in latest release."
+  SERVER_ASSET_URL="$(echo "$release_json" | jq -r '.assets[] | select(.name | test("^BPB-Automation-Server-Linux-x64-.*\\.tar\\.gz$")) | .browser_download_url' | head -n1)"
+  SERVER_CHECKSUM_URL="$(echo "$release_json" | jq -r '.assets[] | select(.name | test("^BPB-Automation-Server-Linux-x64-.*\\.tar\\.gz\\.sha256$")) | .browser_download_url' | head -n1)"
+  WEB_ASSET_URL="$(echo "$release_json" | jq -r '.assets[] | select(.name | test("^BPB-Automation-Web-.*\\.tar\\.gz$")) | .browser_download_url' | head -n1)"
+  WEB_CHECKSUM_URL="$(echo "$release_json" | jq -r '.assets[] | select(.name | test("^BPB-Automation-Web-.*\\.tar\\.gz\\.sha256$")) | .browser_download_url' | head -n1)"
+  [[ -n "$SERVER_ASSET_URL" && "$SERVER_ASSET_URL" != "null" ]] || die "Server package asset not found in latest release."
+  [[ -n "$SERVER_CHECKSUM_URL" && "$SERVER_CHECKSUM_URL" != "null" ]] || die "Server package checksum asset not found in latest release."
+  [[ -n "$WEB_ASSET_URL" && "$WEB_ASSET_URL" != "null" ]] || die "Web package asset not found in latest release."
+  [[ -n "$WEB_CHECKSUM_URL" && "$WEB_CHECKSUM_URL" != "null" ]] || die "Web package checksum asset not found in latest release."
 
-  local tmp_pkg="/tmp/bpb-server-${RELEASE_TAG}.tar.gz"
-  local tmp_checksum="/tmp/bpb-server-${RELEASE_TAG}.tar.gz.sha256"
-  curl -fL "$ASSET_URL" -o "$tmp_pkg" || die "Failed to download server package."
-  curl -fL "$CHECKSUM_URL" -o "$tmp_checksum" || die "Failed to download checksum file."
+  local server_pkg="/tmp/bpb-server-${RELEASE_TAG}.tar.gz"
+  local server_checksum="/tmp/bpb-server-${RELEASE_TAG}.tar.gz.sha256"
+  curl -fL "$SERVER_ASSET_URL" -o "$server_pkg" || die "Failed to download server package."
+  curl -fL "$SERVER_CHECKSUM_URL" -o "$server_checksum" || die "Failed to download server checksum file."
   local expected_sha actual_sha
-  expected_sha="$(awk '{print $1}' "$tmp_checksum" | tr -d '\r\n')"
-  [[ -n "$expected_sha" ]] || die "Checksum file is empty or invalid."
-  actual_sha="$(sha256sum "$tmp_pkg" | awk '{print $1}')"
+  expected_sha="$(awk '{print $1}' "$server_checksum" | tr -d '\r\n')"
+  [[ -n "$expected_sha" ]] || die "Server checksum file is empty or invalid."
+  actual_sha="$(sha256sum "$server_pkg" | awk '{print $1}')"
   [[ "$actual_sha" == "$expected_sha" ]] || die "Checksum verification failed for downloaded server package."
-  PACKAGE_PATH="$tmp_pkg"
-  log "Downloaded package: $PACKAGE_PATH"
+  SERVER_PACKAGE_PATH="$server_pkg"
+
+  local web_pkg="/tmp/bpb-web-${RELEASE_TAG}.tar.gz"
+  local web_checksum="/tmp/bpb-web-${RELEASE_TAG}.tar.gz.sha256"
+  curl -fL "$WEB_ASSET_URL" -o "$web_pkg" || die "Failed to download web package."
+  curl -fL "$WEB_CHECKSUM_URL" -o "$web_checksum" || die "Failed to download web checksum file."
+  expected_sha="$(awk '{print $1}' "$web_checksum" | tr -d '\r\n')"
+  [[ -n "$expected_sha" ]] || die "Web checksum file is empty or invalid."
+  actual_sha="$(sha256sum "$web_pkg" | awk '{print $1}')"
+  [[ "$actual_sha" == "$expected_sha" ]] || die "Checksum verification failed for downloaded web package."
+  WEB_PACKAGE_PATH="$web_pkg"
+
+  log "Downloaded packages: $SERVER_PACKAGE_PATH and $WEB_PACKAGE_PATH"
 }
 
 install_server_files() {
   local release_dir="$INSTALL_ROOT/releases/$RELEASE_TAG"
   mkdir -p "$release_dir" "$INSTALL_ROOT/releases"
-  tar -xzf "$PACKAGE_PATH" -C "$release_dir" --strip-components=1
+  tar -xzf "$SERVER_PACKAGE_PATH" -C "$release_dir" --strip-components=1
   ln -sfn "$release_dir" "$INSTALL_ROOT/current"
   log "Installed server files at $INSTALL_ROOT/current"
+}
+
+install_web_files() {
+  local release_dir="$WEB_ROOT/releases/$RELEASE_TAG"
+  mkdir -p "$release_dir" "$WEB_ROOT/releases"
+  tar -xzf "$WEB_PACKAGE_PATH" -C "$release_dir"
+  ln -sfn "$release_dir" "$WEB_ROOT/current"
+  log "Installed web files at $WEB_ROOT/current"
 }
 
 setup_user_and_dirs() {
   id -u bpb >/dev/null 2>&1 || useradd --system --home "$INSTALL_ROOT" --shell /usr/sbin/nologin bpb
   mkdir -p "$STATE_DIR" "$LOG_DIR" "$CONFIG_DIR"
-  chown -R bpb:bpb "$STATE_DIR" "$LOG_DIR" "$INSTALL_ROOT"
+  chown -R bpb:bpb "$STATE_DIR" "$LOG_DIR" "$INSTALL_ROOT" "$WEB_ROOT"
 }
 
 generate_env_if_missing() {
@@ -303,18 +329,33 @@ setup_nginx() {
 server {
   listen 80;
   server_name $DOMAIN;
+  root $WEB_ROOT/current;
+  index index.html;
 
   location /internal/ {
     return 403;
   }
 
-  location / {
+  location /api/ {
     proxy_pass http://127.0.0.1:$API_PORT;
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
+  }
+
+  location = /health {
+    proxy_pass http://127.0.0.1:$API_PORT/health;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
+
+  location / {
+    try_files \$uri \$uri/ /index.html;
   }
 }
 EOF
@@ -344,8 +385,20 @@ setup_caddy() {
   cat >/etc/caddy/Caddyfile <<EOF
 $DOMAIN {
   @internal path /internal/*
-  respond @internal 403
-  reverse_proxy 127.0.0.1:$API_PORT
+  handle @internal {
+    respond 403
+  }
+
+  @api path /api/* /health
+  handle @api {
+    reverse_proxy 127.0.0.1:$API_PORT
+  }
+
+  handle {
+    root * $WEB_ROOT/current
+    try_files {path} /index.html
+    file_server
+  }
 }
 EOF
   systemctl enable --now caddy
@@ -362,8 +415,9 @@ main() {
   check_domain_points_here
   ensure_firewall_ports
   check_port_80
-  fetch_latest_server_package
+  fetch_latest_release_assets
   install_server_files
+  install_web_files
   setup_user_and_dirs
   generate_env_if_missing
   write_systemd_units
@@ -378,6 +432,7 @@ main() {
   fi
 
   log "Install/update complete."
+  log "Web UI: https://$DOMAIN"
   log "Edit $ENV_FILE with real BPB_SCAN_CMD and (optional) BPB_APPLY_CMD."
   log "Then restart API: systemctl restart bpb-api.service"
   log "Status: systemctl status bpb-api.service bpb-autoscan.timer --no-pager"

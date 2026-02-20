@@ -2,6 +2,7 @@
 set -euo pipefail
 
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/bpb-automation/server}"
+WEB_ROOT="${WEB_ROOT:-/opt/bpb-automation/web}"
 STATE_DIR="${STATE_DIR:-/var/lib/bpb-automation}"
 LOG_DIR="${LOG_DIR:-/var/log/bpb-automation}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/bpb-automation}"
@@ -88,6 +89,8 @@ remove_nginx_site() {
 remove_files() {
   log "Removing install files under $INSTALL_ROOT..."
   rm -rf "$INSTALL_ROOT"
+  log "Removing web files under $WEB_ROOT..."
+  rm -rf "$WEB_ROOT"
   if [[ "$KEEP_DATA" != "true" ]]; then
     log "Removing runtime data/log/config directories..."
     rm -rf "$STATE_DIR" "$LOG_DIR" "$CONFIG_DIR"
@@ -102,6 +105,7 @@ main() {
   require_root
   log "Starting uninstall..."
   log "Install root: $INSTALL_ROOT"
+  log "Web root: $WEB_ROOT"
   log "State dir: $STATE_DIR"
   log "Log dir: $LOG_DIR"
   log "Config dir: $CONFIG_DIR"
