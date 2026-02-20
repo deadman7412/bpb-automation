@@ -1,6 +1,8 @@
+// ignore_for_file: avoid_relative_lib_imports
+
 import 'dart:io';
 
-import 'package:bpb_autoscan_worker/worker_app.dart';
+import '../lib/worker_app.dart';
 
 Future<void> main(List<String> args) async {
   final app = WorkerApp();
