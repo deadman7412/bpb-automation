@@ -32,7 +32,7 @@ class WorkerApp {
     final stateDir = Directory(opts['state-dir'] ?? _defaultStateDir);
     final logDir = Directory(opts['log-dir'] ?? _defaultLogDir);
     final trigger = opts['trigger'] ?? 'manual';
-    final hostLabel = opts['host-label'] ?? Platform.localHostname;
+    final hostLabel = opts['host-label'] ?? 'server-host';
     final retentionDays =
         int.tryParse(opts['retention-days'] ?? '$_defaultRetentionDays') ??
         _defaultRetentionDays;

@@ -7,6 +7,7 @@ Headless worker for scheduled server-side runs.
 ```bash
 dart run bin/bpb_autoscan.dart run-once [options]
 dart run bin/bpb_autoscan.dart cleanup [options]
+dart run bin/bpb_api.dart [options]
 ```
 
 ## Key Behavior
@@ -62,4 +63,36 @@ dart run bin/bpb_autoscan.dart run-once \
   --log-dir /tmp/bpb-logs \
   --trigger scheduled \
   --scan-cmd "echo '{\"status\":\"success\",\"phase1_passed\":12,\"phase2_tested\":10,\"working_ips\":[\"1.1.1.1\"]}'"
+```
+
+## API Server
+
+Start local API:
+
+```bash
+dart run bin/bpb_api.dart \
+  --host 127.0.0.1 \
+  --port 8787 \
+  --state-dir /tmp/bpb-state \
+  --log-dir /tmp/bpb-logs \
+  --internal-token local-dev-token \
+  --scan-cmd "echo '{\"status\":\"success\",\"phase1_passed\":3,\"phase2_tested\":2,\"working_ips\":[\"1.1.1.1\"]}'"
+```
+
+Endpoints:
+
+- `GET /health`
+- `GET /api/status`
+- `GET /api/results?page=1&page_size=20`
+- `GET /api/results/latest`
+- `GET /api/results/{run_id}`
+- `GET /api/logs/latest?lines=200`
+- `POST /internal/scheduler/run?trigger=api` (requires token)
+
+Trigger example:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer local-dev-token" \
+  "http://127.0.0.1:8787/internal/scheduler/run?trigger=api"
 ```
