@@ -15,6 +15,30 @@ class MainActivity : FlutterActivity() {
                     "getNativeLibraryDir" -> {
                         result.success(applicationInfo.nativeLibraryDir)
                     }
+                    "startForegroundScanService" -> {
+                        try {
+                            ScanForegroundService.start(this)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error(
+                                "FGS_START_FAILED",
+                                e.message,
+                                null
+                            )
+                        }
+                    }
+                    "stopForegroundScanService" -> {
+                        try {
+                            ScanForegroundService.stop(this)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error(
+                                "FGS_STOP_FAILED",
+                                e.message,
+                                null
+                            )
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

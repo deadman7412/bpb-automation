@@ -3,6 +3,7 @@ import 'dart:async';
 import '../services/storage_service.dart';
 import '../widgets/logs_action_button.dart';
 import '../services/dart_scanner_service.dart';
+import '../services/server_backend_service.dart';
 
 /// Main home screen with navigation menu
 ///
@@ -24,10 +25,12 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storage = StorageService.instance;
   final DartScannerService _scanner = DartScannerService.instance;
+  final ServerBackendService _serverApi = ServerBackendService.instance;
 
   DateTime? _lastScanTime;
   String? _subscriptionUrl;
   bool _useServerBackend = false;
+  bool _startingServerRun = false;
   Timer? _scanStatusTimer;
 
   @override
@@ -58,9 +61,56 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _startScan() {
+  Future<void> _startScan() async {
     if (_useServerBackend) {
-      Navigator.pushNamed(context, '/server-history').then((_) => _loadInfo());
+      if (_startingServerRun) return;
+      final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
+      final token = (await _storage.getServerBackendToken())?.trim() ?? '';
+      if (baseUrl.isEmpty || token.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Set server backend URL + token in Settings first.'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.red,
+          ),
+        );
+        Navigator.pushNamed(context, '/settings').then((_) => _loadInfo());
+        return;
+      }
+
+      setState(() => _startingServerRun = true);
+      try {
+        await _serverApi.triggerRun(
+          baseUrl: baseUrl,
+          token: token,
+          trigger: 'mobile',
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Server run started. You can lock the phone; scan continues on the server.',
+            ),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pushNamed(context, '/server-history').then((_) => _loadInfo());
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to start server run: $e'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.red,
+          ),
+        );
+      } finally {
+        if (mounted) {
+          setState(() => _startingServerRun = false);
+        }
+      }
       return;
     }
 
@@ -192,10 +242,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   SizedBox(
                     height: 64,
                     child: ElevatedButton.icon(
-                      onPressed: _startScan,
+                      onPressed: _startingServerRun ? null : _startScan,
                       icon: Icon(
                         _useServerBackend
-                            ? Icons.history
+                            ? (_startingServerRun
+                                  ? Icons.hourglass_top
+                                  : Icons.cloud_upload)
                             : (_scanner.isScanning
                                   ? Icons.visibility
                                   : Icons.play_arrow),
@@ -203,7 +255,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       label: Text(
                         _useServerBackend
-                            ? 'Open Server Runs'
+                            ? (_startingServerRun
+                                  ? 'Starting Server Scan...'
+                                  : 'Start Server Scan')
                             : (_scanner.isScanning
                                   ? 'View Current Scan'
                                   : 'Start Scan'),

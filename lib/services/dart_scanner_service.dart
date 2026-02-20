@@ -7,6 +7,8 @@ import 'package:bpb_automation/services/ip_loader.dart';
 import 'package:bpb_automation/services/log_service.dart';
 import 'package:bpb_automation/services/config_tester_service.dart';
 import 'package:bpb_automation/services/xray_service.dart';
+import 'package:bpb_automation/services/android_foreground_scan_service.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 /// Progress information for Phase 2 proxy testing
 class Phase2Progress {
@@ -58,6 +60,8 @@ class DartScannerService {
   final IPLoader _ipLoader = IPLoader();
   final ConfigTesterService _configTester = ConfigTesterService.instance;
   final XrayService _xrayService = XrayService.instance;
+  final AndroidForegroundScanService _androidForeground =
+      AndroidForegroundScanService.instance;
 
   // Scan session management
   bool _isScanning = false;
@@ -74,10 +78,8 @@ class DartScannerService {
   Phase2Progress? get lastPhase2Progress => _lastPhase2Progress;
 
   // Completion stream — broadcasts the final result when the scan ends
-  final _completionController =
-      StreamController<ConfigScanResult>.broadcast();
-  Stream<ConfigScanResult> get completionStream =>
-      _completionController.stream;
+  final _completionController = StreamController<ConfigScanResult>.broadcast();
+  Stream<ConfigScanResult> get completionStream => _completionController.stream;
 
   /// Check if a scan is currently running
   bool get isScanning => _isScanning;
@@ -159,20 +161,25 @@ class DartScannerService {
     _isScanning = true;
     _isCancelled = false;
     _configTester.resetCancel();
+    var wakeLockEnabled = false;
 
     _logService.logInfo('===== STARTING CONFIG-BASED SCAN =====');
     _logService.logInfo(
       'Goal: Find $desiredIPCount working IPs using Xray config',
     );
     if (fullScan) {
-      _logService.logInfo('Phase 2: FULL SCAN — will test all Phase 1 survivors');
+      _logService.logInfo(
+        'Phase 2: FULL SCAN — will test all Phase 1 survivors',
+      );
     } else {
       _logService.logInfo('Phase 2 test depth: $phase2TestDepth IPs');
     }
     _logService.logInfo(
       'IPv6 scanning: ${enableIPv6 ? "ENABLED" : "DISABLED"}',
     );
-    final actualPoolSize = ipPoolSize > 0 ? ipPoolSize : _getDefaultIPPoolSize();
+    final actualPoolSize = ipPoolSize > 0
+        ? ipPoolSize
+        : _getDefaultIPPoolSize();
     _logService.logInfo(
       'IP pool size: $actualPoolSize IPs, batch size: $batchSize',
     );
@@ -182,12 +189,25 @@ class DartScannerService {
     // Hoisted so the catch block can produce a TLS-fallback result if Phase 2 crashes
     List<ConfigTestResult> phase1Results = [];
     List<String> candidateIPs = [];
-    XrayConfig selectedConfig = XrayConfig(outbounds: [], inbounds: [], log: {});
+    XrayConfig selectedConfig = XrayConfig(
+      outbounds: [],
+      inbounds: [],
+      log: {},
+    );
 
     // Phase 1 TLS timeout (short — TCP pre-filter eliminates slow IPs first)
     const tlsTimeoutSeconds = 3;
     // Phase 2 proxy timeout (longer — ECH + fragment + VLESS chain needs time)
     const timeoutSeconds = 15;
+
+    try {
+      await WakelockPlus.enable();
+      wakeLockEnabled = true;
+      _logService.logInfo('Wake lock enabled for active scan');
+    } catch (e) {
+      _logService.logWarn('Failed to enable wake lock: $e');
+    }
+    await _androidForeground.start();
 
     try {
       // Step 1: Initialize Xray service
@@ -268,12 +288,15 @@ class DartScannerService {
       );
 
       if (phase1Successful.isNotEmpty) {
-        _logService.logOk('IPs found by TLS test (${phase1Successful.length}):');
+        _logService.logOk(
+          'IPs found by TLS test (${phase1Successful.length}):',
+        );
         for (int i = 0; i < phase1Successful.length; i++) {
           final r = phase1Successful[i];
           final latency = r.tlsTestResult?.latencyMs.toStringAsFixed(0) ?? '?';
-          final cfTag =
-              r.tlsTestResult?.cloudflareVerified == true ? ' [CF]' : '';
+          final cfTag = r.tlsTestResult?.cloudflareVerified == true
+              ? ' [CF]'
+              : '';
           _logService.logInfo('  [${i + 1}] ${r.ip} (TLS: ${latency}ms$cfTag)');
         }
       }
@@ -306,11 +329,13 @@ class DartScannerService {
       final phase2Results = <ConfigTestResult>[];
       var workingCount = 0;
 
-      _emitPhase2Progress(Phase2Progress(
-        totalIPs: phase2Candidates.length,
-        testedIPs: 0,
-        workingIPs: 0,
-      ));
+      _emitPhase2Progress(
+        Phase2Progress(
+          totalIPs: phase2Candidates.length,
+          testedIPs: 0,
+          workingIPs: 0,
+        ),
+      );
 
       for (var i = 0; i < phase2Candidates.length; i++) {
         if (_isCancelled) {
@@ -324,12 +349,14 @@ class DartScannerService {
           'Testing ${i + 1}/${phase2Candidates.length}: $candidateIP',
         );
 
-        _emitPhase2Progress(Phase2Progress(
-          totalIPs: phase2Candidates.length,
-          testedIPs: i,
-          workingIPs: workingCount,
-          currentIP: candidateIP,
-        ));
+        _emitPhase2Progress(
+          Phase2Progress(
+            totalIPs: phase2Candidates.length,
+            testedIPs: i,
+            workingIPs: workingCount,
+            currentIP: candidateIP,
+          ),
+        );
 
         final proxyResult = await _xrayService.testIPWithProxy(
           config: selectedConfig,
@@ -346,32 +373,40 @@ class DartScannerService {
             '$candidateIP works! ($workingCount/$desiredIPCount found)',
           );
 
-          _emitPhase2Progress(Phase2Progress(
-            totalIPs: phase2Candidates.length,
-            testedIPs: i + 1,
-            workingIPs: workingCount,
-          ));
+          _emitPhase2Progress(
+            Phase2Progress(
+              totalIPs: phase2Candidates.length,
+              testedIPs: i + 1,
+              workingIPs: workingCount,
+            ),
+          );
 
           if (workingCount >= desiredIPCount) {
-            _logService.logOk('Target reached! Found $workingCount working IPs');
+            _logService.logOk(
+              'Target reached! Found $workingCount working IPs',
+            );
             break;
           }
         } else {
           _logService.logWarn('$candidateIP failed proxy test');
 
-          _emitPhase2Progress(Phase2Progress(
-            totalIPs: phase2Candidates.length,
-            testedIPs: i + 1,
-            workingIPs: workingCount,
-          ));
+          _emitPhase2Progress(
+            Phase2Progress(
+              totalIPs: phase2Candidates.length,
+              testedIPs: i + 1,
+              workingIPs: workingCount,
+            ),
+          );
         }
       }
 
-      _emitPhase2Progress(Phase2Progress(
-        totalIPs: phase2Candidates.length,
-        testedIPs: phase2Results.length,
-        workingIPs: workingCount,
-      ));
+      _emitPhase2Progress(
+        Phase2Progress(
+          totalIPs: phase2Candidates.length,
+          testedIPs: phase2Results.length,
+          workingIPs: workingCount,
+        ),
+      );
 
       // Merge Phase 1 TLS results into Phase 2 results so TLS fallback works
       final phase1ByIP = {for (final r in phase1Results) r.ip: r};
@@ -381,12 +416,14 @@ class DartScannerService {
         final tlsResult = phase1ByIP[p2Result.ip]?.tlsTestResult;
         final proxyResult = p2Result.proxyTestResult;
         if (tlsResult != null && proxyResult != null) {
-          allResults.add(ConfigTestResult.fromBothTests(
-            ip: p2Result.ip,
-            config: p2Result.config,
-            tlsTestResult: tlsResult,
-            proxyTestResult: proxyResult,
-          ));
+          allResults.add(
+            ConfigTestResult.fromBothTests(
+              ip: p2Result.ip,
+              config: p2Result.config,
+              tlsTestResult: tlsResult,
+              proxyTestResult: proxyResult,
+            ),
+          );
         } else {
           allResults.add(p2Result);
         }
@@ -420,7 +457,6 @@ class DartScannerService {
       );
       _completionController.add(result);
       return result;
-
     } catch (e, stackTrace) {
       _logService.logError('Config scan failed: $e');
       _logService.logError('Stack trace: $stackTrace');
@@ -458,6 +494,16 @@ class DartScannerService {
       );
       _completionController.add(result);
       return result;
+    } finally {
+      await _androidForeground.stop();
+      if (wakeLockEnabled) {
+        try {
+          await WakelockPlus.disable();
+          _logService.logInfo('Wake lock disabled after scan');
+        } catch (e) {
+          _logService.logWarn('Failed to disable wake lock: $e');
+        }
+      }
     }
   }
 }

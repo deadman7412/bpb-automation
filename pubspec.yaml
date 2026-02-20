@@ -60,6 +60,9 @@ dependencies:
   # File sharing for config export
   share_plus: ^7.0.0
 
+  # Keep device awake during long scans (Android + iOS)
+  wakelock_plus: ^1.1.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
