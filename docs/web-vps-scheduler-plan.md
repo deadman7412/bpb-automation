@@ -198,6 +198,7 @@ Minimum endpoints:
 - `GET /api/results` (paginated history)
 - `GET /api/results/latest` (latest scan summary + selected IPs)
 - `GET /api/results/{run_id}` (single run detail)
+- `GET /api/logs` (paginated logs; redacted)
 - `GET /api/logs/latest` (recent logs; redacted)
 
 ## 10) Implementation Phases
@@ -246,7 +247,7 @@ As of 2026-02-20:
     - Android WorkManager integration plan
   - Added scan/apply retry with exponential backoff in worker
   - Added overlap protection via lock file for all adapter-invoked runs
-- Phase C: MOSTLY COMPLETE
+- Phase C: COMPLETE
 - Phase D: NOT STARTED
 
 ## 11) Success Criteria

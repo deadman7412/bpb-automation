@@ -111,6 +111,11 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
         actions: [
           const LogsActionButton(),
           IconButton(
+            icon: const Icon(Icons.article),
+            tooltip: 'Server Logs',
+            onPressed: () => Navigator.pushNamed(context, '/server-logs'),
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loading ? null : _load,
             tooltip: 'Refresh',

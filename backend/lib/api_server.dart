@@ -167,6 +167,19 @@ class ApiServerApp {
         return;
       }
 
+      if (req.method == 'GET' && path == '/api/logs') {
+        final page = int.tryParse(req.uri.queryParameters['page'] ?? '1') ?? 1;
+        final pageSize =
+            int.tryParse(req.uri.queryParameters['page_size'] ?? '200') ?? 200;
+        final payload = await _readPaginatedLogs(
+          logDir: logDir,
+          page: page,
+          pageSize: pageSize.clamp(1, 1000),
+        );
+        await _json(req.response, HttpStatus.ok, payload);
+        return;
+      }
+
       if (req.method == 'POST' && path == '/internal/scheduler/run') {
         if (!_isAuthorized(req, token)) {
           await _json(req.response, HttpStatus.unauthorized, {
@@ -256,7 +269,28 @@ class ApiServerApp {
   }
 
   Future<List<String>> _readRecentLogs(Directory logDir, int maxLines) async {
-    if (!await logDir.exists()) return const [];
+    final payload = await _readPaginatedLogs(
+      logDir: logDir,
+      page: 1,
+      pageSize: maxLines,
+    );
+    final items = payload['items'] as List<dynamic>? ?? const [];
+    return items.map((e) => e.toString()).toList();
+  }
+
+  Future<Map<String, dynamic>> _readPaginatedLogs({
+    required Directory logDir,
+    required int page,
+    required int pageSize,
+  }) async {
+    if (!await logDir.exists()) {
+      return {
+        'page': page,
+        'page_size': pageSize,
+        'total': 0,
+        'items': const [],
+      };
+    }
     final files = await logDir
         .list()
         .where((e) => e is File)
@@ -272,13 +306,73 @@ class ApiServerApp {
     for (final file in files) {
       final lines = await file.readAsLines();
       for (final line in lines.reversed) {
-        all.add(line);
-        if (all.length >= maxLines) {
-          return all.reversed.toList();
-        }
+        all.add(_redactLogLine(line));
       }
     }
-    return all.reversed.toList();
+    final total = all.length;
+    final start = (page - 1) * pageSize;
+    final end = (start + pageSize).clamp(0, total);
+    final sliced = (start >= 0 && start < total)
+        ? all.sublist(start, end)
+        : <String>[];
+    return {
+      'page': page,
+      'page_size': pageSize,
+      'total': total,
+      // keep newest first for log browsing UX
+      'items': sliced,
+    };
+  }
+
+  String _redactLogLine(String line) {
+    var out = line;
+    out = _replaceWithPrefix(
+      out,
+      RegExp(
+        r'(authorization:\s*bearer\s+)[A-Za-z0-9\._\-]+',
+        caseSensitive: false,
+      ),
+    );
+    out = _replaceWithPrefix(
+      out,
+      RegExp(
+        r'(api[_\- ]?token[=:]\s*)[A-Za-z0-9\._\-]+',
+        caseSensitive: false,
+      ),
+    );
+    out = _replaceWithPrefix(
+      out,
+      RegExp(
+        r'((?:x[_\-])?auth[_\- ]?token\s*:\s*)[^\s]+',
+        caseSensitive: false,
+      ),
+    );
+    out = _replaceWithPrefix(
+      out,
+      RegExp(r'((?:cf[_\-])?api[_\- ]?key\s*:\s*)[^\s]+', caseSensitive: false),
+    );
+    out = _replaceWithPrefix(
+      out,
+      RegExp(r'(password[=:]\s*)[^\s]+', caseSensitive: false),
+    );
+    out = _replaceWithPrefix(
+      out,
+      RegExp(r'(account[_\- ]?id[=:]\s*)[A-Za-z0-9\-_]+', caseSensitive: false),
+    );
+    out = _replaceWithPrefix(
+      out,
+      RegExp(
+        r'(kv[_\- ]?namespace[_\- ]?id[=:]\s*)[A-Za-z0-9\-_]+',
+        caseSensitive: false,
+      ),
+    );
+    return out;
+  }
+
+  String _replaceWithPrefix(String input, RegExp pattern) {
+    return input.replaceAllMapped(pattern, (m) {
+      return '${m.group(1)}[REDACTED]';
+    });
   }
 
   bool _isAuthorized(HttpRequest req, String? token) {
@@ -366,6 +460,7 @@ Endpoints:
   GET  /api/results
   GET  /api/results/latest
   GET  /api/results/{run_id}
+  GET  /api/logs?page=1&page_size=200
   GET  /api/logs/latest?lines=200
   POST /internal/scheduler/run?trigger=api
 ''');

@@ -76,7 +76,12 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
           const LogsActionButton(),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : () => setState(() => _loading = true),
+            onPressed: _loading
+                ? null
+                : () {
+                    setState(() => _loading = true);
+                    _load();
+                  },
             tooltip: 'Refresh',
           ),
         ],

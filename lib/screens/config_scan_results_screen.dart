@@ -542,6 +542,12 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.pushNamed(context, '/server-logs'),
+                icon: const Icon(Icons.article),
+                label: const Text('Open Server Logs'),
+              ),
               const SizedBox(height: 16),
               if (ips.isNotEmpty) ...[
                 Row(

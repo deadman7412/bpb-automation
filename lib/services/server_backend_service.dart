@@ -57,6 +57,16 @@ class ServerBackendService {
     return entries.map((e) => e.toString()).toList();
   }
 
+  Future<Map<String, dynamic>> getLogsPage({
+    required String baseUrl,
+    int page = 1,
+    int pageSize = 200,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/logs?page=$page&page_size=$pageSize');
+    final response = await http.get(uri).timeout(const Duration(seconds: 20));
+    return _decodeObject(response);
+  }
+
   Future<void> triggerRun({
     required String baseUrl,
     required String token,
@@ -64,7 +74,13 @@ class ServerBackendService {
   }) async {
     final uri = Uri.parse('$baseUrl/internal/scheduler/run?trigger=$trigger');
     final response = await http
-        .post(uri, headers: {'Authorization': 'Bearer $token'})
+        .post(
+          uri,
+          headers: {
+            'Authorization': 'Bearer $token',
+            'X-Internal-Token': token,
+          },
+        )
         .timeout(const Duration(seconds: 20));
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
