@@ -7,6 +7,7 @@ import '../services/storage_service.dart';
 import '../services/cloudflare_api_service.dart';
 import '../services/panel_api_service.dart';
 import '../services/log_service.dart';
+import '../widgets/logs_action_button.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -582,6 +583,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: const Text('Settings'),
         actions: [
+          const LogsActionButton(),
           IconButton(
             icon: const Icon(Icons.bug_report),
             tooltip: 'Debug & Diagnostics',

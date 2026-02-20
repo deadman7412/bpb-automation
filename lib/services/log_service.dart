@@ -75,7 +75,8 @@ class LogService {
 
   // In-memory log buffer (limited size)
   final List<LogEntry> _logs = [];
-  static const int _maxLogsInMemory = 500;
+  static const int _maxLogsInMemory = 5000;
+  static const int _maxExportLines = 20000;
 
   // File logging
   File? _logFile;
@@ -105,6 +106,7 @@ class LogService {
 
       _logFile = File('${logDir.path}/app.log');
       _isInitialized = true;
+      _loadRecentLogsFromFile();
 
       logInfo('Log service initialized');
     } catch (e) {
@@ -112,6 +114,66 @@ class LogService {
       // ignore: avoid_print
       print('[WARN] Failed to initialize log service: $e');
     }
+  }
+
+  /// Hydrate in-memory logs from the current file so app-visible logs match
+  /// persisted logs across navigation/restart.
+  void _loadRecentLogsFromFile() {
+    if (_logFile == null) return;
+    try {
+      if (!_logFile!.existsSync()) return;
+      final lines = _logFile!.readAsLinesSync();
+      final start = lines.length > _maxLogsInMemory
+          ? lines.length - _maxLogsInMemory
+          : 0;
+      for (final line in lines.skip(start)) {
+        final parsed = _parseSingleLine(line);
+        if (parsed != null) {
+          _logs.add(parsed);
+        }
+      }
+      if (_logs.length > _maxLogsInMemory) {
+        _logs.removeRange(0, _logs.length - _maxLogsInMemory);
+      }
+    } catch (_) {
+      // Ignore parse/hydration failures and continue with runtime logs only.
+    }
+  }
+
+  LogEntry? _parseSingleLine(String line) {
+    final m = RegExp(
+      r'^\[(.*?)\]\s(\[OK\]|\[INFO\]|\[WARN\]|\[ERROR\])\s(.*)$',
+    ).firstMatch(line);
+    if (m == null) return null;
+
+    final timestampRaw = m.group(1)!;
+    final tag = m.group(2)!;
+    final payload = m.group(3)!;
+
+    DateTime ts;
+    try {
+      ts = DateFormat('yyyy-MM-dd HH:mm:ss').parse(timestampRaw);
+    } catch (_) {
+      ts = DateTime.now();
+    }
+
+    final level = switch (tag) {
+      '[OK]' => LogLevel.ok,
+      '[INFO]' => LogLevel.info,
+      '[WARN]' => LogLevel.warn,
+      '[ERROR]' => LogLevel.error,
+      _ => LogLevel.info,
+    };
+
+    String message = payload;
+    String? error;
+    final errIndex = payload.indexOf(' | Error: ');
+    if (errIndex >= 0) {
+      message = payload.substring(0, errIndex);
+      error = payload.substring(errIndex + ' | Error: '.length);
+    }
+
+    return LogEntry(timestamp: ts, level: level, message: message, error: error);
   }
 
   /// Stream of log entries for real-time updates.
@@ -237,20 +299,41 @@ class LogService {
   /// Clears all logs from memory.
   void clearLogs() {
     _logs.clear();
+    if (_isInitialized && _logFile != null) {
+      unawaited(_logFile!.writeAsString('').then((_) {}).catchError((_) {}));
+    }
     logInfo('Logs cleared');
   }
 
   /// Exports all logs as a formatted string.
   String exportLogs() {
+    final exportedLines = <String>[];
+    if (_isInitialized && _logFile != null && _logFile!.existsSync()) {
+      try {
+        final lines = _logFile!.readAsLinesSync();
+        final start = lines.length > _maxExportLines
+            ? lines.length - _maxExportLines
+            : 0;
+        exportedLines.addAll(lines.skip(start));
+      } catch (_) {
+        // Fallback to in-memory export below.
+      }
+    }
+    if (exportedLines.isEmpty) {
+      for (final log in _logs) {
+        exportedLines.add(log.format());
+      }
+    }
+
     final buffer = StringBuffer();
     buffer.writeln('=== BPB Automation Logs ===');
     buffer.writeln('Exported: ${DateTime.now()}');
-    buffer.writeln('Total entries: ${_logs.length}');
+    buffer.writeln('Total entries: ${exportedLines.length}');
     buffer.writeln('=' * 50);
     buffer.writeln();
 
-    for (final log in _logs) {
-      buffer.writeln(log.format());
+    for (final line in exportedLines) {
+      buffer.writeln(line);
       buffer.writeln();
     }
 

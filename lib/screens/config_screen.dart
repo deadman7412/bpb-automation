@@ -3,6 +3,7 @@ import '../models/xray_config.dart';
 import '../services/storage_service.dart';
 import '../services/log_service.dart';
 import '../services/subscription_service.dart';
+import '../widgets/logs_action_button.dart';
 
 /// Simple configuration screen - just the essentials
 ///
@@ -380,6 +381,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       appBar: AppBar(
         title: const Text('Configuration'),
         actions: [
+          const LogsActionButton(),
           IconButton(
             icon: const Icon(Icons.save),
             tooltip: 'Save',

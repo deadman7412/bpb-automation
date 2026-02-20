@@ -233,6 +233,6 @@ For issues and questions:
 
 ## Version
 
-Current: 4.2.2
+Current: 4.2.3
 
 See CHANGELOG.md for version history.

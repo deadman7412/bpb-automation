@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import '../services/storage_service.dart';
+import '../widgets/logs_action_button.dart';
 import '../services/dart_scanner_service.dart';
 
 /// Main home screen with navigation menu
@@ -126,6 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('BPB Clean IP Scanner'),
         centerTitle: true,
+        actions: const [LogsActionButton()],
       ),
       body: SafeArea(
         child: Center(

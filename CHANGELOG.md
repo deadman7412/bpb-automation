@@ -5,6 +5,21 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.3] - 2026-02-20
+
+### Added
+- Global Logs quick-access icon in AppBar across major screens.
+
+### Changed
+- Logging service now hydrates app-visible logs from persisted file on startup.
+- In-memory log retention increased for better history visibility.
+- Log export now prefers file-backed history (with line cap) for more complete exports.
+
+### Fixed
+- Improved consistency between terminal/runtime logs and in-app Logs screen output.
+
+---
+
 ## [4.2.2] - 2026-02-20
 
 ### Added

@@ -7,6 +7,7 @@ import '../services/log_service.dart';
 import '../services/storage_service.dart';
 import '../services/cloudflare_api_service.dart';
 import '../services/xray_service.dart';
+import '../widgets/logs_action_button.dart';
 
 class DebugScreen extends StatefulWidget {
   const DebugScreen({super.key});
@@ -49,6 +50,7 @@ class _DebugScreenState extends State<DebugScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Debug & Diagnostics'),
+        actions: const [LogsActionButton()],
       ),
       body: SafeArea(
         child: SingleChildScrollView(

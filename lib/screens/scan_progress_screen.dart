@@ -10,6 +10,7 @@ import '../services/config_tester_service.dart';
 import '../services/subscription_service.dart';
 import '../services/cloudflare_api_service.dart';
 import '../services/panel_api_service.dart';
+import '../widgets/logs_action_button.dart';
 
 /// Real-time scan progress screen
 ///
@@ -639,15 +640,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Scanning'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.list_alt),
-            tooltip: 'Logs',
-            onPressed: () {
-              Navigator.pushNamed(context, '/logs');
-            },
-          ),
-        ],
+        actions: const [LogsActionButton()],
       ),
       body: SafeArea(
         child: Center(

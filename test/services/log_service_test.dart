@@ -177,23 +177,24 @@ void main() {
     group('Log Buffer Management', () {
       test('maintains maximum log count', () {
         // Add more than max logs
-        for (int i = 0; i < 600; i++) {
+        for (int i = 0; i < 6000; i++) {
           logService.logInfo('Message $i');
         }
 
-        expect(logService.logCount, equals(500)); // Max is 500
+        expect(logService.logCount, equals(5000)); // Max is 5000
       });
 
       test('removes oldest logs when buffer is full', () {
         // Add logs
-        for (int i = 0; i < 600; i++) {
+        for (int i = 0; i < 5100; i++) {
           logService.logInfo('Message $i');
         }
 
         final logs = logService.getLogs();
-        // First message should be Message 100 (0-99 removed)
+        // First message should be Message 100
+        // (initial "Logs cleared" + Message 0..99 removed)
         expect(logs.first.message, equals('Message 100'));
-        expect(logs.last.message, equals('Message 599'));
+        expect(logs.last.message, equals('Message 5099'));
       });
 
       test('clearLogs() removes all logs', () {

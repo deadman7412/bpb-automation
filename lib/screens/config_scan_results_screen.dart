@@ -8,6 +8,7 @@ import '../services/cloudflare_api_service.dart';
 import '../services/panel_api_service.dart';
 import '../services/config_generator_service.dart';
 import '../services/log_service.dart';
+import '../widgets/logs_action_button.dart';
 
 /// Screen for displaying config-based scan results
 ///
@@ -374,7 +375,10 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
   Widget build(BuildContext context) {
     if (_result == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Config Scan Results')),
+        appBar: AppBar(
+          title: const Text('Config Scan Results'),
+          actions: const [LogsActionButton()],
+        ),
         body: const Center(child: Text('No results available')),
       );
     }
@@ -383,6 +387,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       appBar: AppBar(
         title: const Text('Config Scan Results'),
         actions: [
+          const LogsActionButton(),
           IconButton(
             icon: const Icon(Icons.info_outline),
             tooltip: 'Info',
