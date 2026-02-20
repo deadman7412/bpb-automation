@@ -27,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   DateTime? _lastScanTime;
   String? _subscriptionUrl;
+  bool _useServerBackend = false;
   Timer? _scanStatusTimer;
 
   @override
@@ -34,10 +35,9 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadInfo();
     // Periodically refresh so the button reacts to scan state changes
-    _scanStatusTimer = Timer.periodic(
-      const Duration(milliseconds: 500),
-      (_) { if (mounted) setState(() {}); },
-    );
+    _scanStatusTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -49,14 +49,21 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadInfo() async {
     final lastScan = await _storage.getLastScanTime();
     final url = await _storage.getSubscriptionUrl();
+    final useServerBackend = await _storage.getUseServerBackend();
 
     setState(() {
       _lastScanTime = lastScan;
       _subscriptionUrl = url;
+      _useServerBackend = useServerBackend;
     });
   }
 
   void _startScan() {
+    if (_useServerBackend) {
+      Navigator.pushNamed(context, '/server-history').then((_) => _loadInfo());
+      return;
+    }
+
     // If scan is running, just navigate to it (will attach, not start new)
     if (_scanner.isScanning) {
       Navigator.pushNamed(context, '/scan-progress').then((_) => _loadInfo());
@@ -148,7 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           Icon(
                             Icons.cloud_done,
                             size: 64,
-                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onPrimaryContainer,
                           ),
                           const SizedBox(height: 16),
                           Text(
@@ -156,7 +165,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             style: Theme.of(context).textTheme.headlineSmall
                                 ?.copyWith(
                                   fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onPrimaryContainer,
                                 ),
                           ),
                           const SizedBox(height: 8),
@@ -164,7 +175,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             'Find working Cloudflare IPs for your BPB Panel',
                             style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(
-                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onPrimaryContainer,
                                 ),
                             textAlign: TextAlign.center,
                           ),
@@ -181,15 +194,27 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: ElevatedButton.icon(
                       onPressed: _startScan,
                       icon: Icon(
-                        _scanner.isScanning ? Icons.visibility : Icons.play_arrow,
+                        _useServerBackend
+                            ? Icons.history
+                            : (_scanner.isScanning
+                                  ? Icons.visibility
+                                  : Icons.play_arrow),
                         size: 28,
                       ),
                       label: Text(
-                        _scanner.isScanning ? 'View Current Scan' : 'Start Scan',
+                        _useServerBackend
+                            ? 'Open Server Runs'
+                            : (_scanner.isScanning
+                                  ? 'View Current Scan'
+                                  : 'Start Scan'),
                         style: const TextStyle(fontSize: 20),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _scanner.isScanning ? Colors.blue : Colors.green,
+                        backgroundColor: _useServerBackend
+                            ? Colors.indigo
+                            : (_scanner.isScanning
+                                  ? Colors.blue
+                                  : Colors.green),
                         foregroundColor: Colors.white,
                       ),
                     ),
@@ -212,40 +237,50 @@ class _HomeScreenState extends State<HomeScreen> {
                           Row(
                             children: [
                               Icon(
-                                _scanner.isScanning
-                                    ? Icons.sync
-                                    : (_subscriptionUrl != null &&
-                                              _subscriptionUrl!.isNotEmpty
-                                          ? Icons.check_circle
-                                          : Icons.warning),
-                                color: _scanner.isScanning
-                                    ? Colors.blue
-                                    : (_subscriptionUrl != null &&
-                                              _subscriptionUrl!.isNotEmpty
-                                          ? Colors.green
-                                          : Colors.orange),
+                                _useServerBackend
+                                    ? Icons.cloud
+                                    : (_scanner.isScanning
+                                          ? Icons.sync
+                                          : (_subscriptionUrl != null &&
+                                                    _subscriptionUrl!.isNotEmpty
+                                                ? Icons.check_circle
+                                                : Icons.warning)),
+                                color: _useServerBackend
+                                    ? Colors.indigo
+                                    : (_scanner.isScanning
+                                          ? Colors.blue
+                                          : (_subscriptionUrl != null &&
+                                                    _subscriptionUrl!.isNotEmpty
+                                                ? Colors.green
+                                                : Colors.orange)),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  _scanner.isScanning
-                                      ? 'Scan in progress'
-                                      : (_subscriptionUrl != null &&
-                                                _subscriptionUrl!.isNotEmpty
-                                            ? 'Ready to scan'
-                                            : 'Configuration needed'),
+                                  _useServerBackend
+                                      ? 'Server backend mode enabled'
+                                      : (_scanner.isScanning
+                                            ? 'Scan in progress'
+                                            : (_subscriptionUrl != null &&
+                                                      _subscriptionUrl!
+                                                          .isNotEmpty
+                                                  ? 'Ready to scan'
+                                                  : 'Configuration needed')),
                                   style: TextStyle(
-                                    color: _scanner.isScanning
-                                        ? Colors.blue[700]
-                                        : (_subscriptionUrl != null &&
-                                                  _subscriptionUrl!.isNotEmpty
-                                              ? Colors.green[700]
-                                              : Colors.orange[700]),
+                                    color: _useServerBackend
+                                        ? Colors.indigo[700]
+                                        : (_scanner.isScanning
+                                              ? Colors.blue[700]
+                                              : (_subscriptionUrl != null &&
+                                                        _subscriptionUrl!
+                                                            .isNotEmpty
+                                                    ? Colors.green[700]
+                                                    : Colors.orange[700])),
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
-                              if (_scanner.isScanning)
+                              if (!_useServerBackend && _scanner.isScanning)
                                 TextButton(
                                   onPressed: () => Navigator.pushNamed(
                                     context,
@@ -313,10 +348,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       _buildActionCard(
                         context,
-                        'Results',
+                        _useServerBackend ? 'Run History' : 'Results',
                         Icons.list_alt,
                         Colors.green,
-                        () => Navigator.pushNamed(context, '/results'),
+                        () => Navigator.pushNamed(
+                          context,
+                          _useServerBackend ? '/server-history' : '/results',
+                        ),
                       ),
                       _buildActionCard(
                         context,
@@ -370,9 +408,9 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 4),
               Text(
                 label,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,

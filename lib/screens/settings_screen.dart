@@ -23,6 +23,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _kvNamespaceIdController = TextEditingController();
   final _panelBaseUrlController = TextEditingController();
   final _panelPasswordController = TextEditingController();
+  final _serverBaseUrlController = TextEditingController();
+  final _serverTokenController = TextEditingController();
 
   final StorageService _storage = StorageService.instance;
   final CloudflareApiService _api = CloudflareApiService.instance;
@@ -33,9 +35,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isValidating = false;
   bool _obscureToken = true;
   bool _obscurePanelPassword = true;
+  bool _obscureServerToken = true;
   bool _isNormalizingPanelUrl = false;
   bool _hasCredentials = false;
   bool _autoApplyAfterScan = false;
+  bool _useServerBackend = false;
   UpdateMode _updateMode = UpdateMode.panelApi;
 
   @override
@@ -51,6 +55,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _kvNamespaceIdController.dispose();
     _panelBaseUrlController.dispose();
     _panelPasswordController.dispose();
+    _serverBaseUrlController.dispose();
+    _serverTokenController.dispose();
     super.dispose();
   }
 
@@ -62,6 +68,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final credentials = await _storage.getCredentials();
     final panelCredentials = await _storage.getPanelCredentials();
     final autoApplyAfterScan = await _storage.getAutoApplyAfterScan();
+    final useServerBackend = await _storage.getUseServerBackend();
+    final serverBaseUrl = await _storage.getServerBackendBaseUrl();
+    final serverToken = await _storage.getServerBackendToken();
 
     _updateMode = mode;
 
@@ -75,10 +84,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _panelBaseUrlController.text = panelCredentials.baseUrl;
       _panelPasswordController.text = panelCredentials.password;
     }
+    if (serverBaseUrl != null) {
+      _serverBaseUrlController.text = serverBaseUrl;
+    }
+    if (serverToken != null) {
+      _serverTokenController.text = serverToken;
+    }
 
     setState(() {
       _hasCredentials = _hasCredentialsForMode(_updateMode);
       _autoApplyAfterScan = autoApplyAfterScan;
+      _useServerBackend = useServerBackend;
       _isLoading = false;
     });
 
@@ -198,6 +214,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       await _storage.saveUpdateMode(_updateMode);
       await _storage.saveAutoApplyAfterScan(_autoApplyAfterScan);
+      await _storage.saveUseServerBackend(_useServerBackend);
+      await _storage.saveServerBackendBaseUrl(
+        _serverBaseUrlController.text.trim(),
+      );
+      await _storage.saveServerBackendToken(_serverTokenController.text.trim());
 
       setState(() {
         _isLoading = false;
@@ -577,6 +598,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildServerBackendForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Server Backend (Web / Scheduler Mode)',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Use server backend mode'),
+          subtitle: const Text(
+            'When enabled, Home/Results uses server run history endpoints.',
+          ),
+          value: _useServerBackend,
+          onChanged: (value) => setState(() => _useServerBackend = value),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _serverBaseUrlController,
+          decoration: const InputDecoration(
+            labelText: 'Backend Base URL',
+            hintText: 'http://127.0.0.1:8787',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.dns),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _serverTokenController,
+          decoration: InputDecoration(
+            labelText: 'Internal Trigger Token',
+            hintText: 'Optional for manual trigger button',
+            border: const OutlineInputBorder(),
+            prefixIcon: const Icon(Icons.key),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscureServerToken ? Icons.visibility : Icons.visibility_off,
+              ),
+              onPressed: () {
+                setState(() => _obscureServerToken = !_obscureServerToken);
+              },
+            ),
+          ),
+          obscureText: _obscureServerToken,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -619,6 +691,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _buildCloudflareForm()
                       else
                         _buildPanelApiForm(),
+                      const SizedBox(height: 24),
+                      _buildServerBackendForm(),
                       const SizedBox(height: 24),
                       Row(
                         children: [

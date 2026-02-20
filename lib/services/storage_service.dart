@@ -43,6 +43,9 @@ class StorageService {
   static const String _keyScanBatchSize = 'scan_batch_size';
   static const String _keyLastScanResult = 'last_scan_result';
   static const String _keyFullScan = 'full_scan';
+  static const String _keyUseServerBackend = 'use_server_backend';
+  static const String _keyServerBackendBaseUrl = 'server_backend_base_url';
+  static const String _keyServerBackendToken = 'server_backend_token';
 
   StorageService._internal()
     : _secureStorage = const FlutterSecureStorage(
@@ -518,6 +521,36 @@ class StorageService {
       _logService.logWarn('Failed to load last scan result: $e');
       return null;
     }
+  }
+
+  /// Enables/disables server backend mode.
+  Future<void> saveUseServerBackend(bool enabled) async {
+    await _prefs.setBool(_keyUseServerBackend, enabled);
+  }
+
+  /// Returns true when app should use server-side API/history mode.
+  Future<bool> getUseServerBackend() async {
+    return _prefs.getBool(_keyUseServerBackend) ?? false;
+  }
+
+  /// Saves server backend base URL.
+  Future<void> saveServerBackendBaseUrl(String baseUrl) async {
+    await _prefs.setString(_keyServerBackendBaseUrl, baseUrl);
+  }
+
+  /// Returns configured server backend base URL or null.
+  Future<String?> getServerBackendBaseUrl() async {
+    return _prefs.getString(_keyServerBackendBaseUrl);
+  }
+
+  /// Saves server backend internal token for trigger endpoint.
+  Future<void> saveServerBackendToken(String token) async {
+    await _prefs.setString(_keyServerBackendToken, token);
+  }
+
+  /// Returns stored server backend token or null.
+  Future<String?> getServerBackendToken() async {
+    return _prefs.getString(_keyServerBackendToken);
   }
 
   // ==================== Generic Preferences ====================
