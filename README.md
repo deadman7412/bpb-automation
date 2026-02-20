@@ -12,6 +12,27 @@ It supports two update methods:
 
 The app fetches your BPB Panel's Xray subscription configs, then runs a 3-phase scan to find IPs that actually work as a proxy on your network.
 
+## Navigation Table
+
+| Section | Link |
+| --- | --- |
+| Overview | [Go to section](#overview) |
+| Key Features | [Go to section](#key-features) |
+| Supported Platforms | [Go to section](#supported-platforms) |
+| Quick Start | [Go to section](#quick-start) |
+| Documentation | [Go to section](#documentation) |
+| Web + VPS Scheduler (Ubuntu) | [Go to section](#web--vps-scheduler-ubuntu) |
+| Requirements | [Go to section](#requirements) |
+| Testing | [Go to section](#testing) |
+| How It Works | [Go to section](#how-it-works) |
+| Security & Privacy | [Go to section](#security--privacy) |
+| Contributing | [Go to section](#contributing) |
+| License | [Go to section](#license) |
+| Credits | [Go to section](#credits) |
+| Support | [Go to section](#support) |
+| Roadmap | [Go to section](#roadmap) |
+| Version | [Go to section](#version) |
+
 ## Key Features
 
 - **Config-based scanning** - Uses your actual BPB Panel Xray configs to test real proxy connectivity
