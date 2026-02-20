@@ -77,8 +77,10 @@ class StorageService {
   Future<void> saveCredentials(Credentials credentials) async {
     _logService.logInfo('Saving credentials to secure storage');
     _logService.logInfo('API Token length: ${credentials.apiToken.length}');
-    _logService.logInfo('Account ID: ${credentials.accountId}');
-    _logService.logInfo('KV Namespace ID: ${credentials.kvNamespaceId}');
+    _logService.logInfo('Account ID length: ${credentials.accountId.length}');
+    _logService.logInfo(
+      'KV Namespace ID length: ${credentials.kvNamespaceId.length}',
+    );
 
     try {
       await _secureStorage.write(
@@ -127,11 +129,16 @@ class StorageService {
       kvNamespaceId = await _secureStorage.read(key: _keyKvNamespaceId);
 
       _logService.logInfo('Read from secure storage:');
+      _logService.logInfo('  API Token present: ${apiToken != null}');
       _logService.logInfo(
-        '  API Token: ${apiToken != null ? "${apiToken.substring(0, 10)}... (${apiToken.length} chars)" : "null"}',
+        '  API Token length: ${apiToken != null ? apiToken.length : 0}',
       );
-      _logService.logInfo('  Account ID: ${accountId ?? "null"}');
-      _logService.logInfo('  KV Namespace ID: ${kvNamespaceId ?? "null"}');
+      _logService.logInfo(
+        '  Account ID present: ${accountId != null}, length: ${accountId?.length ?? 0}',
+      );
+      _logService.logInfo(
+        '  KV Namespace ID present: ${kvNamespaceId != null}, length: ${kvNamespaceId?.length ?? 0}',
+      );
     } catch (e) {
       _logService.logWarn('Exception reading from secure storage: $e');
     }
@@ -146,11 +153,16 @@ class StorageService {
       kvNamespaceId = _prefs.getString('${_keyKvNamespaceId}_fallback');
 
       _logService.logInfo('SharedPreferences fallback values:');
+      _logService.logInfo('  API Token present: ${apiToken != null}');
       _logService.logInfo(
-        '  API Token: ${apiToken != null ? "${apiToken.substring(0, 10)}... (${apiToken.length} chars)" : "null"}',
+        '  API Token length: ${apiToken != null ? apiToken.length : 0}',
       );
-      _logService.logInfo('  Account ID: ${accountId ?? "null"}');
-      _logService.logInfo('  KV Namespace ID: ${kvNamespaceId ?? "null"}');
+      _logService.logInfo(
+        '  Account ID present: ${accountId != null}, length: ${accountId?.length ?? 0}',
+      );
+      _logService.logInfo(
+        '  KV Namespace ID present: ${kvNamespaceId != null}, length: ${kvNamespaceId?.length ?? 0}',
+      );
     }
 
     if (apiToken == null || accountId == null || kvNamespaceId == null) {

@@ -33,6 +33,7 @@ This Flutter application wraps the Cloudflare Clean IP Scanner binary and provid
 - **Logging System**: Use tags `[OK]` `[INFO]` `[WARN]` `[ERROR]` for all logging
 - **Security**: NO references to development machine, environment, or developer information in the app
 - **STRICTLY FORBIDDEN - No Personal Info**: NEVER write real usernames, real machine names, real local paths, or any developer-identifying information anywhere in code, docs, comments, or examples. This includes but is not limited to: real usernames in paths (e.g. `/Users/<username>`), machine names (e.g. specific laptop/desktop names), developer names, or any environment-specific values. Always use generic placeholders: `/path/to/your/projects`, `<your-machine>`, `some-user`, etc.
+- **STRICT DOCUMENTATION PLACEMENT RULE**: NEVER put documentation files in repository root. All new testing/fixing/bug-reporting documentation MUST be created under `docs/bugs/`.
 
 ## Technical Stack
 
@@ -56,6 +57,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed technical architec
 - [docs/deployment.md](docs/deployment.md) - Building and distributing for different platforms
 - [docs/user-guide.md](docs/user-guide.md) - End-user documentation
 - [docs/project-timeline.md](docs/project-timeline.md) - Project phases, tasks, and progress tracking
+- [docs/bugs/](docs/bugs/) - Testing, fixing, and bug-reporting documentation (required location)
 
 ## Project Structure
 

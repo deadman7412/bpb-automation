@@ -2,33 +2,26 @@
 
 ## Summary
 
-- **348 total tests** in the project
-- **5 fast validation tests** in integration suite
-- **8 slow network tests** in integration suite (tagged to skip)
-- **335 unit tests** across models and services
+- Active test suites are unit/service/model/widget tests.
+- Current recommended baseline is `flutter test --exclude-tags=integration`.
 
 ## Recommended Commands
 
 ### Daily Development (RECOMMENDED)
-Run all fast tests, skip slow network tests:
+Run all fast tests:
 ```bash
 flutter test --exclude-tags=integration
 ```
-**Expected: 348 tests pass in ~15-20 seconds**
+**Expected:** all active non-integration tests pass.
 
-### Integration Tests Only (Fast)
-Run only the 5 fast validation tests:
+### Scanner-Focused Regression
+Run scanner-critical suites directly:
 ```bash
-flutter test test/integration/pareto_scanner_integration_test.dart --exclude-tags=integration
+flutter test test/services/config_tester_service_test.dart
+flutter test test/services/xray_service_test.dart
+flutter test test/services/ip_loader_test.dart test/services/ip_loader_subnet_test.dart
+flutter test test/models/config_scan_result_test.dart
 ```
-**Expected: 5 tests pass in <1 second**
-
-### Full Integration Tests (Slow - NOT RECOMMENDED)
-Run all integration tests including network tests:
-```bash
-flutter test test/integration/pareto_scanner_integration_test.dart
-```
-**Expected: 30-60 minutes, may fail due to network conditions**
 
 ### Static Analysis
 Check for code issues:
@@ -39,45 +32,32 @@ flutter analyze
 
 ## Test Failures
 
-### If Fast Tests Fail (348 tests with --exclude-tags)
+### If Fast Tests Fail
 This indicates a real bug. Investigate and fix.
 
-### If Network Tests Fail (without --exclude-tags)
-This is EXPECTED in many environments due to:
-- Cloudflare rate limiting (HTTP 429)
-- Firewall/ISP restrictions
-- Network connectivity issues
-- No clean IPs found in ranges
-
-**Solution**: Always use `--exclude-tags=integration` for development.
+### If Real Network Scan Behaves Differently
+Unit tests cannot fully model ISP routing and Cloudflare edge behavior.
+Use app scan logs (`app_log.txt`) to validate Phase 0/1/2 behavior in your real network.
 
 ## CI/CD Integration
 
 Use this in your CI pipeline:
 ```bash
-# Run fast tests only (recommended)
 flutter test --exclude-tags=integration
-
-# Check code quality
 flutter analyze
 ```
-
-Do NOT run network integration tests in CI - they're unreliable and slow.
 
 ## Test Coverage
 
 | Test Type | Count | Duration | Command |
 |-----------|-------|----------|---------|
-| Unit tests | 335 | ~15s | `flutter test test/models/ test/services/` |
-| Fast validation | 5 | <1s | `flutter test test/integration/ --exclude-tags=integration` |
-| Network integration | 8 | 30-60min | `flutter test test/integration/ --tags=integration` |
-| **All fast tests** | **348** | **~15-20s** | **`flutter test --exclude-tags=integration`** |
+| Unit/Service/Model/Widget tests | Varies by branch | ~seconds to ~minutes | `flutter test --exclude-tags=integration` |
+| Scanner-focused regression | 4 suites | ~10-30s | Commands listed above |
 
 ## Current Status
 
-✅ All 348 fast tests passing
+✅ Fast test baseline passing
 ✅ 0 analysis issues  
-✅ All 5 bug fixes complete
-✅ Full backward compatibility
+✅ Scanner service tests passing
 
-**Last verified: 2026-02-17**
+**Last verified: 2026-02-20**

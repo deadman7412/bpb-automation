@@ -382,8 +382,12 @@ class _DebugScreenState extends State<DebugScreen> {
       }
 
       final credentials = await _storage.getCredentials();
-      results.add('[INFO] Account ID: ${credentials?.accountId ?? "null"}');
-      results.add('[INFO] KV Namespace ID: ${credentials?.kvNamespaceId ?? "null"}');
+      results.add(
+        '[INFO] Account ID length: ${credentials?.accountId.length ?? 0}',
+      );
+      results.add(
+        '[INFO] KV Namespace ID length: ${credentials?.kvNamespaceId.length ?? 0}',
+      );
       results.add('[INFO] API Token length: ${credentials?.apiToken.length ?? 0}');
 
       if (credentials != null) {
@@ -483,8 +487,12 @@ class _DebugScreenState extends State<DebugScreen> {
       if (hasCredentials) {
         final credentials = await _storage.getCredentials();
         results.add('[OK] Successfully retrieved credentials');
-        results.add('[INFO] Account ID: ${credentials?.accountId}');
-        results.add('[INFO] KV Namespace ID: ${credentials?.kvNamespaceId}');
+        results.add(
+          '[INFO] Account ID length: ${credentials?.accountId.length ?? 0}',
+        );
+        results.add(
+          '[INFO] KV Namespace ID length: ${credentials?.kvNamespaceId.length ?? 0}',
+        );
         results.add('[INFO] API Token length: ${credentials?.apiToken.length}');
       } else {
         results.add('[WARN] No credentials stored');

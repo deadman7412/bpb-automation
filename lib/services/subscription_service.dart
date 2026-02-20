@@ -49,9 +49,10 @@ class SubscriptionService {
   /// Internal method to fetch configs (without retry logic).
   Future<List<XrayConfig>> _fetchConfigsInternal(String subscriptionUrl) async {
     try {
-      _logService.logInfo('Fetching subscription from: $subscriptionUrl');
-
       final url = Uri.parse(subscriptionUrl);
+      _logService.logInfo(
+        'Fetching subscription from host: ${url.host} (query: ${url.query.isNotEmpty ? "present" : "none"})',
+      );
 
       final response = await _client.get(url).timeout(_defaultTimeout);
 

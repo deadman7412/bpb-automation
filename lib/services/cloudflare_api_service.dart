@@ -41,6 +41,13 @@ class CloudflareApiService {
     };
   }
 
+  /// Redacted path for safe logging (prevents leaking account/namespace IDs).
+  String _redactedKvPath(Credentials credentials) {
+    return '/accounts/[redacted:${credentials.accountId.length}]'
+        '/storage/kv/namespaces/[redacted:${credentials.kvNamespaceId.length}]'
+        '/values/proxySettings';
+  }
+
   /// Validate credentials by making a test API call
   Future<bool> validateCredentials(Credentials credentials) async {
     try {
@@ -95,7 +102,7 @@ class CloudflareApiService {
         '$_baseUrl/accounts/${credentials.accountId}/storage/kv/namespaces/${credentials.kvNamespaceId}/values/proxySettings',
       );
 
-      _logService.logInfo('GET $url');
+      _logService.logInfo('GET $_baseUrl${_redactedKvPath(credentials)}');
 
       final response = await _client
           .get(url, headers: _buildHeaders(credentials))
@@ -166,7 +173,7 @@ class CloudflareApiService {
         '$_baseUrl/accounts/${credentials.accountId}/storage/kv/namespaces/${credentials.kvNamespaceId}/values/proxySettings',
       );
 
-      _logService.logInfo('PUT $url');
+      _logService.logInfo('PUT $_baseUrl${_redactedKvPath(credentials)}');
 
       final response = await _client
           .put(
