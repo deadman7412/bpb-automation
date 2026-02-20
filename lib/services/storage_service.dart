@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/credentials.dart';
@@ -46,6 +47,9 @@ class StorageService {
   static const String _keyUseServerBackend = 'use_server_backend';
   static const String _keyServerBackendBaseUrl = 'server_backend_base_url';
   static const String _keyServerBackendToken = 'server_backend_token';
+  static const String _keyServerBackendWebUsername =
+      'server_backend_web_username';
+  static const String _keyServerBackendJwt = 'server_backend_jwt';
 
   StorageService._internal()
     : _secureStorage = const FlutterSecureStorage(
@@ -573,6 +577,44 @@ class StorageService {
     await _prefs.remove(_keyServerBackendToken);
   }
 
+  Future<void> saveServerBackendWebUsername(String username) async {
+    await _prefs.setString(_keyServerBackendWebUsername, username);
+  }
+
+  Future<String?> getServerBackendWebUsername() async {
+    return _prefs.getString(_keyServerBackendWebUsername);
+  }
+
+  Future<void> saveServerBackendJwt(String token) async {
+    await _secureStorage.write(key: _keyServerBackendJwt, value: token);
+    if (kIsWeb) {
+      await _prefs.remove(_keyServerBackendJwt);
+    }
+  }
+
+  Future<String?> getServerBackendJwt() async {
+    try {
+      final secure = await _secureStorage.read(key: _keyServerBackendJwt);
+      if (secure != null && secure.isNotEmpty) return secure;
+    } catch (_) {}
+    if (!kIsWeb) {
+      final legacy = _prefs.getString(_keyServerBackendJwt);
+      if (legacy != null && legacy.isNotEmpty) {
+        await _secureStorage.write(key: _keyServerBackendJwt, value: legacy);
+        await _prefs.remove(_keyServerBackendJwt);
+        return legacy;
+      }
+    }
+    return null;
+  }
+
+  Future<void> clearServerBackendJwt() async {
+    try {
+      await _secureStorage.delete(key: _keyServerBackendJwt);
+    } catch (_) {}
+    await _prefs.remove(_keyServerBackendJwt);
+  }
+
   // ==================== Generic Preferences ====================
 
   /// Saves a string preference.
@@ -630,6 +672,7 @@ class StorageService {
     await clearCredentials();
     await clearPanelCredentials();
     await clearServerBackendToken();
+    await clearServerBackendJwt();
     await clearPreferences();
   }
 

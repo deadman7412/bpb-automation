@@ -26,6 +26,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _panelPasswordController = TextEditingController();
   final _serverBaseUrlController = TextEditingController();
   final _serverTokenController = TextEditingController();
+  final _serverUsernameController = TextEditingController();
+  final _serverPasswordController = TextEditingController();
 
   final StorageService _storage = StorageService.instance;
   final CloudflareApiService _api = CloudflareApiService.instance;
@@ -38,7 +40,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _obscureToken = true;
   bool _obscurePanelPassword = true;
   bool _obscureServerToken = true;
+  bool _obscureServerPassword = true;
   bool _isNormalizingPanelUrl = false;
+  bool _isServerSigningIn = false;
   bool _hasCredentials = false;
   bool _autoApplyAfterScan = false;
   bool _useServerBackend = false;
@@ -59,6 +63,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _panelPasswordController.dispose();
     _serverBaseUrlController.dispose();
     _serverTokenController.dispose();
+    _serverUsernameController.dispose();
+    _serverPasswordController.dispose();
     super.dispose();
   }
 
@@ -73,6 +79,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final useServerBackend = await _storage.getUseServerBackend();
     final serverBaseUrl = await _storage.getServerBackendBaseUrl();
     final serverToken = await _storage.getServerBackendToken();
+    final serverUsername = await _storage.getServerBackendWebUsername();
+    final serverJwt = await _storage.getServerBackendJwt();
 
     _updateMode = mode;
 
@@ -92,15 +100,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (serverToken != null) {
       _serverTokenController.text = serverToken;
     }
+    if (serverUsername != null) {
+      _serverUsernameController.text = serverUsername;
+    }
+    final effectiveUseServerBackend = kIsWeb ? true : useServerBackend;
+    final hasWebSession = (serverJwt ?? '').trim().isNotEmpty;
     setState(() {
-      _hasCredentials = useServerBackend
-          ? _serverBaseUrlController.text.trim().isNotEmpty ||
-                _serverTokenController.text.trim().isNotEmpty
+      _hasCredentials = effectiveUseServerBackend
+          ? (kIsWeb
+                ? _serverBaseUrlController.text.trim().isNotEmpty &&
+                      _serverUsernameController.text.trim().isNotEmpty &&
+                      hasWebSession
+                : _serverBaseUrlController.text.trim().isNotEmpty ||
+                      _serverTokenController.text.trim().isNotEmpty)
           : _hasCredentialsForMode(_updateMode);
       _autoApplyAfterScan = autoApplyAfterScan;
-      _useServerBackend = useServerBackend;
+      _useServerBackend = effectiveUseServerBackend;
       _isLoading = false;
     });
+    if (kIsWeb && !useServerBackend) {
+      await _storage.saveUseServerBackend(true);
+    }
 
     _log.logInfo('SettingsScreen: Finished loading settings');
   }
@@ -173,28 +193,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await _storage.saveUseServerBackend(_useServerBackend);
+      await _storage.saveUseServerBackend(kIsWeb ? true : _useServerBackend);
 
       if (_useServerBackend) {
         await _storage.saveServerBackendBaseUrl(
           _serverBaseUrlController.text.trim(),
         );
-        await _storage.saveServerBackendToken(
-          _serverTokenController.text.trim(),
-        );
+        if (kIsWeb) {
+          await _storage.saveServerBackendWebUsername(
+            _serverUsernameController.text.trim(),
+          );
+        } else {
+          await _storage.saveServerBackendToken(
+            _serverTokenController.text.trim(),
+          );
+        }
+        final hasWebSession =
+            ((await _storage.getServerBackendJwt())?.trim() ?? '').isNotEmpty;
 
         setState(() {
           _isLoading = false;
-          _hasCredentials =
-              _serverBaseUrlController.text.trim().isNotEmpty ||
-              _serverTokenController.text.trim().isNotEmpty;
+          _hasCredentials = kIsWeb
+              ? _serverBaseUrlController.text.trim().isNotEmpty &&
+                    _serverUsernameController.text.trim().isNotEmpty &&
+                    hasWebSession
+              : _serverBaseUrlController.text.trim().isNotEmpty ||
+                    _serverTokenController.text.trim().isNotEmpty;
         });
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Server backend settings saved successfully'),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: Text(
+              kIsWeb && !hasWebSession
+                  ? 'Settings saved. Click Sign In to create a web session.'
+                  : 'Server backend settings saved successfully',
+            ),
+            backgroundColor: (kIsWeb && !hasWebSession)
+                ? Colors.orange
+                : Colors.green,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -306,7 +343,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       bool isValid = false;
       Object? validationError;
       try {
-        await _serverApi.getStatus(baseUrl: baseUrl);
+        if (kIsWeb) {
+          final jwt = (await _storage.getServerBackendJwt())?.trim();
+          await _serverApi.getStatus(baseUrl: baseUrl, authToken: jwt);
+        } else {
+          await _serverApi.getStatus(baseUrl: baseUrl);
+        }
         isValid = true;
       } catch (e, stackTrace) {
         validationError = e;
@@ -318,7 +360,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SnackBar(
           content: Text(
             isValid
-                ? 'Server is reachable. Token was not verified. Trigger/rollback actions will fail if token is incorrect.'
+                ? kIsWeb
+                      ? 'Server connection and web session are valid.'
+                      : 'Server is reachable. Token was not verified. Trigger/rollback actions will fail if token is incorrect.'
+                : (kIsWeb && validationError != null)
+                ? _friendlyWebServerError(
+                    baseUrl: baseUrl,
+                    error: validationError,
+                  )
                 : 'Server backend validation failed: $validationError',
           ),
           backgroundColor: isValid ? Colors.green : Colors.red,
@@ -411,8 +460,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (_useServerBackend) {
       await _storage.saveServerBackendBaseUrl('');
       await _storage.clearServerBackendToken();
+      await _storage.clearServerBackendJwt();
+      await _storage.saveServerBackendWebUsername('');
       _serverBaseUrlController.clear();
       _serverTokenController.clear();
+      _serverUsernameController.clear();
+      _serverPasswordController.clear();
       setState(() => _hasCredentials = false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -670,6 +723,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _signInServerBackendWeb() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    final baseUrl = _serverBaseUrlController.text.trim();
+    final username = _serverUsernameController.text.trim();
+    final password = _serverPasswordController.text;
+    if (password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter your web login password first.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    setState(() => _isServerSigningIn = true);
+    try {
+      final token = await _serverApi.login(
+        baseUrl: baseUrl,
+        username: username,
+        password: password,
+      );
+      // Verify session can actually access protected API before persisting state.
+      await _serverApi.getStatus(baseUrl: baseUrl, authToken: token);
+      await _storage.saveServerBackendBaseUrl(baseUrl);
+      await _storage.saveServerBackendWebUsername(username);
+      await _storage.saveServerBackendJwt(token);
+      _serverPasswordController.clear();
+      if (!mounted) return;
+      setState(() => _hasCredentials = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Server web login successful'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e, stackTrace) {
+      _log.logError('Server web login failed', e, stackTrace);
+      if (!mounted) return;
+      final message = _friendlyWebServerError(baseUrl: baseUrl, error: e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isServerSigningIn = false);
+      }
+    }
+  }
+
+  String _friendlyWebServerError({
+    required String baseUrl,
+    required Object error,
+  }) {
+    if (!kIsWeb) return 'Login failed: $error';
+    final text = error.toString();
+    if (text.contains('XMLHttpRequest error')) {
+      return 'Cannot reach $baseUrl from browser (likely CORS or backend not running). '
+          'Start backend and set --cors-allowed-origins to this web origin.';
+    }
+    return 'Login failed: $error';
+  }
+
   Widget _buildServerBackendCard() {
     final executionMode = _useServerBackend ? 'server' : 'local';
     return Column(
@@ -680,33 +803,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          initialValue: executionMode,
-          decoration: const InputDecoration(
-            labelText: 'Execution Mode',
-            border: OutlineInputBorder(),
-            prefixIcon: Icon(Icons.developer_board),
-          ),
-          items: const [
-            DropdownMenuItem(
-              value: 'local',
-              child: Text('Local Device Scanner'),
+        if (kIsWeb)
+          const ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.lock),
+            title: Text('Server Backend (Web required)'),
+            subtitle: Text(
+              'Web builds always run in server backend mode and require sign-in.',
             ),
-            DropdownMenuItem(value: 'server', child: Text('Server Backend')),
-          ],
-          onChanged: (value) async {
-            if (value == null) return;
-            final useServer = value == 'server';
-            if (!mounted) return;
-            setState(() {
-              _useServerBackend = useServer;
-              _hasCredentials = useServer
-                  ? _serverBaseUrlController.text.trim().isNotEmpty ||
-                        _serverTokenController.text.trim().isNotEmpty
-                  : _hasCredentialsForMode(_updateMode);
-            });
-          },
-        ),
+          )
+        else
+          DropdownButtonFormField<String>(
+            initialValue: executionMode,
+            decoration: const InputDecoration(
+              labelText: 'Execution Mode',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.developer_board),
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: 'local',
+                child: Text('Local Device Scanner'),
+              ),
+              DropdownMenuItem(value: 'server', child: Text('Server Backend')),
+            ],
+            onChanged: (value) async {
+              if (value == null) return;
+              final useServer = value == 'server';
+              if (!mounted) return;
+              setState(() {
+                _useServerBackend = useServer;
+                _hasCredentials = useServer
+                    ? _serverBaseUrlController.text.trim().isNotEmpty ||
+                          _serverTokenController.text.trim().isNotEmpty
+                    : _hasCredentialsForMode(_updateMode);
+              });
+            },
+          ),
         const SizedBox(height: 8),
         Text(
           _useServerBackend
@@ -721,6 +854,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildServerBackendInlineForm() {
+    final showWeb = kIsWeb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -759,24 +893,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
         ),
         const SizedBox(height: 12),
-        TextFormField(
-          controller: _serverTokenController,
-          decoration: InputDecoration(
-            labelText: 'Internal Trigger Token',
-            hintText: 'Required for trigger/rollback actions',
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.key),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscureServerToken ? Icons.visibility : Icons.visibility_off,
-              ),
-              onPressed: () {
-                setState(() => _obscureServerToken = !_obscureServerToken);
-              },
+        if (showWeb) ...[
+          TextFormField(
+            controller: _serverUsernameController,
+            decoration: const InputDecoration(
+              labelText: 'Web Login Username',
+              hintText: 'Username configured on backend',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.person),
             ),
+            validator: (value) {
+              if (!_useServerBackend || !kIsWeb) return null;
+              if ((value ?? '').trim().isEmpty) {
+                return 'Username is required for web login';
+              }
+              return null;
+            },
           ),
-          obscureText: _obscureServerToken,
-        ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _serverPasswordController,
+            decoration: InputDecoration(
+              labelText: 'Web Login Password',
+              hintText: 'Password configured on backend',
+              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.lock),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscureServerPassword
+                      ? Icons.visibility
+                      : Icons.visibility_off,
+                ),
+                onPressed: () {
+                  setState(
+                    () => _obscureServerPassword = !_obscureServerPassword,
+                  );
+                },
+              ),
+            ),
+            obscureText: _obscureServerPassword,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Web mode stores only a JWT session token locally. Your password is not persisted.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
+          ),
+        ] else
+          TextFormField(
+            controller: _serverTokenController,
+            decoration: InputDecoration(
+              labelText: 'Internal Trigger Token',
+              hintText: 'Required for trigger/rollback actions',
+              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.key),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscureServerToken ? Icons.visibility : Icons.visibility_off,
+                ),
+                onPressed: () {
+                  setState(() => _obscureServerToken = !_obscureServerToken);
+                },
+              ),
+            ),
+            obscureText: _obscureServerToken,
+          ),
       ],
     );
   }
@@ -831,46 +1013,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _buildPanelApiForm(),
                       ],
                       const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _isValidating
-                                  ? null
-                                  : _validateCurrentCredentials,
-                              icon: _isValidating
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(Icons.check_circle),
-                              label: Text(
-                                _isValidating ? 'Validating...' : 'Validate',
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white,
+                      if (_useServerBackend && kIsWeb)
+                        ElevatedButton.icon(
+                          onPressed: _isServerSigningIn
+                              ? null
+                              : _signInServerBackendWeb,
+                          icon: _isServerSigningIn
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.login),
+                          label: Text(
+                            _isServerSigningIn
+                                ? 'Signing in...'
+                                : 'Sign In and Verify',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                          ),
+                        )
+                      else
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isValidating
+                                    ? null
+                                    : _validateCurrentCredentials,
+                                icon: _isValidating
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.check_circle),
+                                label: Text(
+                                  _isValidating ? 'Validating...' : 'Validate',
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _saveCurrentCredentials,
-                              icon: const Icon(Icons.save),
-                              label: const Text('Save'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _saveCurrentCredentials,
+                                icon: const Icon(Icons.save),
+                                label: const Text('Save'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
                       if (_hasCredentials) ...[
                         const SizedBox(height: 16),
                         OutlinedButton.icon(

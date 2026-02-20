@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../services/server_backend_service.dart';
 import '../services/storage_service.dart';
@@ -35,7 +36,9 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
       _error = null;
     });
     final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
-    final token = (await _storage.getServerBackendToken())?.trim() ?? '';
+    final token = kIsWeb
+        ? (await _storage.getServerBackendJwt())?.trim() ?? ''
+        : (await _storage.getServerBackendToken())?.trim() ?? '';
     if (baseUrl.isEmpty) {
       setState(() {
         _loading = false;
@@ -45,13 +48,23 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
       });
       return;
     }
+    if (kIsWeb && token.isEmpty) {
+      setState(() {
+        _loading = false;
+        _baseUrl = baseUrl;
+        _token = token;
+        _error = 'Web login required. Open Settings and sign in.';
+      });
+      return;
+    }
 
     try {
-      final status = await _api.getStatus(baseUrl: baseUrl);
+      final status = await _api.getStatus(baseUrl: baseUrl, authToken: token);
       final runs = await _api.getResults(
         baseUrl: baseUrl,
         page: 1,
         pageSize: 50,
+        authToken: token,
       );
       if (!mounted) return;
       setState(() {
@@ -74,7 +87,12 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
 
   Future<void> _triggerNow() async {
     if (_baseUrl.isEmpty || _token.isEmpty) {
-      _show('Set server URL + token in Settings first.', isError: true);
+      _show(
+        kIsWeb
+            ? 'Set server URL and sign in from Settings first.'
+            : 'Set server URL + token in Settings first.',
+        isError: true,
+      );
       return;
     }
 
@@ -94,7 +112,12 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
 
   Future<void> _rollbackLastApply() async {
     if (_baseUrl.isEmpty || _token.isEmpty) {
-      _show('Set server URL + token in Settings first.', isError: true);
+      _show(
+        kIsWeb
+            ? 'Set server URL and sign in from Settings first.'
+            : 'Set server URL + token in Settings first.',
+        isError: true,
+      );
       return;
     }
     final shouldRollback = await showDialog<bool>(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../services/storage_service.dart';
 import '../widgets/logs_action_button.dart';
 import '../services/dart_scanner_service.dart';
@@ -31,6 +32,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _subscriptionUrl;
   bool _useServerBackend = false;
   bool _startingServerRun = false;
+  bool _webHasServerConfig = false;
+  bool _webHasSession = false;
   Timer? _scanStatusTimer;
 
   @override
@@ -53,11 +56,20 @@ class _HomeScreenState extends State<HomeScreen> {
     final lastScan = await _storage.getLastScanTime();
     final url = await _storage.getSubscriptionUrl();
     final useServerBackend = await _storage.getUseServerBackend();
+    final serverBaseUrl =
+        (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
+    final serverJwt = (await _storage.getServerBackendJwt())?.trim() ?? '';
+
+    if (kIsWeb && !useServerBackend) {
+      await _storage.saveUseServerBackend(true);
+    }
 
     setState(() {
       _lastScanTime = lastScan;
       _subscriptionUrl = url;
-      _useServerBackend = useServerBackend;
+      _useServerBackend = kIsWeb ? true : useServerBackend;
+      _webHasServerConfig = serverBaseUrl.isNotEmpty;
+      _webHasSession = serverJwt.isNotEmpty;
     });
   }
 
@@ -65,12 +77,16 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_useServerBackend) {
       if (_startingServerRun) return;
       final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
-      final token = (await _storage.getServerBackendToken())?.trim() ?? '';
+      final token = kIsWeb
+          ? (await _storage.getServerBackendJwt())?.trim() ?? ''
+          : (await _storage.getServerBackendToken())?.trim() ?? '';
       if (baseUrl.isEmpty || token.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Set server backend URL + token in Settings first.'),
+            content: Text(
+              'Set server backend URL and login/token in Settings first.',
+            ),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Colors.red,
           ),
@@ -96,7 +112,10 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.pushNamed(context, '/server-history').then((_) => _loadInfo());
+        Navigator.pushNamed(
+          context,
+          '/server-history',
+        ).then((_) => _loadInfo());
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -180,6 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final webAuthBlocked = kIsWeb && (!_webHasServerConfig || !_webHasSession);
     return Scaffold(
       appBar: AppBar(
         title: const Text('BPB Clean IP Scanner'),
@@ -242,7 +262,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   SizedBox(
                     height: 64,
                     child: ElevatedButton.icon(
-                      onPressed: _startingServerRun ? null : _startScan,
+                      onPressed: (_startingServerRun || webAuthBlocked)
+                          ? null
+                          : _startScan,
                       icon: Icon(
                         _useServerBackend
                             ? (_startingServerRun
@@ -254,7 +276,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         size: 28,
                       ),
                       label: Text(
-                        _useServerBackend
+                        webAuthBlocked
+                            ? 'Sign In Required'
+                            : _useServerBackend
                             ? (_startingServerRun
                                   ? 'Starting Server Scan...'
                                   : 'Start Server Scan')
@@ -273,6 +297,32 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
+
+                  if (webAuthBlocked) ...[
+                    const SizedBox(height: 12),
+                    Card(
+                      color: Colors.orange.withValues(alpha: 0.12),
+                      child: ListTile(
+                        leading: const Icon(
+                          Icons.lock_outline,
+                          color: Colors.orange,
+                        ),
+                        title: const Text('Web access is locked'),
+                        subtitle: Text(
+                          _webHasServerConfig
+                              ? 'Sign in from Settings to continue.'
+                              : 'Configure server backend URL and sign in from Settings.',
+                        ),
+                        trailing: TextButton(
+                          onPressed: () => Navigator.pushNamed(
+                            context,
+                            '/settings',
+                          ).then((_) => _loadInfo()),
+                          child: const Text('Open Settings'),
+                        ),
+                      ),
+                    ),
+                  ],
 
                   const SizedBox(height: 32),
 
@@ -312,7 +362,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               Expanded(
                                 child: Text(
                                   _useServerBackend
-                                      ? 'Server backend mode enabled'
+                                      ? (webAuthBlocked
+                                            ? 'Authentication required'
+                                            : 'Server backend mode enabled')
                                       : (_scanner.isScanning
                                             ? 'Scan in progress'
                                             : (_subscriptionUrl != null &&
@@ -322,7 +374,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                                   : 'Configuration needed')),
                                   style: TextStyle(
                                     color: _useServerBackend
-                                        ? Colors.indigo[700]
+                                        ? (webAuthBlocked
+                                              ? Colors.orange[700]
+                                              : Colors.indigo[700])
                                         : (_scanner.isScanning
                                               ? Colors.blue[700]
                                               : (_subscriptionUrl != null &&

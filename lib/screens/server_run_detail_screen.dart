@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 import '../services/server_backend_service.dart';
 import '../services/storage_service.dart';
@@ -46,6 +47,9 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
     }
 
     final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
+    final authToken = kIsWeb
+        ? (await _storage.getServerBackendJwt())?.trim() ?? ''
+        : '';
     if (baseUrl.isEmpty) {
       setState(() {
         _loading = false;
@@ -54,9 +58,21 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
       _loadInFlight = false;
       return;
     }
+    if (kIsWeb && authToken.isEmpty) {
+      setState(() {
+        _loading = false;
+        _error = 'Web login required. Open Settings and sign in.';
+      });
+      _loadInFlight = false;
+      return;
+    }
 
     try {
-      final run = await _api.getResultById(baseUrl: baseUrl, runId: runId);
+      final run = await _api.getResultById(
+        baseUrl: baseUrl,
+        runId: runId,
+        authToken: authToken,
+      );
       if (!mounted) return;
       setState(() {
         _loading = false;

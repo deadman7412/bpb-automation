@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../models/config_scan_result.dart';
 import '../models/update_mode.dart';
 import '../services/storage_service.dart';
@@ -104,6 +105,9 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     });
 
     final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
+    final authToken = kIsWeb
+        ? (await _storage.getServerBackendJwt())?.trim() ?? ''
+        : '';
     if (baseUrl.isEmpty) {
       setState(() {
         _isServerLoading = false;
@@ -111,9 +115,19 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       });
       return;
     }
+    if (kIsWeb && authToken.isEmpty) {
+      setState(() {
+        _isServerLoading = false;
+        _serverError = 'Web login required. Open Settings and sign in.';
+      });
+      return;
+    }
 
     try {
-      final latest = await _serverApi.getLatestResult(baseUrl: baseUrl);
+      final latest = await _serverApi.getLatestResult(
+        baseUrl: baseUrl,
+        authToken: authToken,
+      );
       if (!mounted) return;
       setState(() {
         _serverLatest = latest;
@@ -417,10 +431,14 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
   Future<void> _triggerServerRun() async {
     final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
-    final token = (await _storage.getServerBackendToken())?.trim() ?? '';
+    final token = kIsWeb
+        ? (await _storage.getServerBackendJwt())?.trim() ?? ''
+        : (await _storage.getServerBackendToken())?.trim() ?? '';
     if (baseUrl.isEmpty || token.isEmpty) {
       _showMessage(
-        'Set server backend URL and token in Settings first.',
+        kIsWeb
+            ? 'Set server backend URL and sign in from Settings first.'
+            : 'Set server backend URL and token in Settings first.',
         isError: true,
       );
       return;

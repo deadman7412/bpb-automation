@@ -6,26 +6,64 @@ class ServerBackendService {
   ServerBackendService._();
   static final ServerBackendService instance = ServerBackendService._();
 
-  Future<Map<String, dynamic>> getStatus({required String baseUrl}) async {
-    final uri = Uri.parse('$baseUrl/api/status');
+  Future<Map<String, dynamic>> getAuthStatus({required String baseUrl}) async {
+    final uri = Uri.parse('$baseUrl/api/auth/status');
     final response = await http.get(uri).timeout(const Duration(seconds: 20));
+    return _decodeObject(response);
+  }
+
+  Future<String> login({
+    required String baseUrl,
+    required String username,
+    required String password,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/auth/login');
+    final response = await http
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'username': username, 'password': password}),
+        )
+        .timeout(const Duration(seconds: 20));
+    final data = _decodeObject(response);
+    final token = data['token']?.toString() ?? '';
+    if (token.isEmpty) {
+      throw Exception('Login succeeded but token is missing');
+    }
+    return token;
+  }
+
+  Future<Map<String, dynamic>> getStatus({
+    required String baseUrl,
+    String? authToken,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/status');
+    final response = await http
+        .get(uri, headers: _headers(authToken: authToken))
+        .timeout(const Duration(seconds: 20));
     return _decodeObject(response);
   }
 
   Future<Map<String, dynamic>> getLatestResult({
     required String baseUrl,
+    String? authToken,
   }) async {
     final uri = Uri.parse('$baseUrl/api/results/latest');
-    final response = await http.get(uri).timeout(const Duration(seconds: 20));
+    final response = await http
+        .get(uri, headers: _headers(authToken: authToken))
+        .timeout(const Duration(seconds: 20));
     return _decodeObject(response);
   }
 
   Future<Map<String, dynamic>> getResultById({
     required String baseUrl,
     required String runId,
+    String? authToken,
   }) async {
     final uri = Uri.parse('$baseUrl/api/results/$runId');
-    final response = await http.get(uri).timeout(const Duration(seconds: 20));
+    final response = await http
+        .get(uri, headers: _headers(authToken: authToken))
+        .timeout(const Duration(seconds: 20));
     return _decodeObject(response);
   }
 
@@ -33,11 +71,14 @@ class ServerBackendService {
     required String baseUrl,
     int page = 1,
     int pageSize = 20,
+    String? authToken,
   }) async {
     final uri = Uri.parse(
       '$baseUrl/api/results?page=$page&page_size=$pageSize',
     );
-    final response = await http.get(uri).timeout(const Duration(seconds: 20));
+    final response = await http
+        .get(uri, headers: _headers(authToken: authToken))
+        .timeout(const Duration(seconds: 20));
     final data = _decodeObject(response);
     final items = (data['items'] as List<dynamic>? ?? const []);
     return items
@@ -49,9 +90,12 @@ class ServerBackendService {
   Future<List<String>> getLatestLogs({
     required String baseUrl,
     int lines = 200,
+    String? authToken,
   }) async {
     final uri = Uri.parse('$baseUrl/api/logs/latest?lines=$lines');
-    final response = await http.get(uri).timeout(const Duration(seconds: 20));
+    final response = await http
+        .get(uri, headers: _headers(authToken: authToken))
+        .timeout(const Duration(seconds: 20));
     final data = _decodeObject(response);
     final entries = (data['lines'] as List<dynamic>? ?? const []);
     return entries.map((e) => e.toString()).toList();
@@ -61,9 +105,12 @@ class ServerBackendService {
     required String baseUrl,
     int page = 1,
     int pageSize = 200,
+    String? authToken,
   }) async {
     final uri = Uri.parse('$baseUrl/api/logs?page=$page&page_size=$pageSize');
-    final response = await http.get(uri).timeout(const Duration(seconds: 20));
+    final response = await http
+        .get(uri, headers: _headers(authToken: authToken))
+        .timeout(const Duration(seconds: 20));
     return _decodeObject(response);
   }
 
@@ -120,5 +167,11 @@ class ServerBackendService {
       throw Exception('Invalid response shape');
     }
     return decoded;
+  }
+
+  Map<String, String> _headers({String? authToken}) {
+    final token = authToken?.trim() ?? '';
+    if (token.isEmpty) return const {};
+    return {'Authorization': 'Bearer $token'};
   }
 }

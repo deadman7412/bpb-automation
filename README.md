@@ -21,7 +21,7 @@ The app fetches your BPB Panel's Xray subscription configs, then runs a 3-phase 
 | Supported Platforms | [Go to section](#supported-platforms) |
 | Quick Start | [Go to section](#quick-start) |
 | Documentation | [Go to section](#documentation) |
-| Web + VPS Scheduler (Ubuntu) | [Go to section](#web--vps-scheduler-ubuntu) |
+| VPS Deployment | [Go to doc](docs/vps-deployment.md) |
 | Requirements | [Go to section](#requirements) |
 | Testing | [Go to section](#testing) |
 | How It Works | [Go to section](#how-it-works) |
@@ -98,8 +98,8 @@ curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/bac
 What it does:
 - Downloads latest `BPB-Automation-Server-Linux-x64` from GitHub Releases
 - Downloads latest `BPB-Automation-Web` bundle from GitHub Releases
-- Installs/updates backend binaries under `/opt/bpb-automation/server`
-- Installs/updates web UI files under `/opt/bpb-automation/web`
+- Installs/updates backend binaries under `/opt/bpb-automation/server/current`
+- Installs/updates web UI files under `/opt/bpb-automation/web/current`
 - Creates and enables systemd services/timer (auto-start on reboot)
 - Detects nginx/caddy and configures reverse proxy for your domain
 - Tries automatic TLS provisioning (nginx+certbot or caddy native TLS)
@@ -117,6 +117,9 @@ Keep data/config while uninstalling binaries/services:
 curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/uninstall_server.sh \
   | sudo bash -s -- --keep-data
 ```
+
+Full VPS setup, post-install config, manual/debug commands, JWT web auth, and troubleshooting:
+[`docs/vps-deployment.md`](docs/vps-deployment.md)
 
 #### Windows
 ```
@@ -144,125 +147,9 @@ BPB-Automation-Windows-x64.zip
 - [Panel API Reference](docs/panel-api-reference.md) - Full BPB panel route and API reference
 - [Cloudflare Setup](docs/cloudflare-setup.md) - How to get credentials
 - [Scanner Configuration](docs/scanner-configuration.md) - Scan parameters explained
+- [VPS Deployment](docs/vps-deployment.md) - Web + backend + scheduler setup on Ubuntu
 - [Development Guide](docs/development.md) - For developers
 - [Deployment Guide](docs/deployment.md) - Building and distributing
-
-## Web + VPS Scheduler (Ubuntu)
-
-Use this mode when you want:
-- Web dashboard access from any device
-- Server-side scheduled scans
-- Automatic apply from a Linux host (for example Ubuntu LTS VPS)
-
-Architecture:
-1. Flutter app/web UI talks to backend API
-2. Backend runs `run-once` worker
-3. Scheduler (cron/systemd) triggers backend runs
-4. Backend stores run history/logs and serves dashboard endpoints
-
-### Easy Install (Recommended)
-
-Use the installer. It handles install/update, systemd services/timer, reverse proxy, TLS, and internal route blocking:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
-  | sudo bash -s -- --domain scan.example.com --email admin@example.com
-```
-
-If DNS/port-80 is not ready yet, install first and skip TLS:
-```bash
-curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
-  | sudo bash -s -- --domain scan.example.com --email admin@example.com --skip-tls
-```
-
-If running non-interactive with UFW active, auto-open HTTP/HTTPS ports:
-```bash
-curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
-  | sudo bash -s -- --domain scan.example.com --email admin@example.com --allow-firewall --non-interactive
-```
-
-After install:
-1. Edit `/etc/bpb-automation/server.env` and set real `BPB_SCAN_CMD` (and optional `BPB_APPLY_CMD`).
-2. Restart API service:
-```bash
-sudo systemctl restart bpb-api.service
-```
-3. Check status:
-```bash
-systemctl status bpb-api.service bpb-autoscan.timer --no-pager
-```
-4. Open web UI:
-```bash
-https://scan.example.com
-```
-
-If certbot fails with `Timeout during connect`, verify:
-1. Domain `A` record points to this VPS public IP.
-2. Inbound TCP/80 is open in cloud firewall/security group.
-3. Retry:
-```bash
-sudo certbot --nginx -d scan.example.com --agree-tos -m admin@example.com --redirect
-```
-
-### Easy Uninstall
-
-Remove services and installed files:
-```bash
-curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/uninstall_server.sh \
-  | sudo bash
-```
-
-Remove services but keep state/log/config:
-```bash
-curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/uninstall_server.sh \
-  | sudo bash -s -- --keep-data
-```
-
-### Manual Backend Setup (Advanced / Debug)
-
-```bash
-sudo apt update
-sudo apt install -y curl jq ca-certificates
-
-# Example working dirs
-sudo mkdir -p /opt/bpb-automation/backend /var/lib/bpb-automation /var/log/bpb-automation
-```
-
-Run backend API manually (advanced/debug path):
-
-```bash
-cd /opt/bpb-automation/backend
-dart run bin/bpb_api.dart \
-  --host 127.0.0.1 \
-  --port 8787 \
-  --state-dir /var/lib/bpb-automation \
-  --log-dir /var/log/bpb-automation \
-  --internal-token "CHANGE_ME" \
-  --allowed-trigger-ips "127.0.0.1,::1" \
-  --scan-cmd "YOUR_REAL_SCAN_COMMAND" \
-  --apply \
-  --apply-cmd "YOUR_REAL_APPLY_COMMAND"
-```
-
-For production, prefer the installer command above.
-
-### Scheduler Options
-
-Linux scheduler adapters are included under:
-
-`backend/deploy/schedulers/`
-
-- `cron/` template
-- `systemd/` service + timer + env example
-- `windows/` task scheduler helpers
-- `macos/` launchd adapter scripts
-- `android/` WorkManager integration notes
-
-For production hardening:
-- Keep backend bound to localhost
-- Put Nginx reverse proxy in front
-- Restrict internal trigger endpoints to trusted source IPs only
-- Use a strong internal token
 
 ## Requirements
 

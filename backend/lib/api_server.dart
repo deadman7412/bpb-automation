@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'worker_app.dart';
 
 class ApiServerApp {
@@ -81,9 +83,45 @@ class ApiServerApp {
           Platform.environment['BPB_CORS_ALLOWED_ORIGINS'] ??
           '',
     );
+    final webAuthUsername =
+        opts['web-auth-username'] ??
+        Platform.environment['BPB_WEB_AUTH_USERNAME'];
+    final webAuthPassword =
+        opts['web-auth-password'] ??
+        Platform.environment['BPB_WEB_AUTH_PASSWORD'];
+    final jwtSecret =
+        opts['jwt-secret'] ?? Platform.environment['BPB_JWT_SECRET'];
+    final jwtTtlSeconds =
+        int.tryParse(
+          opts['jwt-ttl-seconds'] ??
+              Platform.environment['BPB_JWT_TTL_SECONDS'] ??
+              '86400',
+        ) ??
+        86400;
 
     await _ensureDirectory(stateDir);
     await _ensureDirectory(logDir);
+    final webAuth = await _loadOrInitWebAuth(
+      stateDir: stateDir,
+      username: webAuthUsername,
+      password: webAuthPassword,
+    );
+    JwtService? jwtService;
+    if (webAuth != null) {
+      if (jwtSecret == null || jwtSecret.trim().isEmpty) {
+        stderr.writeln(
+          'Web auth credentials are configured, but JWT secret is missing. Set BPB_JWT_SECRET or --jwt-secret.',
+        );
+        return 1;
+      }
+      jwtService = JwtService(
+        secret: jwtSecret.trim(),
+        ttlSeconds: jwtTtlSeconds.clamp(300, 7 * 24 * 3600),
+      );
+      stdout.writeln(
+        'Web JWT auth enabled for user "${webAuth.username}" (ttl: ${jwtService.ttlSeconds}s).',
+      );
+    }
     final worker = WorkerApp();
     final audit = AuditLogger(stateDir: stateDir);
 
@@ -114,6 +152,8 @@ class ApiServerApp {
           trustForwardedFor: trustForwardedFor,
           trustedProxyIps: trustedProxyIps,
           corsAllowedOrigins: corsAllowedOrigins,
+          webAuth: webAuth,
+          jwtService: jwtService,
         ),
       );
     }
@@ -142,6 +182,8 @@ class ApiServerApp {
     required bool trustForwardedFor,
     required Set<String> trustedProxyIps,
     required Set<String> corsAllowedOrigins,
+    required WebAuthConfig? webAuth,
+    required JwtService? jwtService,
   }) async {
     try {
       _addCors(req, req.response, corsAllowedOrigins: corsAllowedOrigins);
@@ -155,6 +197,100 @@ class ApiServerApp {
       if (req.method == 'GET' && path == '/health') {
         await _json(req.response, HttpStatus.ok, {'ok': true});
         return;
+      }
+
+      if (req.method == 'GET' && path == '/api/auth/status') {
+        await _json(req.response, HttpStatus.ok, {
+          'enabled': webAuth != null && jwtService != null,
+        });
+        return;
+      }
+
+      if (req.method == 'POST' && path == '/api/auth/login') {
+        if (webAuth == null || jwtService == null) {
+          await _json(req.response, HttpStatus.notFound, {
+            'error': 'web auth not configured',
+          });
+          return;
+        }
+        final clientIp = _clientIp(
+          req,
+          trustForwardedFor: trustForwardedFor,
+          trustedProxyIps: trustedProxyIps,
+        );
+        final body = await utf8.decodeStream(req);
+        Map<String, dynamic> payload;
+        try {
+          payload = jsonDecode(body) as Map<String, dynamic>;
+        } catch (_) {
+          await _json(req.response, HttpStatus.badRequest, {
+            'error': 'invalid json body',
+          });
+          return;
+        }
+        final username = (payload['username'] as String? ?? '').trim();
+        final password = payload['password'] as String? ?? '';
+        if (username.isEmpty || password.isEmpty) {
+          await _json(req.response, HttpStatus.badRequest, {
+            'error': 'username and password are required',
+          });
+          return;
+        }
+        final passwordHash = _hashPassword(
+          password: password,
+          salt: webAuth.salt,
+          iterations: webAuth.iterations,
+        );
+        final valid =
+            username == webAuth.username &&
+            passwordHash == webAuth.passwordHash;
+        if (!valid) {
+          await audit.log(
+            event: 'web_login',
+            outcome: 'failed',
+            method: req.method,
+            path: path,
+            clientIp: clientIp,
+            details: {'username': username},
+          );
+          await _json(req.response, HttpStatus.unauthorized, {
+            'error': 'invalid credentials',
+          });
+          return;
+        }
+        final token = jwtService.issueToken(subject: webAuth.username);
+        await audit.log(
+          event: 'web_login',
+          outcome: 'success',
+          method: req.method,
+          path: path,
+          clientIp: clientIp,
+          details: {'username': username},
+        );
+        await _json(req.response, HttpStatus.ok, {
+          'token': token,
+          'token_type': 'Bearer',
+          'expires_in': jwtService.ttlSeconds,
+        });
+        return;
+      }
+
+      if (path.startsWith('/api/') &&
+          path != '/api/auth/status' &&
+          path != '/api/auth/login') {
+        if (webAuth != null && jwtService != null) {
+          final authResult = _authorizeRequest(
+            req,
+            internalToken: token,
+            jwtService: jwtService,
+          );
+          if (!authResult.authorized) {
+            await _json(req.response, HttpStatus.unauthorized, {
+              'error': 'unauthorized',
+            });
+            return;
+          }
+        }
       }
 
       if (req.method == 'GET' && path == '/api/status') {
@@ -265,7 +401,11 @@ class ApiServerApp {
           });
           return;
         }
-        if (!_isAuthorized(req, token)) {
+        if (!_authorizeRequest(
+          req,
+          internalToken: token,
+          jwtService: jwtService,
+        ).authorized) {
           await audit.log(
             event: 'trigger_run',
             outcome: 'unauthorized',
@@ -383,7 +523,11 @@ class ApiServerApp {
           });
           return;
         }
-        if (!_isAuthorized(req, token)) {
+        if (!_authorizeRequest(
+          req,
+          internalToken: token,
+          jwtService: jwtService,
+        ).authorized) {
           await audit.log(
             event: 'rollback',
             outcome: 'unauthorized',
@@ -637,12 +781,48 @@ class ApiServerApp {
     });
   }
 
-  bool _isAuthorized(HttpRequest req, String? token) {
-    if (token == null || token.isEmpty) return false;
-    final auth = req.headers.value(HttpHeaders.authorizationHeader);
-    if (auth != null && auth.trim() == 'Bearer $token') return true;
+  _AuthorizationResult _authorizeRequest(
+    HttpRequest req, {
+    required String? internalToken,
+    required JwtService? jwtService,
+  }) {
+    final auth = req.headers.value(HttpHeaders.authorizationHeader)?.trim();
+    final bearer = _extractBearerToken(auth);
+    if (bearer != null &&
+        internalToken != null &&
+        internalToken.isNotEmpty &&
+        bearer == internalToken) {
+      return const _AuthorizationResult(authorized: true, subject: 'internal');
+    }
+
     final header = req.headers.value('x-internal-token');
-    return header != null && header == token;
+    if (header != null &&
+        internalToken != null &&
+        internalToken.isNotEmpty &&
+        header == internalToken) {
+      return const _AuthorizationResult(authorized: true, subject: 'internal');
+    }
+
+    if (bearer != null && jwtService != null) {
+      final claims = jwtService.verifyToken(bearer);
+      if (claims != null) {
+        return _AuthorizationResult(
+          authorized: true,
+          subject: claims['sub']?.toString(),
+        );
+      }
+    }
+
+    return const _AuthorizationResult(authorized: false);
+  }
+
+  String? _extractBearerToken(String? authHeader) {
+    if (authHeader == null || authHeader.isEmpty) return null;
+    const prefix = 'Bearer ';
+    if (!authHeader.startsWith(prefix) || authHeader.length <= prefix.length) {
+      return null;
+    }
+    return authHeader.substring(prefix.length).trim();
   }
 
   String _clientIp(
@@ -755,6 +935,78 @@ class ApiServerApp {
         .toSet();
   }
 
+  Future<WebAuthConfig?> _loadOrInitWebAuth({
+    required Directory stateDir,
+    required String? username,
+    required String? password,
+  }) async {
+    final file = File('${stateDir.path}/web_auth.json');
+    final existing = await _readJsonFile(file);
+    if (existing != null) {
+      final parsed = WebAuthConfig.fromJson(existing);
+      if (parsed != null) return parsed;
+      stderr.writeln(
+        'Invalid ${file.path}. Expected username/password_hash/salt/iterations.',
+      );
+      return null;
+    }
+
+    final normalizedUser = (username ?? '').trim();
+    final rawPassword = password ?? '';
+    if (normalizedUser.isEmpty || rawPassword.isEmpty) {
+      return null;
+    }
+    final salt = _randomBase64Url(16);
+    final iterations = 120000;
+    final passwordHash = _hashPassword(
+      password: rawPassword,
+      salt: salt,
+      iterations: iterations,
+    );
+    final created = WebAuthConfig(
+      username: normalizedUser,
+      passwordHash: passwordHash,
+      salt: salt,
+      iterations: iterations,
+    );
+    await file.writeAsString(
+      const JsonEncoder.withIndent(
+        '  ',
+      ).convert(created.toJson(includeMeta: true)),
+    );
+    stdout.writeln('Created hashed web auth credentials at ${file.path}.');
+    return created;
+  }
+
+  String _hashPassword({
+    required String password,
+    required String salt,
+    required int iterations,
+  }) {
+    final key = utf8.encode(password);
+    final saltBytes = utf8.encode(salt);
+    final block = <int>[0, 0, 0, 1];
+    var u = Hmac(sha256, key).convert([...saltBytes, ...block]).bytes;
+    final output = List<int>.from(u);
+    for (var i = 1; i < iterations; i++) {
+      u = Hmac(sha256, key).convert(u).bytes;
+      for (var j = 0; j < output.length; j++) {
+        output[j] ^= u[j];
+      }
+    }
+    return _base64UrlNoPad(output);
+  }
+
+  String _randomBase64Url(int bytes) {
+    final rnd = Random.secure();
+    final data = List<int>.generate(bytes, (_) => rnd.nextInt(256));
+    return _base64UrlNoPad(data);
+  }
+
+  String _base64UrlNoPad(List<int> bytes) {
+    return base64Url.encode(bytes).replaceAll('=', '');
+  }
+
   void _printUsage() {
     stdout.writeln('''
 BPB autoscan API server
@@ -783,9 +1035,15 @@ Options:
   --trust-forwarded-for    trust x-forwarded-for for source IP checks
   --trusted-proxy-ips <csv> proxies allowed to supply x-forwarded-for (default: 127.0.0.1,::1)
   --cors-allowed-origins <csv> allowed browser origins for CORS reads (default: disabled)
+  --web-auth-username <user> bootstrap web login username (saved hashed in state dir)
+  --web-auth-password <pass> bootstrap web login password (saved hashed in state dir)
+  --jwt-secret <secret>   HMAC secret used for JWT signing/verification
+  --jwt-ttl-seconds <n>   JWT lifetime in seconds (default: 86400)
 
 Endpoints:
   GET  /health
+  GET  /api/auth/status
+  POST /api/auth/login
   GET  /api/status
   GET  /api/results
   GET  /api/results/latest
@@ -796,6 +1054,133 @@ Endpoints:
   POST /internal/scheduler/run?trigger=api
   POST /internal/scheduler/rollback
 ''');
+  }
+}
+
+class _AuthorizationResult {
+  const _AuthorizationResult({required this.authorized, this.subject});
+
+  final bool authorized;
+  final String? subject;
+}
+
+class WebAuthConfig {
+  const WebAuthConfig({
+    required this.username,
+    required this.passwordHash,
+    required this.salt,
+    required this.iterations,
+  });
+
+  final String username;
+  final String passwordHash;
+  final String salt;
+  final int iterations;
+
+  static WebAuthConfig? fromJson(Map<String, dynamic> json) {
+    final username = (json['username'] as String? ?? '').trim();
+    final passwordHash = (json['password_hash'] as String? ?? '').trim();
+    final salt = (json['salt'] as String? ?? '').trim();
+    final iterations = (json['iterations'] as num?)?.toInt() ?? 0;
+    if (username.isEmpty ||
+        passwordHash.isEmpty ||
+        salt.isEmpty ||
+        iterations < 1000) {
+      return null;
+    }
+    return WebAuthConfig(
+      username: username,
+      passwordHash: passwordHash,
+      salt: salt,
+      iterations: iterations,
+    );
+  }
+
+  Map<String, dynamic> toJson({bool includeMeta = false}) {
+    return {
+      'username': username,
+      'password_hash': passwordHash,
+      'salt': salt,
+      'iterations': iterations,
+      if (includeMeta) 'algorithm': 'PBKDF2-HMAC-SHA256',
+      if (includeMeta) 'created_at': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
+}
+
+class JwtService {
+  JwtService({required this.secret, required this.ttlSeconds})
+    : _hmac = Hmac(sha256, utf8.encode(secret));
+
+  final String secret;
+  final int ttlSeconds;
+  final Hmac _hmac;
+
+  String issueToken({required String subject}) {
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final header = _base64UrlNoPad(
+      utf8.encode(jsonEncode({'alg': 'HS256', 'typ': 'JWT'})),
+    );
+    final payload = _base64UrlNoPad(
+      utf8.encode(
+        jsonEncode({
+          'sub': subject,
+          'iat': nowSeconds,
+          'exp': nowSeconds + ttlSeconds,
+          'iss': 'bpb-api',
+        }),
+      ),
+    );
+    final signingInput = '$header.$payload';
+    final signature = _base64UrlNoPad(
+      _hmac.convert(utf8.encode(signingInput)).bytes,
+    );
+    return '$signingInput.$signature';
+  }
+
+  Map<String, dynamic>? verifyToken(String token) {
+    final parts = token.split('.');
+    if (parts.length != 3) return null;
+    final signingInput = '${parts[0]}.${parts[1]}';
+    final expected = _base64UrlNoPad(
+      _hmac.convert(utf8.encode(signingInput)).bytes,
+    );
+    if (!_constantTimeEquals(expected, parts[2])) return null;
+
+    Map<String, dynamic> payload;
+    try {
+      final payloadJson = utf8.decode(_base64UrlDecode(parts[1]));
+      payload = jsonDecode(payloadJson) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+    final exp = (payload['exp'] as num?)?.toInt();
+    final sub = payload['sub']?.toString();
+    if (exp == null || sub == null || sub.isEmpty) return null;
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    if (exp <= nowSeconds) return null;
+    return payload;
+  }
+
+  String _base64UrlNoPad(List<int> bytes) {
+    return base64Url.encode(bytes).replaceAll('=', '');
+  }
+
+  List<int> _base64UrlDecode(String input) {
+    final padded = input.padRight(
+      input.length + ((4 - input.length % 4) % 4),
+      '=',
+    );
+    return base64Url.decode(padded);
+  }
+
+  bool _constantTimeEquals(String a, String b) {
+    if (a.length != b.length) return false;
+    var mismatch = 0;
+    for (var i = 0; i < a.length; i++) {
+      mismatch |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+    }
+    return mismatch == 0;
   }
 }
 

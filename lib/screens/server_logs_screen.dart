@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../services/server_backend_service.dart';
 import '../services/storage_service.dart';
@@ -35,10 +36,20 @@ class _ServerLogsScreenState extends State<ServerLogsScreen> {
       _error = null;
     });
     final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
+    final authToken = kIsWeb
+        ? (await _storage.getServerBackendJwt())?.trim() ?? ''
+        : '';
     if (baseUrl.isEmpty) {
       setState(() {
         _loading = false;
         _error = 'Server backend URL not configured in Settings.';
+      });
+      return;
+    }
+    if (kIsWeb && authToken.isEmpty) {
+      setState(() {
+        _loading = false;
+        _error = 'Web login required. Open Settings and sign in.';
       });
       return;
     }
@@ -48,6 +59,7 @@ class _ServerLogsScreenState extends State<ServerLogsScreen> {
         baseUrl: baseUrl,
         page: _page,
         pageSize: _pageSize,
+        authToken: authToken,
       );
       final items = (payload['items'] as List<dynamic>? ?? const [])
           .map((e) => e.toString())

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../services/log_service.dart';
 import '../services/server_backend_service.dart';
@@ -18,13 +19,17 @@ class _ServerBackendSettingsScreenState
   final _formKey = GlobalKey<FormState>();
   final _serverBaseUrlController = TextEditingController();
   final _serverTokenController = TextEditingController();
+  final _serverUsernameController = TextEditingController();
+  final _serverPasswordController = TextEditingController();
   final StorageService _storage = StorageService.instance;
   final ServerBackendService _serverApi = ServerBackendService.instance;
   final LogService _log = LogService.instance;
 
   bool _loading = false;
   bool _validating = false;
+  bool _signingIn = false;
   bool _obscureToken = true;
+  bool _obscurePassword = true;
 
   @override
   void initState() {
@@ -36,6 +41,8 @@ class _ServerBackendSettingsScreenState
   void dispose() {
     _serverBaseUrlController.dispose();
     _serverTokenController.dispose();
+    _serverUsernameController.dispose();
+    _serverPasswordController.dispose();
     super.dispose();
   }
 
@@ -43,8 +50,10 @@ class _ServerBackendSettingsScreenState
     setState(() => _loading = true);
     final baseUrl = await _storage.getServerBackendBaseUrl();
     final token = await _storage.getServerBackendToken();
+    final username = await _storage.getServerBackendWebUsername();
     _serverBaseUrlController.text = baseUrl ?? '';
     _serverTokenController.text = token ?? '';
+    _serverUsernameController.text = username ?? '';
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -60,7 +69,15 @@ class _ServerBackendSettingsScreenState
       await _storage.saveServerBackendBaseUrl(
         _serverBaseUrlController.text.trim(),
       );
-      await _storage.saveServerBackendToken(_serverTokenController.text.trim());
+      if (kIsWeb) {
+        await _storage.saveServerBackendWebUsername(
+          _serverUsernameController.text.trim(),
+        );
+      } else {
+        await _storage.saveServerBackendToken(
+          _serverTokenController.text.trim(),
+        );
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -93,12 +110,17 @@ class _ServerBackendSettingsScreenState
     final baseUrl = _serverBaseUrlController.text.trim();
     setState(() => _validating = true);
     try {
-      await _serverApi.getStatus(baseUrl: baseUrl);
+      final authToken = kIsWeb
+          ? (await _storage.getServerBackendJwt())?.trim()
+          : null;
+      await _serverApi.getStatus(baseUrl: baseUrl, authToken: authToken);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Server is reachable. Token was not verified. Trigger/rollback actions will fail if token is incorrect.',
+            kIsWeb
+                ? 'Server connection and web session are valid.'
+                : 'Server is reachable. Token was not verified. Trigger/rollback actions will fail if token is incorrect.',
           ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.green,
@@ -124,8 +146,12 @@ class _ServerBackendSettingsScreenState
   Future<void> _clear() async {
     await _storage.saveServerBackendBaseUrl('');
     await _storage.clearServerBackendToken();
+    await _storage.clearServerBackendJwt();
+    await _storage.saveServerBackendWebUsername('');
     _serverBaseUrlController.clear();
     _serverTokenController.clear();
+    _serverUsernameController.clear();
+    _serverPasswordController.clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -133,6 +159,60 @@ class _ServerBackendSettingsScreenState
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  Future<void> _signInWeb() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_serverPasswordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter web login password first.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    setState(() => _signingIn = true);
+    try {
+      final token = await _serverApi.login(
+        baseUrl: _serverBaseUrlController.text.trim(),
+        username: _serverUsernameController.text.trim(),
+        password: _serverPasswordController.text,
+      );
+      await _serverApi.getStatus(
+        baseUrl: _serverBaseUrlController.text.trim(),
+        authToken: token,
+      );
+      await _storage.saveServerBackendBaseUrl(
+        _serverBaseUrlController.text.trim(),
+      );
+      await _storage.saveServerBackendWebUsername(
+        _serverUsernameController.text.trim(),
+      );
+      await _storage.saveServerBackendJwt(token);
+      _serverPasswordController.clear();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Server web login successful'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e, st) {
+      _log.logError('Server web login failed', e, st);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Login failed: $e'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _signingIn = false);
+    }
   }
 
   @override
@@ -197,65 +277,126 @@ class _ServerBackendSettingsScreenState
                         },
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _serverTokenController,
-                        decoration: InputDecoration(
-                          labelText: 'Internal Trigger Token',
-                          hintText: 'Required for run/rollback trigger actions',
-                          border: const OutlineInputBorder(),
-                          prefixIcon: const Icon(Icons.key),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscureToken
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
-                            onPressed: () {
-                              setState(() => _obscureToken = !_obscureToken);
-                            },
+                      if (kIsWeb) ...[
+                        TextFormField(
+                          controller: _serverUsernameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Web Login Username',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.person),
                           ),
+                          validator: (value) {
+                            if ((value ?? '').trim().isEmpty) {
+                              return 'Username is required';
+                            }
+                            return null;
+                          },
                         ),
-                        obscureText: _obscureToken,
-                      ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _serverPasswordController,
+                          decoration: InputDecoration(
+                            labelText: 'Web Login Password',
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.lock),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                              ),
+                              onPressed: () {
+                                setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                );
+                              },
+                            ),
+                          ),
+                          obscureText: _obscurePassword,
+                        ),
+                      ] else
+                        TextFormField(
+                          controller: _serverTokenController,
+                          decoration: InputDecoration(
+                            labelText: 'Internal Trigger Token',
+                            hintText:
+                                'Required for run/rollback trigger actions',
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.key),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscureToken
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                              ),
+                              onPressed: () {
+                                setState(() => _obscureToken = !_obscureToken);
+                              },
+                            ),
+                          ),
+                          obscureText: _obscureToken,
+                        ),
                       const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _validating ? null : _validate,
-                              icon: _validating
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(Icons.check_circle),
-                              label: Text(
-                                _validating ? 'Validating...' : 'Validate',
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white,
+                      if (kIsWeb)
+                        ElevatedButton.icon(
+                          onPressed: _signingIn ? null : _signInWeb,
+                          icon: _signingIn
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.login),
+                          label: Text(
+                            _signingIn ? 'Signing in...' : 'Sign In and Verify',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                          ),
+                        )
+                      else
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _validating ? null : _validate,
+                                icon: _validating
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.check_circle),
+                                label: Text(
+                                  _validating ? 'Validating...' : 'Validate',
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _save,
-                              icon: const Icon(Icons.save),
-                              label: const Text('Save'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _save,
+                                icon: const Icon(Icons.save),
+                                label: const Text('Save'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
                       const SizedBox(height: 16),
                       OutlinedButton.icon(
                         onPressed: _clear,

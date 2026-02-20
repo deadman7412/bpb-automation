@@ -161,6 +161,8 @@ dart run bin/bpb_api.dart \
 Endpoints:
 
 - `GET /health`
+- `GET /api/auth/status`
+- `POST /api/auth/login`
 - `GET /api/status`
 - `GET /api/results?page=1&page_size=20`
 - `GET /api/results/latest`
@@ -170,6 +172,15 @@ Endpoints:
 - `POST /internal/scheduler/rollback` (requires token)
 - `GET /api/logs?page=1&page_size=200`
 - `GET /api/maintenance/log-retention`
+
+Optional web auth flags (JWT):
+
+- `--web-auth-username <user>` bootstrap username (stored as hashed credentials in `state-dir/web_auth.json`)
+- `--web-auth-password <pass>` bootstrap password (hashed + salted with PBKDF2-HMAC-SHA256)
+- `--jwt-secret <secret>` required when web auth is enabled
+- `--jwt-ttl-seconds <n>` JWT lifetime in seconds (default `86400`)
+
+When web auth is enabled, all `/api/*` endpoints require `Authorization: Bearer <jwt>` except `/api/auth/login` and `/api/auth/status`.
 
 Hardening flags:
 
