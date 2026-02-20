@@ -448,10 +448,6 @@ The web version CANNOT execute binaries. For web deployment:
 
 2. **Alternative**: Use web as UI only, require users to run desktop/mobile app
 
-For a production-ready Ubuntu LTS design (web UI + Linux backend worker + scheduler adapters, result history, and 7-day log retention), see:
-
-- [web-vps-scheduler-plan.md](web-vps-scheduler-plan.md)
-
 ## Size Optimization
 
 ### Reduce APK Size
