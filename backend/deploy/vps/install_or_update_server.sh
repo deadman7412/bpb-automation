@@ -4,6 +4,8 @@ set -euo pipefail
 REPO="${REPO:-deadman7412/bpb-automation}"
 DOMAIN="${DOMAIN:-}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
+SKIP_TLS="${SKIP_TLS:-false}"
+ALLOW_FIREWALL="${ALLOW_FIREWALL:-false}"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/bpb-automation/server}"
 STATE_DIR="${STATE_DIR:-/var/lib/bpb-automation}"
 LOG_DIR="${LOG_DIR:-/var/log/bpb-automation}"
@@ -20,6 +22,8 @@ Usage: sudo bash install_or_update_server.sh [options]
 Options:
   --domain <name>                 Domain or subdomain for dashboard/API
   --email <addr>                  Email for Let's Encrypt/certbot notices (nginx mode)
+  --skip-tls                      Skip TLS provisioning (HTTP-only until you run certbot manually)
+  --allow-firewall                Auto-allow 80/tcp and 443/tcp in UFW if needed
   --repo <owner/repo>             GitHub repo (default: $REPO)
   --install-root <path>           Install root (default: $INSTALL_ROOT)
   --state-dir <path>              Runtime state dir (default: $STATE_DIR)
@@ -43,6 +47,8 @@ parse_args() {
     case "$1" in
       --domain) DOMAIN="${2:-}"; shift 2 ;;
       --email) CERTBOT_EMAIL="${2:-}"; shift 2 ;;
+      --skip-tls) SKIP_TLS="true"; shift ;;
+      --allow-firewall) ALLOW_FIREWALL="true"; shift ;;
       --repo) REPO="${2:-}"; shift 2 ;;
       --install-root) INSTALL_ROOT="${2:-}"; shift 2 ;;
       --state-dir) STATE_DIR="${2:-}"; shift 2 ;;
@@ -104,6 +110,9 @@ prompt_domain() {
 }
 
 prompt_certbot_email_if_needed() {
+  if [[ "$SKIP_TLS" == "true" ]]; then
+    return 0
+  fi
   if [[ "$WEB_STACK" != "nginx" ]]; then
     return 0
   fi
@@ -115,6 +124,66 @@ prompt_certbot_email_if_needed() {
   fi
   read -r -p "Enter email for Let's Encrypt notices: " CERTBOT_EMAIL
   [[ -n "$CERTBOT_EMAIL" ]] || die "Email is required for certbot registration."
+}
+
+check_domain_points_here() {
+  local resolved local_ip
+  resolved="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u | head -n1 || true)"
+  local_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  if [[ -z "$resolved" || -z "$local_ip" ]]; then
+    log "Domain/IP precheck skipped (could not resolve domain or local IP)."
+    return 0
+  fi
+  if [[ "$resolved" != "$local_ip" ]]; then
+    log "WARNING: $DOMAIN resolves to $resolved but local primary IP is $local_ip."
+    log "TLS may fail until DNS points to this server and port 80 is reachable from internet."
+  fi
+}
+
+ensure_firewall_ports() {
+  if ! command -v ufw >/dev/null 2>&1; then
+    return 0
+  fi
+  local status
+  status="$(ufw status 2>/dev/null | head -n1 || true)"
+  if [[ "$status" != "Status: active" ]]; then
+    return 0
+  fi
+
+  local rules
+  rules="$(ufw status 2>/dev/null || true)"
+  local has80="false" has443="false"
+  echo "$rules" | grep -Eq '(^|[[:space:]])80(/tcp)?[[:space:]].*ALLOW|Nginx Full[[:space:]].*ALLOW|Nginx HTTP[[:space:]].*ALLOW' && has80="true"
+  echo "$rules" | grep -Eq '(^|[[:space:]])443(/tcp)?[[:space:]].*ALLOW|Nginx Full[[:space:]].*ALLOW|Nginx HTTPS[[:space:]].*ALLOW' && has443="true"
+
+  if [[ "$has80" == "true" && "$has443" == "true" ]]; then
+    return 0
+  fi
+
+  log "UFW is active and required ports are not fully open (80:$has80 443:$has443)."
+  local open_ports="false"
+  if [[ "$ALLOW_FIREWALL" == "true" ]]; then
+    open_ports="true"
+  elif [[ "$NON_INTERACTIVE" == "true" ]]; then
+    die "UFW is active and 80/443 are not open. Re-run with --allow-firewall or open ports manually."
+  else
+    read -r -p "Open UFW ports 80/tcp and 443/tcp now? [y/N]: " ans
+    if [[ "$ans" == "y" || "$ans" == "Y" ]]; then
+      open_ports="true"
+    fi
+  fi
+
+  if [[ "$open_ports" != "true" ]]; then
+    die "Aborted: required ports 80/443 are not open in UFW."
+  fi
+
+  if [[ "$has80" != "true" ]]; then
+    ufw allow 80/tcp
+  fi
+  if [[ "$has443" != "true" ]]; then
+    ufw allow 443/tcp
+  fi
+  log "UFW updated: allowed 80/tcp and 443/tcp."
 }
 
 fetch_latest_server_package() {
@@ -229,7 +298,7 @@ EOF
 }
 
 setup_nginx() {
-  apt-get install -y nginx certbot python3-certbot-nginx
+  apt-get install -y certbot python3-certbot-nginx nginx
   cat >/etc/nginx/sites-available/bpb-automation.conf <<EOF
 server {
   listen 80;
@@ -252,7 +321,19 @@ EOF
   ln -sf /etc/nginx/sites-available/bpb-automation.conf /etc/nginx/sites-enabled/bpb-automation.conf
   nginx -t
   systemctl enable --now nginx
-  certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$CERTBOT_EMAIL" --redirect
+  if [[ "$SKIP_TLS" == "true" ]]; then
+    log "Skipping TLS provisioning (--skip-tls). Site will serve HTTP only until certbot is run."
+    log "Manual TLS later: certbot --nginx -d $DOMAIN --agree-tos -m $CERTBOT_EMAIL --redirect"
+    return 0
+  fi
+  certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$CERTBOT_EMAIL" --redirect || {
+    log "TLS provisioning failed. Common causes:"
+    log "1) Domain DNS does not point to this server"
+    log "2) Port 80 is blocked by firewall/security group"
+    log "3) Cloud provider/network ACL blocks inbound HTTP"
+    log "Check: /var/log/letsencrypt/letsencrypt.log"
+    die "Certbot failed. Re-run installer after fixing DNS/firewall, or use --skip-tls temporarily."
+  }
 }
 
 setup_caddy() {
@@ -278,6 +359,8 @@ main() {
   prompt_domain
   detect_web_stack
   prompt_certbot_email_if_needed
+  check_domain_points_here
+  ensure_firewall_ports
   check_port_80
   fetch_latest_server_package
   install_server_files

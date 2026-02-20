@@ -20,6 +20,13 @@ curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/bac
   | sudo bash -s -- --domain scan.example.com --email admin@example.com
 ```
 
+If DNS/port-80 is not ready yet, skip TLS first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
+  | sudo bash -s -- --domain scan.example.com --email admin@example.com --skip-tls
+```
+
 The installer will:
 - download latest server package artifact
 - install/update backend files in `/opt/bpb-automation/server/current`
@@ -27,9 +34,39 @@ The installer will:
 - configure nginx/caddy reverse proxy for your domain
 - block `/internal/*` endpoints at reverse-proxy layer
 - verify downloaded server package with SHA-256 checksum asset
+- if UFW is active and 80/443 are closed, ask permission to open them
+
+For non-interactive installs with UFW active:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
+  | sudo bash -s -- --domain scan.example.com --email admin@example.com --allow-firewall --non-interactive
+```
 
 After install, set real runtime commands in:
 - `/etc/bpb-automation/server.env`
+
+Retry certbot later:
+
+```bash
+sudo certbot --nginx -d scan.example.com --agree-tos -m admin@example.com --redirect
+```
+
+## VPS Uninstall (Ubuntu)
+
+Easy uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/uninstall_server.sh \
+  | sudo bash
+```
+
+Keep state/log/config while uninstalling services/binaries:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/uninstall_server.sh \
+  | sudo bash -s -- --keep-data
+```
 
 ## Key Behavior
 

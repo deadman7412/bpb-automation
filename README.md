@@ -81,6 +81,19 @@ What it does:
 - Detects nginx/caddy and configures reverse proxy for your domain
 - Tries automatic TLS provisioning (nginx+certbot or caddy native TLS)
 - Blocks `/internal/*` endpoints at proxy layer (public internet cannot reach trigger/rollback routes)
+- If UFW is active and 80/443 are closed, installer asks to open them (or pass `--allow-firewall`)
+
+Easy uninstall (remove services + install files + data):
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/uninstall_server.sh \
+  | sudo bash
+```
+
+Keep data/config while uninstalling binaries/services:
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/uninstall_server.sh \
+  | sudo bash -s -- --keep-data
+```
 
 #### Windows
 ```
@@ -133,6 +146,18 @@ curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/bac
   | sudo bash -s -- --domain scan.example.com --email admin@example.com
 ```
 
+If DNS/port-80 is not ready yet, install first and skip TLS:
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
+  | sudo bash -s -- --domain scan.example.com --email admin@example.com --skip-tls
+```
+
+If running non-interactive with UFW active, auto-open HTTP/HTTPS ports:
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
+  | sudo bash -s -- --domain scan.example.com --email admin@example.com --allow-firewall --non-interactive
+```
+
 After install:
 1. Edit `/etc/bpb-automation/server.env` and set real `BPB_SCAN_CMD` (and optional `BPB_APPLY_CMD`).
 2. Restart API service:
@@ -142,6 +167,28 @@ sudo systemctl restart bpb-api.service
 3. Check status:
 ```bash
 systemctl status bpb-api.service bpb-autoscan.timer --no-pager
+```
+
+If certbot fails with `Timeout during connect`, verify:
+1. Domain `A` record points to this VPS public IP.
+2. Inbound TCP/80 is open in cloud firewall/security group.
+3. Retry:
+```bash
+sudo certbot --nginx -d scan.example.com --agree-tos -m admin@example.com --redirect
+```
+
+### Easy Uninstall
+
+Remove services and installed files:
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/uninstall_server.sh \
+  | sudo bash
+```
+
+Remove services but keep state/log/config:
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/uninstall_server.sh \
+  | sudo bash -s -- --keep-data
 ```
 
 ### Manual Backend Setup (Advanced / Debug)
