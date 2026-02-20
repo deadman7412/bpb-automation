@@ -1,0 +1,15 @@
+[Unit]
+Description=BPB Automation scheduled scan and auto-apply
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bpb
+Group=bpb
+WorkingDirectory=/opt/bpb-automation/backend
+EnvironmentFile=-/etc/default/bpb-autoscan
+ExecStart=/usr/bin/env bash /opt/bpb-automation/backend/deploy/schedulers/run-once.sh scheduled
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

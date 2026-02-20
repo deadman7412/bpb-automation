@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.bpb.automation.autoscan</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__WORKSPACE__/backend/deploy/schedulers/run-once.sh</string>
+    <string>scheduled</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__WORKSPACE__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BPB_ENV_FILE</key>
+    <string>__ENV_FILE__</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>__INTERVAL_SECONDS__</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/cron.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/cron.log</string>
+</dict>
+</plist>

@@ -6,6 +6,7 @@ import '../models/update_mode.dart';
 import '../services/storage_service.dart';
 import '../services/cloudflare_api_service.dart';
 import '../services/panel_api_service.dart';
+import '../services/server_backend_service.dart';
 import '../services/log_service.dart';
 import '../widgets/logs_action_button.dart';
 
@@ -23,19 +24,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _kvNamespaceIdController = TextEditingController();
   final _panelBaseUrlController = TextEditingController();
   final _panelPasswordController = TextEditingController();
+  final _serverBaseUrlController = TextEditingController();
+  final _serverTokenController = TextEditingController();
 
   final StorageService _storage = StorageService.instance;
   final CloudflareApiService _api = CloudflareApiService.instance;
   final PanelApiService _panelApi = PanelApiService.instance;
+  final ServerBackendService _serverApi = ServerBackendService.instance;
   final LogService _log = LogService.instance;
 
   bool _isLoading = false;
   bool _isValidating = false;
   bool _obscureToken = true;
   bool _obscurePanelPassword = true;
+  bool _obscureServerToken = true;
   bool _isNormalizingPanelUrl = false;
   bool _hasCredentials = false;
   bool _autoApplyAfterScan = false;
+  bool _useServerBackend = false;
   UpdateMode _updateMode = UpdateMode.panelApi;
 
   @override
@@ -51,6 +57,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _kvNamespaceIdController.dispose();
     _panelBaseUrlController.dispose();
     _panelPasswordController.dispose();
+    _serverBaseUrlController.dispose();
+    _serverTokenController.dispose();
     super.dispose();
   }
 
@@ -62,6 +70,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final credentials = await _storage.getCredentials();
     final panelCredentials = await _storage.getPanelCredentials();
     final autoApplyAfterScan = await _storage.getAutoApplyAfterScan();
+    final useServerBackend = await _storage.getUseServerBackend();
+    final serverBaseUrl = await _storage.getServerBackendBaseUrl();
+    final serverToken = await _storage.getServerBackendToken();
 
     _updateMode = mode;
 
@@ -75,10 +86,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _panelBaseUrlController.text = panelCredentials.baseUrl;
       _panelPasswordController.text = panelCredentials.password;
     }
-
+    if (serverBaseUrl != null) {
+      _serverBaseUrlController.text = serverBaseUrl;
+    }
+    if (serverToken != null) {
+      _serverTokenController.text = serverToken;
+    }
     setState(() {
-      _hasCredentials = _hasCredentialsForMode(_updateMode);
+      _hasCredentials = useServerBackend
+          ? _serverBaseUrlController.text.trim().isNotEmpty ||
+                _serverTokenController.text.trim().isNotEmpty
+          : _hasCredentialsForMode(_updateMode);
       _autoApplyAfterScan = autoApplyAfterScan;
+      _useServerBackend = useServerBackend;
       _isLoading = false;
     });
 
@@ -153,6 +173,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isLoading = true);
 
     try {
+      await _storage.saveUseServerBackend(_useServerBackend);
+
+      if (_useServerBackend) {
+        await _storage.saveServerBackendBaseUrl(
+          _serverBaseUrlController.text.trim(),
+        );
+        await _storage.saveServerBackendToken(
+          _serverTokenController.text.trim(),
+        );
+
+        setState(() {
+          _isLoading = false;
+          _hasCredentials =
+              _serverBaseUrlController.text.trim().isNotEmpty ||
+              _serverTokenController.text.trim().isNotEmpty;
+        });
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Server backend settings saved successfully'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
       String? autoSubscriptionUrl;
       bool autoPopulateFailed = false;
       Object? autoPopulateError;
@@ -253,6 +301,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() => _isValidating = true);
 
+    if (_useServerBackend) {
+      final baseUrl = _serverBaseUrlController.text.trim();
+      bool isValid = false;
+      Object? validationError;
+      try {
+        await _serverApi.getStatus(baseUrl: baseUrl);
+        isValid = true;
+      } catch (e, stackTrace) {
+        validationError = e;
+        _log.logError('Failed to validate server backend', e, stackTrace);
+      }
+      setState(() => _isValidating = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isValid
+                ? 'Server is reachable. Token was not verified. Trigger/rollback actions will fail if token is incorrect.'
+                : 'Server backend validation failed: $validationError',
+          ),
+          backgroundColor: isValid ? Colors.green : Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     bool isValid;
     Object? panelValidationError;
     if (_updateMode == UpdateMode.cloudflareApi) {
@@ -311,7 +386,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Clear Credentials'),
         content: Text(
-          _updateMode == UpdateMode.cloudflareApi
+          _useServerBackend
+              ? 'Clear saved server backend credentials?'
+              : _updateMode == UpdateMode.cloudflareApi
               ? 'Clear saved Cloudflare API credentials?'
               : 'Clear saved Panel API credentials?',
         ),
@@ -330,6 +407,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (confirmed != true) return;
+
+    if (_useServerBackend) {
+      await _storage.saveServerBackendBaseUrl('');
+      await _storage.clearServerBackendToken();
+      _serverBaseUrlController.clear();
+      _serverTokenController.clear();
+      setState(() => _hasCredentials = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Server backend credentials cleared'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     if (_updateMode == UpdateMode.cloudflareApi) {
       await _storage.clearCredentials();
@@ -358,7 +451,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return DropdownButtonFormField<UpdateMode>(
       initialValue: _updateMode,
       decoration: const InputDecoration(
-        labelText: 'Update Method',
+        labelText: 'Local Apply Method',
         border: OutlineInputBorder(),
         prefixIcon: Icon(Icons.sync_alt),
       ),
@@ -577,6 +670,117 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildServerBackendCard() {
+    final executionMode = _useServerBackend ? 'server' : 'local';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Execution Mode',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: executionMode,
+          decoration: const InputDecoration(
+            labelText: 'Execution Mode',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.developer_board),
+          ),
+          items: const [
+            DropdownMenuItem(
+              value: 'local',
+              child: Text('Local Device Scanner'),
+            ),
+            DropdownMenuItem(value: 'server', child: Text('Server Backend')),
+          ],
+          onChanged: (value) async {
+            if (value == null) return;
+            final useServer = value == 'server';
+            if (!mounted) return;
+            setState(() {
+              _useServerBackend = useServer;
+              _hasCredentials = useServer
+                  ? _serverBaseUrlController.text.trim().isNotEmpty ||
+                        _serverTokenController.text.trim().isNotEmpty
+                  : _hasCredentialsForMode(_updateMode);
+            });
+          },
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _useServerBackend
+              ? 'Server mode is active. Home/Results/Logs actions use server endpoints.'
+              : 'Local mode is active. Scans run on this device.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildServerBackendInlineForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Server Backend Settings',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'When enabled, Home/Results/Logs actions use server endpoints and server run history.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _serverBaseUrlController,
+          decoration: const InputDecoration(
+            labelText: 'Backend Base URL',
+            hintText: 'https://scan.example.com',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.dns),
+          ),
+          keyboardType: TextInputType.url,
+          validator: (value) {
+            if (!_useServerBackend) return null;
+            final raw = (value ?? '').trim();
+            if (raw.isEmpty) {
+              return 'Backend base URL is required when server mode is enabled';
+            }
+            final uri = Uri.tryParse(raw);
+            if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+              return 'Enter a valid absolute URL';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _serverTokenController,
+          decoration: InputDecoration(
+            labelText: 'Internal Trigger Token',
+            hintText: 'Required for trigger/rollback actions',
+            border: const OutlineInputBorder(),
+            prefixIcon: const Icon(Icons.key),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscureServerToken ? Icons.visibility : Icons.visibility_off,
+              ),
+              onPressed: () {
+                setState(() => _obscureServerToken = !_obscureServerToken);
+              },
+            ),
+          ),
+          obscureText: _obscureServerToken,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -601,24 +805,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _buildUpdateModeSelector(),
-                      const SizedBox(height: 16),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Auto apply after scan'),
-                        subtitle: Text(
-                          'Automatically update BPB using ${_updateMode.displayName} when a scan finishes with working IPs.',
-                        ),
-                        value: _autoApplyAfterScan,
-                        onChanged: (value) {
-                          setState(() => _autoApplyAfterScan = value);
-                        },
-                      ),
+                      _buildServerBackendCard(),
                       const SizedBox(height: 24),
-                      if (_updateMode == UpdateMode.cloudflareApi)
-                        _buildCloudflareForm()
-                      else
-                        _buildPanelApiForm(),
+                      if (_useServerBackend) ...[
+                        _buildServerBackendInlineForm(),
+                        const SizedBox(height: 24),
+                      ] else ...[
+                        _buildUpdateModeSelector(),
+                        const SizedBox(height: 16),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Auto apply after scan'),
+                          subtitle: Text(
+                            'Automatically update BPB using ${_updateMode.displayName} when a scan finishes with working IPs.',
+                          ),
+                          value: _autoApplyAfterScan,
+                          onChanged: (value) {
+                            setState(() => _autoApplyAfterScan = value);
+                          },
+                        ),
+                        const SizedBox(height: 24),
+                        if (_updateMode == UpdateMode.cloudflareApi)
+                          _buildCloudflareForm()
+                        else
+                          _buildPanelApiForm(),
+                      ],
                       const SizedBox(height: 24),
                       Row(
                         children: [
@@ -666,7 +877,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onPressed: _clearCurrentCredentials,
                           icon: const Icon(Icons.delete_outline),
                           label: Text(
-                            _updateMode == UpdateMode.cloudflareApi
+                            _useServerBackend
+                                ? 'Clear Server Backend Credentials'
+                                : _updateMode == UpdateMode.cloudflareApi
                                 ? 'Clear Cloudflare Credentials'
                                 : 'Clear Panel Credentials',
                           ),

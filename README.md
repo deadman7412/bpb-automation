@@ -68,6 +68,20 @@ cd bundle
 ./bpb_automation
 ```
 
+#### Linux VPS (Server Package, Recommended)
+One-command installer/update on Ubuntu:
+```bash
+curl -fsSL https://raw.githubusercontent.com/deadman7412/bpb-automation/main/backend/deploy/vps/install_or_update_server.sh \
+  | sudo bash -s -- --domain scan.example.com --email admin@example.com
+```
+What it does:
+- Downloads latest `BPB-Automation-Server-Linux-x64` from GitHub Releases
+- Installs/updates backend binaries under `/opt/bpb-automation/server`
+- Creates and enables systemd services/timer (auto-start on reboot)
+- Detects nginx/caddy and configures reverse proxy for your domain
+- Tries automatic TLS provisioning (nginx+certbot or caddy native TLS)
+- Blocks `/internal/*` endpoints at proxy layer (public internet cannot reach trigger/rollback routes)
+
 #### Windows
 ```
 Download and extract:
@@ -97,6 +111,65 @@ BPB-Automation-Windows-x64.zip
 - [Development Guide](docs/development.md) - For developers
 - [Deployment Guide](docs/deployment.md) - Building and distributing
 
+## Web + VPS Scheduler (Ubuntu)
+
+Use this mode when you want:
+- Web dashboard access from any device
+- Server-side scheduled scans
+- Automatic apply from a Linux host (for example Ubuntu LTS VPS)
+
+Architecture:
+1. Flutter app/web UI talks to backend API
+2. Backend runs `run-once` worker
+3. Scheduler (cron/systemd) triggers backend runs
+4. Backend stores run history/logs and serves dashboard endpoints
+
+### Ubuntu Quick Start (Backend)
+
+```bash
+sudo apt update
+sudo apt install -y curl jq ca-certificates
+
+# Example working dirs
+sudo mkdir -p /opt/bpb-automation/backend /var/lib/bpb-automation /var/log/bpb-automation
+```
+
+Run backend API manually (advanced/debug path):
+
+```bash
+cd /opt/bpb-automation/backend
+dart run bin/bpb_api.dart \
+  --host 127.0.0.1 \
+  --port 8787 \
+  --state-dir /var/lib/bpb-automation \
+  --log-dir /var/log/bpb-automation \
+  --internal-token "CHANGE_ME" \
+  --allowed-trigger-ips "127.0.0.1,::1" \
+  --scan-cmd "YOUR_REAL_SCAN_COMMAND" \
+  --apply \
+  --apply-cmd "YOUR_REAL_APPLY_COMMAND"
+```
+
+For production, prefer the installer command above.
+
+### Scheduler Options
+
+Linux scheduler adapters are included under:
+
+`backend/deploy/schedulers/`
+
+- `cron/` template
+- `systemd/` service + timer + env example
+- `windows/` task scheduler helpers
+- `macos/` launchd adapter scripts
+- `android/` WorkManager integration notes
+
+For production hardening:
+- Keep backend bound to localhost
+- Put Nginx reverse proxy in front
+- Restrict internal trigger endpoints to trusted source IPs only
+- Use a strong internal token
+
 ## Requirements
 
 ### For Users
@@ -113,6 +186,18 @@ BPB-Automation-Windows-x64.zip
 - See [Development Guide](docs/development.md)
 
 ## Testing
+
+### Full Validation Script (Recommended)
+
+```bash
+./scripts/run_validation_suite.sh
+```
+
+This runs:
+- `backend` analyzer
+- Flutter analyzer
+- Flutter test suite
+- Isolated backend/API smoke checks (path traversal guard, trigger race conflict, CORS default deny)
 
 ### Run All Tests (Recommended for CI)
 ```bash
@@ -226,13 +311,13 @@ For issues and questions:
 - [x] Panel API integration
 - [x] Multi-platform support
 - [x] Config-based 3-phase Xray scanning
-- [ ] Scheduled auto-scans
+- [x] Scheduled auto-scans (Linux backend worker + scheduler adapters)
 - [ ] Multi-account support
 - [ ] Custom IP lists
 - [ ] In-app updates
 
 ## Version
 
-Current: 4.2.3
+Current: 4.3.0
 
 See CHANGELOG.md for version history.

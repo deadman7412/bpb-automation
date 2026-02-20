@@ -43,6 +43,9 @@ class StorageService {
   static const String _keyScanBatchSize = 'scan_batch_size';
   static const String _keyLastScanResult = 'last_scan_result';
   static const String _keyFullScan = 'full_scan';
+  static const String _keyUseServerBackend = 'use_server_backend';
+  static const String _keyServerBackendBaseUrl = 'server_backend_base_url';
+  static const String _keyServerBackendToken = 'server_backend_token';
 
   StorageService._internal()
     : _secureStorage = const FlutterSecureStorage(
@@ -520,6 +523,56 @@ class StorageService {
     }
   }
 
+  /// Enables/disables server backend mode.
+  Future<void> saveUseServerBackend(bool enabled) async {
+    await _prefs.setBool(_keyUseServerBackend, enabled);
+  }
+
+  /// Returns true when app should use server-side API/history mode.
+  Future<bool> getUseServerBackend() async {
+    return _prefs.getBool(_keyUseServerBackend) ?? false;
+  }
+
+  /// Saves server backend base URL.
+  Future<void> saveServerBackendBaseUrl(String baseUrl) async {
+    await _prefs.setString(_keyServerBackendBaseUrl, baseUrl);
+  }
+
+  /// Returns configured server backend base URL or null.
+  Future<String?> getServerBackendBaseUrl() async {
+    return _prefs.getString(_keyServerBackendBaseUrl);
+  }
+
+  /// Saves server backend internal token for trigger endpoint.
+  Future<void> saveServerBackendToken(String token) async {
+    await _secureStorage.write(key: _keyServerBackendToken, value: token);
+    // Remove legacy plaintext value if present.
+    await _prefs.remove(_keyServerBackendToken);
+  }
+
+  /// Returns stored server backend token or null.
+  Future<String?> getServerBackendToken() async {
+    try {
+      final secure = await _secureStorage.read(key: _keyServerBackendToken);
+      if (secure != null) return secure;
+    } catch (_) {}
+    // Legacy fallback migration path.
+    final legacy = _prefs.getString(_keyServerBackendToken);
+    if (legacy != null && legacy.isNotEmpty) {
+      await _secureStorage.write(key: _keyServerBackendToken, value: legacy);
+      await _prefs.remove(_keyServerBackendToken);
+      return legacy;
+    }
+    return null;
+  }
+
+  Future<void> clearServerBackendToken() async {
+    try {
+      await _secureStorage.delete(key: _keyServerBackendToken);
+    } catch (_) {}
+    await _prefs.remove(_keyServerBackendToken);
+  }
+
   // ==================== Generic Preferences ====================
 
   /// Saves a string preference.
@@ -576,6 +629,7 @@ class StorageService {
   Future<void> clearAll() async {
     await clearCredentials();
     await clearPanelCredentials();
+    await clearServerBackendToken();
     await clearPreferences();
   }
 

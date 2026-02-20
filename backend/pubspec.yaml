@@ -1,0 +1,11 @@
+name: bpb_autoscan_worker
+description: Headless scheduler worker for BPB Automation server-side runs.
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+
+dev_dependencies:
+  lints: ^6.0.0
