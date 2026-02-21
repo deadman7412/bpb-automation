@@ -137,6 +137,25 @@ jobs:
       - name: Run tests
         run: flutter test --exclude-tags=integration
 
+      - name: Configure Android release signing
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Android signing mode
+        run: |
+          if [ -f android/key.properties ]; then
+            echo "Using release keystore signing (android/key.properties found)."
+          else
+            echo "Using debug signing fallback (android/key.properties not found)."
+          fi
+
       - name: Build APK (Release)
         run: flutter build apk --release
 

@@ -108,6 +108,30 @@ flutter build appbundle --release
 
 Output: `build/app/outputs/bundle/release/app-release.aab`
 
+#### 6. GitHub Actions Release Signing (Recommended)
+
+To avoid Android "app not compatible" update errors between releases, CI must sign every APK with the same keystore.
+
+Add these repository secrets:
+
+- `ANDROID_KEYSTORE_BASE64` (base64 of `upload-keystore.jks`)
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Generate base64 locally:
+
+```bash
+base64 -i ~/upload-keystore.jks | pbcopy
+```
+
+The workflow writes:
+
+- `android/upload-keystore.jks`
+- `android/key.properties`
+
+Then `flutter build apk --release` uses release signing automatically.
+
 ### Optimization Options
 
 ```bash
