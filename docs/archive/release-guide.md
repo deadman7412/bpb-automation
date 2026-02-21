@@ -61,14 +61,14 @@ git push origin v2.2.0
 
 ### Step 4: Wait for Build
 
-1. Go to: `https://github.com/YOUR_USERNAME/bpb-automation/actions`
+1. Go to: `https://github.com/deadman7412/bpb-automation/actions`
 2. Monitor the workflow run
 3. Wait for all builds to complete (Android, macOS, Linux, Windows)
 4. Check for any errors
 
 ### Step 5: Verify Release
 
-1. Go to: `https://github.com/YOUR_USERNAME/bpb-automation/releases`
+1. Go to: `https://github.com/deadman7412/bpb-automation/releases`
 2. Find the new release (e.g., `v2.2.0`)
 3. Verify all artifacts are attached:
    - `BPB-Automation-Android-Universal-2.2.0.apk`
@@ -142,7 +142,7 @@ Each release includes the following artifacts:
 1. **Check the error logs:**
    ```bash
    # Go to GitHub Actions
-   https://github.com/YOUR_USERNAME/bpb-automation/actions
+   https://github.com/deadman7412/bpb-automation/actions
    
    # Click on the failed workflow
    # Read error messages
@@ -158,7 +158,7 @@ Each release includes the following artifacts:
    ```
 
 3. **Delete the draft release (if created):**
-   - Go to: `https://github.com/YOUR_USERNAME/bpb-automation/releases`
+   - Go to: `https://github.com/deadman7412/bpb-automation/releases`
    - Find the failed release
    - Click "Delete" button
 
@@ -300,7 +300,7 @@ git push origin :refs/tags/v2.2.0
 git push --delete origin v2.2.0
 
 # 3. Delete release on GitHub
-# Go to: https://github.com/YOUR_USERNAME/bpb-automation/releases
+# Go to: https://github.com/deadman7412/bpb-automation/releases
 # Click on the release
 # Click "Delete" button at the bottom
 

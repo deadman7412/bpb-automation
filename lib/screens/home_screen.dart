@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../services/storage_service.dart';
 import '../widgets/logs_action_button.dart';
+import '../widgets/theme_mode_action_button.dart';
 import '../services/dart_scanner_service.dart';
 import '../services/server_backend_service.dart';
 
@@ -59,8 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final serverBaseUrl =
         (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
     final serverJwt = (await _storage.getServerBackendJwt())?.trim() ?? '';
-    final serverToken =
-        (await _storage.getServerBackendToken())?.trim() ?? '';
+    final serverToken = (await _storage.getServerBackendToken())?.trim() ?? '';
     final serverAuthToken = kIsWeb
         ? serverJwt
         : (serverToken.isNotEmpty ? serverToken : serverJwt);
@@ -257,7 +257,10 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('BPB Automation'),
         centerTitle: true,
-        actions: const [LogsActionButton(currentRoute: '/')],
+        actions: const [
+          ThemeModeActionButton(),
+          LogsActionButton(currentRoute: '/'),
+        ],
       ),
       body: SafeArea(
         child: Center(

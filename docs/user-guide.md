@@ -218,15 +218,20 @@ Live view of the running scan:
 
 Displayed after scan completes (or tap **Results** from the home screen to see the last result):
 - Summary card with working IP count and scan duration
-- Stat cards: Phase 1/Phase 2 counts
+- Stat cards: Phase 1/Phase 2 counts plus inline detail context (protocol/security/pass rates)
 - Working IP list with proxy latency per IP
 - Update BPB Panel button
 - Download Configs button
-- Info button (shows protocol, SNI, success rates, timestamp)
+
+Header actions:
+- Logs quick access in AppBar
+- Theme switcher is available from Home screen AppBar (System / Light / Dark)
 
 ### Logs Screen
 
-Full log history with all scan events. Use the copy button to export logs.
+Full log history with all scan events.
+- Built-in actions: filter, copy all logs, export logs, clear logs
+- Logs screen intentionally hides the redundant "open logs" header icon
 
 ## Best Practices
 

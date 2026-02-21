@@ -5,7 +5,7 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.5.1] - 2026-02-21
+## [4.5.2] - 2026-02-22
 
 ### Added
 - **Update ECH** action on the scan results screen (under **Update BPB Panel**) for Cloudflare API mode.
@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - guides user to enable ECH before running ECH-only updates.
 
 ### Changed
-- Version bump to 4.5.1+14 across Flutter, iOS, macOS, and documentation metadata.
+- Version bump to 4.5.2+15 across Flutter, iOS, macOS, and documentation metadata.
 - ECH-only update now uses Cloudflare ECH strategy settings exactly as configured in Settings:
   - direct DoH toggle
   - panel DoH toggle
@@ -22,9 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - cached fallback behavior.
 - ECH-only update keeps persisted `cleanIPs` unchanged while refreshing ECH-derived fields.
 - Home AppBar title updated from `BPB Clean IP Scanner` to `BPB Automation`.
-- Global AppBar quick actions standardized across screens to: **Debug -> Logs**.
+- Global AppBar quick actions simplified to prioritize **Logs** and reduce header clutter.
+- Theme mode switcher (System / Light / Dark) added to Home AppBar and persisted between app restarts.
 - Results statistics cards were compacted (smaller visual weight and spacing) for cleaner desktop/mobile layout.
 - Results statistics grid layout now enforces consistent sizing with only **2 or 4 cards per row** (no 3-card rows).
+- Results screen no longer uses a separate scan-details header button; related details are embedded directly in statistics cards.
 
 ### Fixed
 - Removed duplicate success log line after ECH-only update completion.
@@ -32,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Home status card now shows clear action notice with direct links to both **Configuration** and **Settings** when setup is incomplete.
 - Home `Last scan` now correctly resolves latest server-run timestamps in server-backend mode (instead of incorrectly showing `Never`).
 - Server-backend `Last scan` lookup now supports all app targets (web, Android, macOS, Windows, Linux) with platform-appropriate auth token selection.
+- Improved dark-mode readability on Results summary card and statistics section.
 
 ---
 

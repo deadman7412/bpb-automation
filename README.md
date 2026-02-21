@@ -2,6 +2,15 @@
 
 Cross-platform application for automatically scanning and updating clean Cloudflare IPs in BPB Panel.
 
+## Compatibility (Important)
+
+This app is only a helper for handling updates/scans for **BPB Worker Panel** created by `bia-pain-bache`.
+
+- Supported panel project:
+  - [BPB Worker Panel (main)](https://github.com/bia-pain-bache/BPB-Worker-Panel/tree/main)
+- BPB Automation is designed to work with this panel's subscription/update behavior and endpoints.
+- It is not intended as a generic manager for other panel projects.
+
 ## Overview
 
 BPB Automation helps you find working Cloudflare IPs for your network and automatically updates your BPB Panel configuration.
@@ -62,7 +71,7 @@ The app fetches your BPB Panel's Xray subscription configs, then runs a 3-phase 
 
 ### Installation
 
-Download the appropriate version for your platform from the [latest release](https://github.com/YOUR_USERNAME/bpb-automation/releases/latest):
+Download the appropriate version for your platform from the [latest release](https://github.com/deadman7412/bpb-automation/releases/latest):
 
 #### Android
 ```
@@ -301,6 +310,6 @@ For issues and questions:
 
 ## Version
 
-Current: 4.5.1
+Current: 4.5.2
 
 See CHANGELOG.md for version history.

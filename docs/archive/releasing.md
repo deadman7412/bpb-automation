@@ -193,7 +193,7 @@ git commit -m "Bump version to 1.2.0+6"
 git tag -a v1.2.0 -m "Release v1.2.0: Add adaptive icons"
 git push origin main && git push origin v1.2.0
 
-# 3. Monitor at: https://github.com/YOUR_USERNAME/bpb-automation/actions
+# 3. Monitor at: https://github.com/deadman7412/bpb-automation/actions
 ```
 
 ## Release Naming Convention

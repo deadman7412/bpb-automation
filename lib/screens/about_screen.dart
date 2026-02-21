@@ -214,8 +214,72 @@ class _AboutScreenState extends State<AboutScreen> {
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'Cross-platform automation tool for BPB Panel - automatically scan and update clean Cloudflare IPs.\n\n'
-                        'This app scans for clean Cloudflare IPs from your network and automatically updates BPB Panel\'s Workers KV settings via Cloudflare API.',
+                        'BPB Automation is a helper app for handling clean IP scan/update workflows for BPB Panel.\n\n'
+                        'This app is designed specifically for BPB Worker Panel and is not a general-purpose panel manager.',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Compatibility Notice
+              Card(
+                color: Theme.of(context).colorScheme.secondaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.verified,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSecondaryContainer,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Compatibility',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSecondaryContainer,
+                                ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Only works with BPB Worker Panel created by bia-pain-bache.',
+                        style: TextStyle(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSecondaryContainer,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      RichText(
+                        text: TextSpan(
+                          style: Theme.of(context).textTheme.bodyMedium,
+                          children: [
+                            TextSpan(
+                              text:
+                                  'github.com/bia-pain-bache/BPB-Worker-Panel/tree/main',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                decoration: TextDecoration.underline,
+                              ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () => _launchURL(
+                                  'https://github.com/bia-pain-bache/BPB-Worker-Panel/tree/main',
+                                ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),

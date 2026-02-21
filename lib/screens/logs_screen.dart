@@ -156,11 +156,6 @@ class _LogsScreenState extends State<LogsScreen> {
         title: const Text('Logs'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.bug_report),
-            tooltip: 'Debug & Diagnostics',
-            onPressed: () => Navigator.pushNamed(context, '/debug'),
-          ),
-          IconButton(
             icon: const Icon(Icons.filter_list),
             tooltip: 'Filter',
             onPressed: () => _showFilterDialog(),
