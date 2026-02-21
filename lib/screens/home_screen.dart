@@ -59,18 +59,67 @@ class _HomeScreenState extends State<HomeScreen> {
     final serverBaseUrl =
         (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
     final serverJwt = (await _storage.getServerBackendJwt())?.trim() ?? '';
+    final serverToken =
+        (await _storage.getServerBackendToken())?.trim() ?? '';
+    final serverAuthToken = kIsWeb
+        ? serverJwt
+        : (serverToken.isNotEmpty ? serverToken : serverJwt);
 
     if (kIsWeb && !useServerBackend) {
       await _storage.saveUseServerBackend(true);
     }
 
+    DateTime? effectiveLastScan = lastScan;
+    final effectiveUseServerBackend = kIsWeb ? true : useServerBackend;
+    final canQueryServerHistory = kIsWeb
+        ? serverJwt.isNotEmpty
+        : serverAuthToken.isNotEmpty;
+    if (effectiveUseServerBackend &&
+        serverBaseUrl.isNotEmpty &&
+        canQueryServerHistory) {
+      try {
+        final runs = await _serverApi.getResults(
+          baseUrl: serverBaseUrl,
+          page: 1,
+          pageSize: 1,
+          authToken: serverAuthToken,
+        );
+        if (runs.isNotEmpty) {
+          final latestServerScan = _parseServerScanTime(runs.first);
+          if (latestServerScan != null &&
+              (effectiveLastScan == null ||
+                  latestServerScan.isAfter(effectiveLastScan))) {
+            effectiveLastScan = latestServerScan;
+          }
+        }
+      } catch (_) {
+        // Keep local last scan fallback when server history is unavailable.
+      }
+    }
+
     setState(() {
-      _lastScanTime = lastScan;
+      _lastScanTime = effectiveLastScan;
       _subscriptionUrl = url;
-      _useServerBackend = kIsWeb ? true : useServerBackend;
+      _useServerBackend = effectiveUseServerBackend;
       _webHasServerConfig = serverBaseUrl.isNotEmpty;
       _webHasSession = serverJwt.isNotEmpty;
     });
+  }
+
+  DateTime? _parseServerScanTime(Map<String, dynamic> run) {
+    final candidates = [
+      run['finished_at'],
+      run['started_at'],
+      run['created_at'],
+    ];
+    for (final value in candidates) {
+      final raw = value?.toString().trim();
+      if (raw == null || raw.isEmpty) continue;
+      try {
+        return DateTime.parse(raw);
+      } catch (_) {}
+    }
+    return null;
   }
 
   Future<void> _startScan() async {
@@ -200,11 +249,15 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final webAuthBlocked = kIsWeb && (!_webHasServerConfig || !_webHasSession);
+    final missingConfig =
+        !_useServerBackend &&
+        (_subscriptionUrl == null || _subscriptionUrl!.isEmpty);
+    final needsSetupNotice = missingConfig || webAuthBlocked;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('BPB Clean IP Scanner'),
+        title: const Text('BPB Automation'),
         centerTitle: true,
-        actions: const [LogsActionButton()],
+        actions: const [LogsActionButton(currentRoute: '/')],
       ),
       body: SafeArea(
         child: Center(
@@ -414,6 +467,47 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ],
                           ),
+                          if (needsSetupNotice) ...[
+                            const SizedBox(height: 12),
+                            Card(
+                              color: Colors.orange.withValues(alpha: 0.1),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Action needed: update Configuration and Settings.',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      children: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pushNamed(
+                                            context,
+                                            '/config',
+                                          ).then((_) => _loadInfo()),
+                                          child: const Text(
+                                            'Update Configuration',
+                                          ),
+                                        ),
+                                        TextButton(
+                                          onPressed: () => Navigator.pushNamed(
+                                            context,
+                                            '/settings',
+                                          ).then((_) => _loadInfo()),
+                                          child: const Text('Open Settings'),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

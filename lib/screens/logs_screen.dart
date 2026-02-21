@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../services/log_service.dart';
+import '../widgets/logs_action_button.dart';
 
 class LogsScreen extends StatefulWidget {
   const LogsScreen({super.key});
@@ -155,6 +156,7 @@ class _LogsScreenState extends State<LogsScreen> {
       appBar: AppBar(
         title: const Text('Logs'),
         actions: [
+          const LogsActionButton(currentRoute: '/logs'),
           IconButton(
             icon: const Icon(Icons.filter_list),
             tooltip: 'Filter',

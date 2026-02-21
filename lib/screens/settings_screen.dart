@@ -140,8 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : _hasCredentialsForMode(_updateMode);
       _autoApplyAfterScan = autoApplyAfterScan;
       _cloudflareTryEchViaProxy = cloudflareTryEchViaProxy;
-      _cloudflareTryEchViaDirectResolvers =
-          cloudflareTryEchViaDirectResolvers;
+      _cloudflareTryEchViaDirectResolvers = cloudflareTryEchViaDirectResolvers;
       _cloudflareTryEchViaPanelDoh = cloudflareTryEchViaPanelDoh;
       _cloudflareUseCachedEchFallback = cloudflareUseCachedEchFallback;
       _panelDohUrlOverrideController.text = panelDohUrlOverride ?? '';
@@ -1090,14 +1089,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
-        actions: [
-          const LogsActionButton(),
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            tooltip: 'Debug & Diagnostics',
-            onPressed: () => Navigator.pushNamed(context, '/debug'),
-          ),
-        ],
+        actions: const [LogsActionButton(currentRoute: '/settings')],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

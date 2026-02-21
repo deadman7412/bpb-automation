@@ -220,7 +220,9 @@ class _ServerBackendSettingsScreenState
     return Scaffold(
       appBar: AppBar(
         title: const Text('Server Backend'),
-        actions: const [LogsActionButton()],
+        actions: const [
+          LogsActionButton(currentRoute: '/server-backend-settings'),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

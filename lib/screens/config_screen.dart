@@ -395,7 +395,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       appBar: AppBar(
         title: const Text('Configuration'),
         actions: [
-          const LogsActionButton(),
+          const LogsActionButton(currentRoute: '/config'),
           IconButton(
             icon: const Icon(Icons.save),
             tooltip: 'Save',

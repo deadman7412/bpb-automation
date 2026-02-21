@@ -89,7 +89,7 @@ class _ServerLogsScreenState extends State<ServerLogsScreen> {
       appBar: AppBar(
         title: const Text('Server Logs'),
         actions: [
-          const LogsActionButton(),
+          const LogsActionButton(currentRoute: '/server-logs'),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',

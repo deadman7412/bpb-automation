@@ -172,7 +172,7 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
       appBar: AppBar(
         title: const Text('Server Run History'),
         actions: [
-          const LogsActionButton(),
+          const LogsActionButton(currentRoute: '/server-history'),
           IconButton(
             icon: const Icon(Icons.article),
             tooltip: 'Server Logs',

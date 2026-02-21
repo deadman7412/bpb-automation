@@ -171,7 +171,7 @@ class _AboutScreenState extends State<AboutScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('About'),
-        actions: const [LogsActionButton()],
+        actions: const [LogsActionButton(currentRoute: '/about')],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -180,25 +180,21 @@ class _AboutScreenState extends State<AboutScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // App Icon and Name
-              const Icon(
-                Icons.cloud_sync,
-                size: 80,
-                color: Colors.blue,
-              ),
+              const Icon(Icons.cloud_sync, size: 80, color: Colors.blue),
               const SizedBox(height: 16),
               Text(
                 'BPB Automation',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                  fontWeight: FontWeight.bold,
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               Text(
                 'Version $_appVersion${_buildNumber.isNotEmpty ? ' ($_buildNumber)' : ''}',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -213,8 +209,8 @@ class _AboutScreenState extends State<AboutScreen> {
                       Text(
                         'About',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       const Text(
@@ -237,8 +233,8 @@ class _AboutScreenState extends State<AboutScreen> {
                       Text(
                         'Creator',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       const Row(
@@ -257,7 +253,9 @@ class _AboutScreenState extends State<AboutScreen> {
               // GitHub Repository
               Card(
                 child: InkWell(
-                  onTap: () => _launchURL('https://github.com/deadman7412/bpb-automation'),
+                  onTap: () => _launchURL(
+                    'https://github.com/deadman7412/bpb-automation',
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -269,7 +267,8 @@ class _AboutScreenState extends State<AboutScreen> {
                             const SizedBox(width: 8),
                             Text(
                               'GitHub Repository',
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.blue,
                                   ),
@@ -288,7 +287,9 @@ class _AboutScreenState extends State<AboutScreen> {
                                   decoration: TextDecoration.underline,
                                 ),
                                 recognizer: TapGestureRecognizer()
-                                  ..onTap = () => _launchURL('https://github.com/deadman7412/bpb-automation'),
+                                  ..onTap = () => _launchURL(
+                                    'https://github.com/deadman7412/bpb-automation',
+                                  ),
                               ),
                             ],
                           ),
@@ -318,9 +319,8 @@ class _AboutScreenState extends State<AboutScreen> {
                           const SizedBox(width: 8),
                           Text(
                             'Updates',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -338,7 +338,9 @@ class _AboutScreenState extends State<AboutScreen> {
                         const SizedBox(height: 12),
                       ],
                       ElevatedButton.icon(
-                        onPressed: _checkingForUpdates ? null : _checkForUpdates,
+                        onPressed: _checkingForUpdates
+                            ? null
+                            : _checkForUpdates,
                         icon: _checkingForUpdates
                             ? const SizedBox(
                                 width: 16,
@@ -348,9 +350,11 @@ class _AboutScreenState extends State<AboutScreen> {
                                 ),
                               )
                             : const Icon(Icons.refresh),
-                        label: Text(_checkingForUpdates
-                            ? 'Checking...'
-                            : 'Check for Updates'),
+                        label: Text(
+                          _checkingForUpdates
+                              ? 'Checking...'
+                              : 'Check for Updates',
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange,
                           foregroundColor: Colors.white,
@@ -365,7 +369,9 @@ class _AboutScreenState extends State<AboutScreen> {
               // Releases Link
               Card(
                 child: InkWell(
-                  onTap: () => _launchURL('https://github.com/deadman7412/bpb-automation/releases'),
+                  onTap: () => _launchURL(
+                    'https://github.com/deadman7412/bpb-automation/releases',
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -377,7 +383,8 @@ class _AboutScreenState extends State<AboutScreen> {
                             const SizedBox(width: 8),
                             Text(
                               'Releases',
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.green,
                                   ),
@@ -390,13 +397,16 @@ class _AboutScreenState extends State<AboutScreen> {
                             style: Theme.of(context).textTheme.bodyMedium,
                             children: [
                               TextSpan(
-                                text: 'github.com/deadman7412/bpb-automation/releases',
+                                text:
+                                    'github.com/deadman7412/bpb-automation/releases',
                                 style: const TextStyle(
                                   color: Colors.green,
                                   decoration: TextDecoration.underline,
                                 ),
                                 recognizer: TapGestureRecognizer()
-                                  ..onTap = () => _launchURL('https://github.com/deadman7412/bpb-automation/releases'),
+                                  ..onTap = () => _launchURL(
+                                    'https://github.com/deadman7412/bpb-automation/releases',
+                                  ),
                               ),
                             ],
                           ),
@@ -416,17 +426,17 @@ class _AboutScreenState extends State<AboutScreen> {
               // License & copyright
               Text(
                 '© 2025 deadman7412',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               Text(
                 'Open-source under the MIT License.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
             ],

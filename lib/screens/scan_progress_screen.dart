@@ -640,7 +640,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Scanning'),
-        actions: const [LogsActionButton()],
+        actions: const [LogsActionButton(currentRoute: '/scan-progress')],
       ),
       body: SafeArea(
         child: Center(

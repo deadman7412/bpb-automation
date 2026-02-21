@@ -205,6 +205,13 @@ class CloudflareApiService {
       // for ECH lookup, but preserve existing cleanIPs in persisted payload.
       _logService.logInfo('Step 2: Refreshing ECH derived fields');
       final payload = currentSettings.toJson();
+      final enableEch = _asBool(payload['enableECH']);
+      if (!enableEch) {
+        _logService.logWarn(
+          'ECH-only update skipped: enableECH is disabled in proxySettings',
+        );
+        return false;
+      }
       final persistedCleanIps = _toStringList(payload['cleanIPs']);
       final candidateIps = cleanIpCandidates
           .map((ip) => ip.trim())

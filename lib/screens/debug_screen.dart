@@ -65,7 +65,7 @@ class _DebugScreenState extends State<DebugScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Debug & Diagnostics'),
-        actions: const [LogsActionButton()],
+        actions: const [LogsActionButton(currentRoute: '/debug')],
       ),
       body: SafeArea(
         child: SingleChildScrollView(

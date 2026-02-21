@@ -52,6 +52,8 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
   Map<String, dynamic>? _serverLatest;
   String? _serverError;
   UpdateMode _updateMode = UpdateMode.panelApi;
+  bool? _isPanelEchEnabled;
+  bool _isEchStrategyDisabled = false;
 
   @override
   void didChangeDependencies() {
@@ -73,6 +75,8 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     } else {
       _updateMode = updateMode;
     }
+    unawaited(_loadPanelEchStatusIfAvailable(updateMode));
+    unawaited(_loadEchStrategyState(updateMode));
 
     final useServerBackend = await _storage.getUseServerBackend();
     if (useServerBackend) {
@@ -111,6 +115,75 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       } else {
         _log.logWarn('No config scan result available');
       }
+    }
+  }
+
+  Future<void> _loadPanelEchStatusIfAvailable(UpdateMode mode) async {
+    if (mode != UpdateMode.cloudflareApi) {
+      if (mounted) {
+        setState(() {
+          _isPanelEchEnabled = null;
+        });
+      }
+      return;
+    }
+
+    try {
+      final credentials = await _storage.getCredentials();
+      if (credentials == null) {
+        if (mounted) {
+          setState(() {
+            _isPanelEchEnabled = null;
+          });
+        }
+        return;
+      }
+
+      final settings = await _api.getProxySettings(credentials);
+      final enabled =
+          settings?.additionalFields['enableECH']?.toString().toLowerCase() ==
+              'true' ||
+          settings?.additionalFields['enableECH'] == true ||
+          settings?.additionalFields['enableECH'] == 1 ||
+          settings?.additionalFields['enableECH']?.toString() == '1';
+      if (mounted) {
+        setState(() {
+          _isPanelEchEnabled = enabled;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isPanelEchEnabled = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadEchStrategyState(UpdateMode mode) async {
+    if (mode != UpdateMode.cloudflareApi) {
+      if (mounted) {
+        setState(() {
+          _isEchStrategyDisabled = false;
+        });
+      }
+      return;
+    }
+
+    final tryDirect = await _storage.getCloudflareTryEchViaDirectResolvers();
+    final tryPanelDoh = await _storage.getCloudflareTryEchViaPanelDoh();
+    final tryProxy = await _storage.getCloudflareTryEchViaProxy();
+    final useCachedFallback = await _storage
+        .getCloudflareUseCachedEchFallback();
+    final allOff =
+        !tryDirect && !tryPanelDoh && !tryProxy && !useCachedFallback;
+
+    if (mounted) {
+      setState(() {
+        _isEchStrategyDisabled = allOff;
+      });
+    } else {
+      _isEchStrategyDisabled = allOff;
     }
   }
 
@@ -334,13 +407,20 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         return;
       }
 
-      await _api.refreshEchOnly(
+      final refreshed = await _api.refreshEchOnly(
         credentials,
         cleanIpCandidates: _result!.workingIPs,
       );
 
       if (!mounted) return;
-      _showMessage('ECH updated successfully. cleanIPs were not changed.');
+      if (refreshed) {
+        _showMessage('ECH updated successfully. cleanIPs were not changed.');
+      } else {
+        _showMessage(
+          'ECH is disabled in your panel settings (enableECH=false). Enable ECH first, then retry.',
+          isError: true,
+        );
+      }
     } catch (e, stackTrace) {
       _log.logError('Failed to update ECH only: $e\n$stackTrace');
       if (!mounted) return;
@@ -624,19 +704,20 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 32, color: iconColor),
-            const SizedBox(height: 8),
+            Icon(icon, size: 24, color: iconColor),
+            const SizedBox(height: 6),
             Text(
               value,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: valueColor,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               title,
               style: Theme.of(context).textTheme.bodySmall,
@@ -746,25 +827,38 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                children: [
-                  _buildStatCard('Phase 1 Passed', '$phase1', Icons.done),
-                  _buildStatCard('Phase 2 Tested', '$phase2', Icons.verified),
-                  _buildStatCard('Working IPs', '$working', Icons.cloud_done),
-                  _buildStatCard(
-                    'Status',
-                    status,
-                    isSuccess
-                        ? Icons.check
-                        : (isPartial ? Icons.warning : Icons.error),
-                  ),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final crossAxisCount = constraints.maxWidth >= 780 ? 4 : 2;
+                  return GridView.count(
+                    crossAxisCount: crossAxisCount,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    childAspectRatio: 2.1,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    children: [
+                      _buildStatCard('Phase 1 Passed', '$phase1', Icons.done),
+                      _buildStatCard(
+                        'Phase 2 Tested',
+                        '$phase2',
+                        Icons.verified,
+                      ),
+                      _buildStatCard(
+                        'Working IPs',
+                        '$working',
+                        Icons.cloud_done,
+                      ),
+                      _buildStatCard(
+                        'Status',
+                        status,
+                        isSuccess
+                            ? Icons.check
+                            : (isPartial ? Icons.warning : Icons.error),
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 16),
               Row(
@@ -841,12 +935,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         appBar: AppBar(
           title: const Text('Server Results'),
           actions: [
-            const LogsActionButton(),
-            IconButton(
-              icon: const Icon(Icons.bug_report),
-              tooltip: 'Debug & Diagnostics',
-              onPressed: () => Navigator.pushNamed(context, '/debug'),
-            ),
+            const LogsActionButton(currentRoute: '/results'),
             IconButton(
               icon: const Icon(Icons.refresh),
               onPressed: _isServerLoading ? null : _loadServerLatest,
@@ -862,14 +951,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Config Scan Results'),
-          actions: [
-            const LogsActionButton(),
-            IconButton(
-              icon: const Icon(Icons.bug_report),
-              tooltip: 'Debug & Diagnostics',
-              onPressed: () => Navigator.pushNamed(context, '/debug'),
-            ),
-          ],
+          actions: [const LogsActionButton(currentRoute: '/results')],
         ),
         body: const Center(child: Text('No results available')),
       );
@@ -879,15 +961,10 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       appBar: AppBar(
         title: const Text('Config Scan Results'),
         actions: [
-          const LogsActionButton(),
+          const LogsActionButton(currentRoute: '/results'),
           IconButton(
-            icon: const Icon(Icons.bug_report),
-            tooltip: 'Debug & Diagnostics',
-            onPressed: () => Navigator.pushNamed(context, '/debug'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            tooltip: 'Info',
+            icon: const Icon(Icons.analytics_outlined),
+            tooltip: 'Scan details',
             onPressed: _showResultInfo,
           ),
         ],
@@ -997,6 +1074,24 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                   const SizedBox(height: 24),
                 ],
 
+                if (_updateMode == UpdateMode.cloudflareApi &&
+                    _isPanelEchEnabled == false) ...[
+                  Card(
+                    color: Colors.orange.shade50,
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.info_outline,
+                        color: Colors.orange,
+                      ),
+                      title: const Text('ECH is turned off in panel settings'),
+                      subtitle: const Text(
+                        'enableECH is false in proxySettings. Turn it on in the panel if you want ECH updates.',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
                 // Phase Statistics
                 Text(
                   'Scan Statistics',
@@ -1004,37 +1099,42 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                GridView.count(
-                  crossAxisCount: 2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: 1.2,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  children: [
-                    _buildStatCard(
-                      'Phase 1 Tested',
-                      '${_result!.totalTested}',
-                      Icons.network_check,
-                    ),
-                    _buildStatCard(
-                      'Phase 1 Passed',
-                      '${_result!.phase1Passed}',
-                      Icons.done,
-                      color: Colors.blue,
-                    ),
-                    _buildStatCard(
-                      'Phase 2 Tested',
-                      '${_result!.phase2Tested}',
-                      Icons.verified_user,
-                    ),
-                    _buildStatCard(
-                      'Working IPs',
-                      '${_result!.workingIPCount}',
-                      Icons.check_circle,
-                      color: Colors.green,
-                    ),
-                  ],
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final crossAxisCount = constraints.maxWidth >= 780 ? 4 : 2;
+                    return GridView.count(
+                      crossAxisCount: crossAxisCount,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      childAspectRatio: 2.1,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      children: [
+                        _buildStatCard(
+                          'Phase 1 Tested',
+                          '${_result!.totalTested}',
+                          Icons.network_check,
+                        ),
+                        _buildStatCard(
+                          'Phase 1 Passed',
+                          '${_result!.phase1Passed}',
+                          Icons.done,
+                          color: Colors.blue,
+                        ),
+                        _buildStatCard(
+                          'Phase 2 Tested',
+                          '${_result!.phase2Tested}',
+                          Icons.verified_user,
+                        ),
+                        _buildStatCard(
+                          'Working IPs',
+                          '${_result!.workingIPCount}',
+                          Icons.check_circle,
+                          color: Colors.green,
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 24),
 
@@ -1115,6 +1215,8 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                         ? 'Updating ECH...'
                         : _updateMode != UpdateMode.cloudflareApi
                         ? 'ECH-only update requires Cloudflare API mode'
+                        : _isEchStrategyDisabled
+                        ? 'ECH update disabled: all ECH toggles are OFF in Settings'
                         : !hasWorkingIps
                         ? 'Need scan to fetch clean IPs. Use Update BPB Panel.'
                         : 'Update ECH';
@@ -1123,6 +1225,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                         hasWorkingIps && !_isUpdating && !_isRefreshingEch;
                     final canUpdateEchOnly =
                         _updateMode == UpdateMode.cloudflareApi &&
+                        !_isEchStrategyDisabled &&
                         hasWorkingIps &&
                         !_isRefreshingEch &&
                         !_isUpdating;

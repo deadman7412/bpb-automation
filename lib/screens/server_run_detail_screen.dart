@@ -96,7 +96,7 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
       appBar: AppBar(
         title: const Text('Run Detail'),
         actions: [
-          const LogsActionButton(),
+          const LogsActionButton(currentRoute: '/server-run-detail'),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loading
