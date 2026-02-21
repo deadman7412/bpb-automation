@@ -765,7 +765,6 @@ class PanelApiService {
               return await SecureSocket.secure(
                 baseSocket,
                 host: url.host,
-                supportedProtocols: const ['http/1.1'],
               ).timeout(const Duration(seconds: 12));
             }(),
             () {},

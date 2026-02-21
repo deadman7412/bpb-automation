@@ -150,6 +150,64 @@ If successful, you'll receive the current proxySettings JSON.
 4. Click "Save"
 5. The app will validate the credentials
 
+## ECH Refresh Controls (Cloudflare API Mode)
+
+When BPB Automation updates `proxySettings` in Cloudflare API mode, it can also refresh `echConfig` (if `enableECH` is enabled in your panel settings).
+
+Open:
+- **Settings**
+- **Update Method = Cloudflare API**
+
+ECH options:
+
+1. **Try ECH refresh via direct DoH resolvers**
+- Uses `dns.google` and `cloudflare-dns.com`
+- Good default for normal networks
+- Disable if your network consistently blocks public DoH
+
+2. **Try ECH refresh via panel DoH**
+- Uses your panel route: `/dns-query/{subPath}`
+- Usually the best choice when public DoH is filtered
+
+3. **Try ECH refresh via proxy (Experimental)**
+- Uses Xray + clean IP candidates as fallback
+- Can recover in heavily filtered environments
+- Slower and less predictable than direct/panel DoH
+
+4. **Use last successful ECH when refresh fails**
+- If enabled, app reuses previously successful ECH value when live refresh fails
+- Recommended ON for unstable networks
+
+5. **Panel DoH URL override (optional)**
+- Manual URL in form:
+  - `https://your-domain/dns-query/<subPath>`
+- If set, it is tried first for panel DoH lookup
+- If empty, app auto-derives from saved subscription URL
+
+Important behavior:
+- If panel setting `enableECH = false`, ECH refresh is skipped entirely.
+- On panel DoH failure, app can also try panel DoH via forced clean-IP rotation.
+
+Recommended profiles:
+
+- **Normal network**
+  - direct: ON
+  - panel DoH: ON
+  - proxy experimental: OFF
+  - cached fallback: ON
+
+- **Public DoH blocked network**
+  - direct: OFF
+  - panel DoH: ON
+  - proxy experimental: OFF (turn ON only if needed)
+  - cached fallback: ON
+
+- **Highly filtered network**
+  - direct: OFF
+  - panel DoH: ON
+  - proxy experimental: ON (Experimental)
+  - cached fallback: ON
+
 ## Troubleshooting
 
 ### Error: Invalid API Token
@@ -178,6 +236,7 @@ If successful, you'll receive the current proxySettings JSON.
 3. **Set expiration** - Rotate tokens regularly
 4. **Revoke if compromised** - Immediately revoke and create a new token
 5. **Minimal permissions** - Only grant Workers KV Edit, nothing more
+6. **Treat Panel DoH override URL as sensitive** - It contains your panel route/subPath, do not share publicly
 
 ## Revoking a Token
 

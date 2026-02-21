@@ -28,6 +28,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _serverTokenController = TextEditingController();
   final _serverUsernameController = TextEditingController();
   final _serverPasswordController = TextEditingController();
+  final _panelDohUrlOverrideController = TextEditingController();
 
   final StorageService _storage = StorageService.instance;
   final CloudflareApiService _api = CloudflareApiService.instance;
@@ -46,6 +47,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _hasCredentials = false;
   bool _autoApplyAfterScan = false;
   bool _cloudflareTryEchViaProxy = false;
+  bool _cloudflareTryEchViaDirectResolvers = true;
+  bool _cloudflareTryEchViaPanelDoh = true;
+  bool _cloudflareUseCachedEchFallback = true;
   bool _panelUseProxyForUpdate = false;
   bool _panelForceCleanIpsForUpdate = false;
   bool _panelEnableProxyDiagnostics = false;
@@ -69,6 +73,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _serverTokenController.dispose();
     _serverUsernameController.dispose();
     _serverPasswordController.dispose();
+    _panelDohUrlOverrideController.dispose();
     super.dispose();
   }
 
@@ -82,6 +87,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoApplyAfterScan = await _storage.getAutoApplyAfterScan();
     final cloudflareTryEchViaProxy = await _storage
         .getCloudflareTryEchViaProxy();
+    final cloudflareTryEchViaDirectResolvers = await _storage
+        .getCloudflareTryEchViaDirectResolvers();
+    final cloudflareTryEchViaPanelDoh = await _storage
+        .getCloudflareTryEchViaPanelDoh();
+    final cloudflareUseCachedEchFallback = await _storage
+        .getCloudflareUseCachedEchFallback();
+    final panelDohUrlOverride = await _storage
+        .getCloudflarePanelDohUrlOverride();
     final panelUseProxyForUpdate = await _storage.getPanelUseProxyForUpdate();
     final panelForceCleanIpsForUpdate = await _storage
         .getPanelForceCleanIpsForUpdate();
@@ -127,6 +140,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : _hasCredentialsForMode(_updateMode);
       _autoApplyAfterScan = autoApplyAfterScan;
       _cloudflareTryEchViaProxy = cloudflareTryEchViaProxy;
+      _cloudflareTryEchViaDirectResolvers =
+          cloudflareTryEchViaDirectResolvers;
+      _cloudflareTryEchViaPanelDoh = cloudflareTryEchViaPanelDoh;
+      _cloudflareUseCachedEchFallback = cloudflareUseCachedEchFallback;
+      _panelDohUrlOverrideController.text = panelDohUrlOverride ?? '';
       _panelUseProxyForUpdate = panelUseProxyForUpdate;
       _panelForceCleanIpsForUpdate = panelForceCleanIpsForUpdate;
       _panelEnableProxyDiagnostics = panelEnableProxyDiagnostics;
@@ -272,6 +290,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await _storage.saveUpdateMode(_updateMode);
       await _storage.saveAutoApplyAfterScan(_autoApplyAfterScan);
       await _storage.saveCloudflareTryEchViaProxy(_cloudflareTryEchViaProxy);
+      await _storage.saveCloudflareTryEchViaDirectResolvers(
+        _cloudflareTryEchViaDirectResolvers,
+      );
+      await _storage.saveCloudflareTryEchViaPanelDoh(
+        _cloudflareTryEchViaPanelDoh,
+      );
+      await _storage.saveCloudflareUseCachedEchFallback(
+        _cloudflareUseCachedEchFallback,
+      );
+      await _storage.saveCloudflarePanelDohUrlOverride(
+        _panelDohUrlOverrideController.text,
+      );
       await _storage.savePanelUseProxyForUpdate(_panelUseProxyForUpdate);
       await _storage.savePanelForceCleanIpsForUpdate(
         _panelForceCleanIpsForUpdate,
@@ -606,6 +636,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
+          title: const Text('Try ECH refresh via direct DoH resolvers'),
+          subtitle: const Text(
+            'Uses dns.google and cloudflare-dns.com first. Disable this if your network consistently blocks public DoH.',
+          ),
+          value: _cloudflareTryEchViaDirectResolvers,
+          onChanged: (value) {
+            setState(() => _cloudflareTryEchViaDirectResolvers = value);
+          },
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Try ECH refresh via panel DoH'),
+          subtitle: const Text(
+            'Uses your panel /dns-query route for ECH lookup. Useful when public DoH is filtered.',
+          ),
+          value: _cloudflareTryEchViaPanelDoh,
+          onChanged: (value) {
+            setState(() => _cloudflareTryEchViaPanelDoh = value);
+          },
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
           title: const Text('Try ECH refresh via proxy (Experimental)'),
           subtitle: const Text(
             'Experimental and not always reliable. Disabled by default. If enabled, app may try Xray + clean IPs when direct ECH lookup fails. This can increase apply time.',
@@ -613,6 +665,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
           value: _cloudflareTryEchViaProxy,
           onChanged: (value) {
             setState(() => _cloudflareTryEchViaProxy = value);
+          },
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Use last successful ECH when refresh fails'),
+          subtitle: const Text(
+            'If enabled, app can reuse previously fetched ECH config when network blocks live DoH lookup.',
+          ),
+          value: _cloudflareUseCachedEchFallback,
+          onChanged: (value) {
+            setState(() => _cloudflareUseCachedEchFallback = value);
+          },
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _panelDohUrlOverrideController,
+          decoration: const InputDecoration(
+            labelText: 'Panel DoH URL override (optional)',
+            hintText: 'https://your-domain/dns-query/<subPath>',
+            border: OutlineInputBorder(),
+            helperText:
+                'If set, ECH lookup uses this URL first. Leave empty to auto-derive from saved subscription URL.',
+          ),
+          keyboardType: TextInputType.url,
+          validator: (value) {
+            if (_updateMode != UpdateMode.cloudflareApi) return null;
+            final raw = value?.trim() ?? '';
+            if (raw.isEmpty) return null;
+            final uri = Uri.tryParse(raw);
+            if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+              return 'Enter a valid absolute URL';
+            }
+            return null;
           },
         ),
       ],

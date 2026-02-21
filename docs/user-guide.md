@@ -161,6 +161,52 @@ Where you configure auto-update method and credentials:
 
 Credentials are stored encrypted on your device (with secure-storage fallback when needed).
 
+#### Panel API Advanced Options
+
+If you use **Panel API** mode, these options control routing/debug behavior:
+
+1. **Use proxy for panel update (Experimental)**
+- Sends panel API update flow through Xray + clean IP candidates.
+- Use when direct panel route is blocked.
+- Experimental: can be slower and less predictable.
+
+2. **Enable panel proxy diagnostics**
+- Adds extra debug checks on proxy path (`GET /`, `GET /panel`, `POST /login/authenticate`).
+- Use only during troubleshooting.
+
+3. **Force clean IPs for panel when proxy is off**
+- Keeps proxy mode off, but rotates direct panel API calls through clean IP candidates.
+- Good first step when direct default route fails.
+
+#### Cloudflare API ECH Options
+
+If you use **Cloudflare API** mode, the app also provides ECH refresh controls:
+
+1. **Try ECH refresh via direct DoH resolvers**
+- Uses `dns.google` and `cloudflare-dns.com`
+- Disable if public DoH is blocked on your network
+
+2. **Try ECH refresh via panel DoH**
+- Uses your panel `/dns-query/{subPath}` route
+- Recommended when public DoH is filtered
+
+3. **Try ECH refresh via proxy (Experimental)**
+- Uses Xray + clean IP candidates
+- Experimental: slower and less predictable
+
+4. **Use last successful ECH when refresh fails**
+- Reuses previously successful ECH value
+- Recommended ON for unstable networks
+
+5. **Panel DoH URL override (optional)**
+- Manually set:
+  - `https://your-domain/dns-query/<subPath>`
+- If empty, app auto-derives it from saved subscription URL
+
+Notes:
+- If `enableECH` is disabled in current panel config, ECH refresh is skipped.
+- If panel DoH fails, app can try panel DoH with clean-IP rotation.
+
 ### Scan Progress Screen
 
 Live view of the running scan:

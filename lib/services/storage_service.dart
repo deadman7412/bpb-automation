@@ -40,6 +40,20 @@ class StorageService {
   static const String _keyAutoApplyAfterScan = 'auto_apply_after_scan';
   static const String _keyCloudflareTryEchViaProxy =
       'cloudflare_try_ech_via_proxy';
+  static const String _keyCloudflareTryEchViaDirectResolvers =
+      'cloudflare_try_ech_via_direct_resolvers';
+  static const String _keyCloudflareTryEchViaPanelDoh =
+      'cloudflare_try_ech_via_panel_doh';
+  static const String _keyCloudflareUseCachedEchFallback =
+      'cloudflare_use_cached_ech_fallback';
+  static const String _keyCloudflareLastSuccessfulEchConfig =
+      'cloudflare_last_successful_ech_config';
+  static const String _keyCloudflareLastSuccessfulEchSource =
+      'cloudflare_last_successful_ech_source';
+  static const String _keyCloudflareLastSuccessfulEchAtMs =
+      'cloudflare_last_successful_ech_at_ms';
+  static const String _keyCloudflarePanelDohUrlOverride =
+      'cloudflare_panel_doh_url_override';
   static const String _keyDebugRunProxyConnectivityOnApply =
       'debug_run_proxy_connectivity_on_apply';
   static const String _keyNumIpsToUse = 'num_ips_to_use';
@@ -425,6 +439,99 @@ class StorageService {
   /// Defaults to false if not set.
   Future<bool> getCloudflareTryEchViaProxy() async {
     return _prefs.getBool(_keyCloudflareTryEchViaProxy) ?? false;
+  }
+
+  /// Saves whether Cloudflare API mode should try ECH refresh via direct DoH
+  /// resolvers (dns.google/cloudflare-dns.com).
+  ///
+  /// Defaults to true for maximum compatibility.
+  Future<void> saveCloudflareTryEchViaDirectResolvers(bool enabled) async {
+    await _prefs.setBool(_keyCloudflareTryEchViaDirectResolvers, enabled);
+  }
+
+  /// Returns whether Cloudflare API mode should try ECH refresh via direct DoH
+  /// resolvers (dns.google/cloudflare-dns.com).
+  ///
+  /// Defaults to true if not set.
+  Future<bool> getCloudflareTryEchViaDirectResolvers() async {
+    return _prefs.getBool(_keyCloudflareTryEchViaDirectResolvers) ?? true;
+  }
+
+  /// Saves whether Cloudflare API mode should try ECH refresh via panel DoH.
+  ///
+  /// Defaults to true.
+  Future<void> saveCloudflareTryEchViaPanelDoh(bool enabled) async {
+    await _prefs.setBool(_keyCloudflareTryEchViaPanelDoh, enabled);
+  }
+
+  /// Returns whether Cloudflare API mode should try ECH refresh via panel DoH.
+  ///
+  /// Defaults to true if not set.
+  Future<bool> getCloudflareTryEchViaPanelDoh() async {
+    return _prefs.getBool(_keyCloudflareTryEchViaPanelDoh) ?? true;
+  }
+
+  /// Saves whether Cloudflare API mode may use cached ECH fallback when live
+  /// refresh fails.
+  ///
+  /// Defaults to true.
+  Future<void> saveCloudflareUseCachedEchFallback(bool enabled) async {
+    await _prefs.setBool(_keyCloudflareUseCachedEchFallback, enabled);
+  }
+
+  /// Returns whether Cloudflare API mode may use cached ECH fallback when live
+  /// refresh fails.
+  ///
+  /// Defaults to true if not set.
+  Future<bool> getCloudflareUseCachedEchFallback() async {
+    return _prefs.getBool(_keyCloudflareUseCachedEchFallback) ?? true;
+  }
+
+  /// Saves the last successful ECH config plus metadata.
+  Future<void> saveCloudflareLastSuccessfulEch({
+    required String echConfig,
+    required String source,
+  }) async {
+    await _prefs.setString(_keyCloudflareLastSuccessfulEchConfig, echConfig);
+    await _prefs.setString(_keyCloudflareLastSuccessfulEchSource, source);
+    await _prefs.setInt(
+      _keyCloudflareLastSuccessfulEchAtMs,
+      DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  /// Returns last successful ECH config, or null if unavailable.
+  Future<String?> getCloudflareLastSuccessfulEchConfig() async {
+    final value = _prefs.getString(_keyCloudflareLastSuccessfulEchConfig);
+    if (value == null || value.trim().isEmpty) return null;
+    return value;
+  }
+
+  /// Returns metadata for last successful ECH cache, if available.
+  Future<Map<String, dynamic>?> getCloudflareLastSuccessfulEchMeta() async {
+    final source = _prefs.getString(_keyCloudflareLastSuccessfulEchSource);
+    final atMs = _prefs.getInt(_keyCloudflareLastSuccessfulEchAtMs);
+    if ((source == null || source.isEmpty) && atMs == null) return null;
+    return <String, dynamic>{'source': source ?? '', 'atMs': atMs};
+  }
+
+  /// Saves optional manual panel DoH URL override used for ECH lookup.
+  ///
+  /// Empty value clears the override.
+  Future<void> saveCloudflarePanelDohUrlOverride(String url) async {
+    final normalized = url.trim();
+    if (normalized.isEmpty) {
+      await _prefs.remove(_keyCloudflarePanelDohUrlOverride);
+      return;
+    }
+    await _prefs.setString(_keyCloudflarePanelDohUrlOverride, normalized);
+  }
+
+  /// Returns manual panel DoH URL override used for ECH lookup.
+  Future<String?> getCloudflarePanelDohUrlOverride() async {
+    final value = _prefs.getString(_keyCloudflarePanelDohUrlOverride);
+    if (value == null || value.trim().isEmpty) return null;
+    return value.trim();
   }
 
   /// Saves whether Apply should run proxy connectivity diagnostics first.

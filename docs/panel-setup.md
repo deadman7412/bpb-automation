@@ -42,6 +42,32 @@ If you forgot it, reset it from the panel workflow and then update the app with 
 4. Tap **Validate**
 5. Tap **Save**
 
+## Panel API Advanced Options
+
+In **Settings > Update Method = Panel API**, these controls are available:
+
+1. **Use proxy for panel update (Experimental)**
+- Routes panel API requests through Xray + clean IP candidates.
+- Use when direct panel calls are blocked or unstable.
+- Marked Experimental because behavior depends heavily on network filtering quality.
+
+2. **Enable panel proxy diagnostics**
+- Runs extra checks (`GET /`, `GET /panel`, `POST /login/authenticate`) through the proxy route.
+- Useful for debugging only.
+- Increases apply time and log volume.
+
+3. **Force clean IPs for panel when proxy is off**
+- When proxy mode is OFF, panel API requests are sent directly to panel host using forced clean-IP rotation.
+- Tries candidates until one succeeds.
+- Useful when DNS/default routing is bad but direct TLS to selected clean IPs can work.
+
+Recommended usage:
+- Start with all advanced options OFF.
+- If Panel API update fails on your network:
+  1. Try **Force clean IPs for panel when proxy is off**
+  2. If still failing, try **Use proxy for panel update (Experimental)**
+  3. Enable diagnostics temporarily to collect logs, then disable it again
+
 ## How It Works
 
 When you tap **Update BPB Panel** on the results screen, the app:
@@ -77,4 +103,3 @@ Panel JWT sessions can expire. The app handles this automatically:
 
 On Flutter Web, browser CORS/cookie restrictions can block Panel API calls.  
 If this happens, switch to **Cloudflare API** mode in Settings.
-

@@ -39,6 +39,8 @@ The app fetches your BPB Panel's Xray subscription configs, then runs a 3-phase 
 - **3-phase verification** - TCP pre-filter, TLS handshake, and live Xray proxy test
 - **Subnet-aware IP selection** - One IP per /24 subnet for maximum routing diversity
 - **Bundled Xray-core** - No external installation required; binary is bundled per platform
+- **ECH refresh strategy controls** - Direct DoH, panel DoH, proxy fallback (experimental), cached fallback, and optional panel DoH URL override
+- **Panel API routing controls** - Proxy update mode (experimental), proxy diagnostics, and forced clean-IP direct routing
 - Scan from your actual network (mobile ISP, home internet, etc.)
 - Automatic BPB Panel settings update (Panel API or Cloudflare API)
 - Cross-platform support: Android, iOS, macOS, Linux, Windows, Web
@@ -299,6 +301,6 @@ For issues and questions:
 
 ## Version
 
-Current: 4.4.0
+Current: 4.5.0
 
 See CHANGELOG.md for version history.
