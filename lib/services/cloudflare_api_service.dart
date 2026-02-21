@@ -171,6 +171,95 @@ class CloudflareApiService {
     );
   }
 
+  /// Refresh ECH-related derived fields while keeping existing cleanIPs.
+  ///
+  /// Optional [cleanIpCandidates] are used only as temporary candidates for ECH
+  /// lookup fallback paths (panel forced-IP / proxy) and are not persisted.
+  Future<bool> refreshEchOnly(
+    Credentials credentials, {
+    List<String> cleanIpCandidates = const <String>[],
+  }) async {
+    return await _retryOperation(
+      () => _refreshEchOnlyInternal(
+        credentials,
+        cleanIpCandidates: cleanIpCandidates,
+      ),
+    );
+  }
+
+  Future<bool> _refreshEchOnlyInternal(
+    Credentials credentials, {
+    required List<String> cleanIpCandidates,
+  }) async {
+    try {
+      _logService.logInfo('Refreshing echConfig only in Cloudflare KV');
+
+      // Step 1: Read current settings.
+      _logService.logInfo('Step 1: Reading current proxySettings');
+      final currentSettings = await _getProxySettingsInternal(credentials);
+      if (currentSettings == null) {
+        throw CloudflareApiException('proxySettings not found in KV', 404);
+      }
+
+      // Step 2: Apply panel-compatible transforms using temporary candidate IPs
+      // for ECH lookup, but preserve existing cleanIPs in persisted payload.
+      _logService.logInfo('Step 2: Refreshing ECH derived fields');
+      final payload = currentSettings.toJson();
+      final persistedCleanIps = _toStringList(payload['cleanIPs']);
+      final candidateIps = cleanIpCandidates
+          .map((ip) => ip.trim())
+          .where((ip) => ip.isNotEmpty)
+          .toList(growable: false);
+      final effectiveCandidates = candidateIps.isNotEmpty
+          ? candidateIps
+          : persistedCleanIps;
+
+      _logDerivedFieldsSnapshot(stage: 'before', settingsPayload: payload);
+      await _applyEchOnlyTransform(
+        payload,
+        cleanIpCandidates: effectiveCandidates,
+      );
+      _logDerivedFieldsSnapshot(stage: 'after', settingsPayload: payload);
+
+      // Step 3: Write back to KV.
+      _logService.logInfo('Step 3: Writing updated settings to KV');
+      final url = Uri.parse(
+        '$_baseUrl/accounts/${credentials.accountId}/storage/kv/namespaces/${credentials.kvNamespaceId}/values/proxySettings',
+      );
+      _logService.logInfo('PUT $_baseUrl${_redactedKvPath(credentials)}');
+
+      final response = await _client
+          .put(
+            url,
+            headers: _buildHeaders(credentials),
+            body: jsonEncode(payload),
+          )
+          .timeout(_defaultTimeout);
+
+      if (response.statusCode == 200) {
+        _logService.logOk('ECH-only update completed successfully');
+        return true;
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        throw CloudflareApiException(
+          'Authentication failed (${response.statusCode})',
+          response.statusCode,
+        );
+      } else {
+        throw CloudflareApiException(
+          'Failed to refresh ECH-only update: ${response.statusCode} ${response.body}',
+          response.statusCode,
+        );
+      }
+    } catch (e, stackTrace) {
+      if (e is CloudflareApiException) {
+        _logService.logError('API error: ${e.message}', e, stackTrace);
+        rethrow;
+      }
+      _logService.logError('Failed to refresh ECH-only update', e, stackTrace);
+      rethrow;
+    }
+  }
+
   /// Internal method to update clean IPs (without retry logic)
   Future<bool> _updateCleanIPsInternal(
     Credentials credentials,
@@ -256,13 +345,23 @@ class CloudflareApiService {
       }
     }
 
+    await _applyEchOnlyTransform(
+      settingsPayload,
+      cleanIpCandidates: _toStringList(settingsPayload['cleanIPs']),
+    );
+  }
+
+  Future<void> _applyEchOnlyTransform(
+    Map<String, dynamic> settingsPayload, {
+    required List<String> cleanIpCandidates,
+  }) async {
     final enableEch = _asBool(settingsPayload['enableECH']);
     final existingEchConfig = settingsPayload['echConfig']?.toString() ?? '';
     _lastEchSource = null;
     try {
       final echConfig = await _extractEchConfig(
         enableEch: enableEch,
-        cleanIpCandidates: _toStringList(settingsPayload['cleanIPs']),
+        cleanIpCandidates: cleanIpCandidates,
       );
       settingsPayload['echConfig'] = echConfig;
       if (echConfig == existingEchConfig) {
@@ -522,7 +621,8 @@ class CloudflareApiService {
     final directResolvers = const ['dns.google', 'cloudflare-dns.com'];
     final tryViaDirect = await _storageService
         .getCloudflareTryEchViaDirectResolvers();
-    final tryViaPanelDoh = await _storageService.getCloudflareTryEchViaPanelDoh();
+    final tryViaPanelDoh = await _storageService
+        .getCloudflareTryEchViaPanelDoh();
     final tryViaProxy = await _storageService.getCloudflareTryEchViaProxy();
     _logService.logInfo(
       'ECH source strategy: direct=$tryViaDirect, panelDoH=$tryViaPanelDoh, proxy=$tryViaProxy',
@@ -598,8 +698,8 @@ class CloudflareApiService {
           if (remainingAfterPrimary > Duration.zero &&
               cleanIpCandidates.isNotEmpty) {
             try {
-              final forcedTimeout = remainingAfterPrimary <
-                      const Duration(seconds: 8)
+              final forcedTimeout =
+                  remainingAfterPrimary < const Duration(seconds: 8)
                   ? remainingAfterPrimary
                   : const Duration(seconds: 8);
               _logService.logInfo(
@@ -631,7 +731,9 @@ class CloudflareApiService {
         }
       }
     } else {
-      _logService.logInfo('Panel DoH ECH lookup disabled in settings; skipping');
+      _logService.logInfo(
+        'Panel DoH ECH lookup disabled in settings; skipping',
+      );
     }
 
     if (!tryViaProxy) {
@@ -777,7 +879,9 @@ class CloudflareApiService {
         }
         final answers = decoded['Answer'];
         if (answers is! List) {
-          throw Exception('Panel DoH forced-IP response missing Answer section');
+          throw Exception(
+            'Panel DoH forced-IP response missing Answer section',
+          );
         }
         final ech = _extractEchFromAnswers(answers);
         if (ech.isNotEmpty) {
@@ -788,9 +892,7 @@ class CloudflareApiService {
         }
         throw Exception('ECH record not found in forced-IP panel DoH response');
       } catch (e) {
-        _logService.logWarn(
-          'Panel DoH forced-IP candidate $ip failed: $e',
-        );
+        _logService.logWarn('Panel DoH forced-IP candidate $ip failed: $e');
       }
     }
 
@@ -800,7 +902,8 @@ class CloudflareApiService {
   }
 
   Future<Uri> _resolvePanelDohUriForEch({required String hostName}) async {
-    final manualOverride = await _storageService.getCloudflarePanelDohUrlOverride();
+    final manualOverride = await _storageService
+        .getCloudflarePanelDohUrlOverride();
     if (manualOverride != null && manualOverride.isNotEmpty) {
       final parsed = Uri.tryParse(manualOverride);
       if (parsed != null && parsed.hasScheme && parsed.host.isNotEmpty) {
@@ -831,7 +934,9 @@ class CloudflareApiService {
     // Auto-populate config input with discovered panel DoH URL so user can see
     // the exact route that works on this network.
     try {
-      await _storageService.saveCloudflarePanelDohUrlOverride(baseUri.toString());
+      await _storageService.saveCloudflarePanelDohUrlOverride(
+        baseUri.toString(),
+      );
       _logService.logInfo(
         '[AUTO SAVE] Panel DoH URL override saved from subscription route',
       );

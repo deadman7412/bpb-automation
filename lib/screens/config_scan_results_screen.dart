@@ -44,12 +44,14 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
   Duration? _displayScanDuration;
   bool _isLoaded = false;
   bool _isUpdating = false;
+  bool _isRefreshingEch = false;
   bool _isGenerating = false;
   bool _isCopying = false;
   bool _useServerBackend = false;
   bool _isServerLoading = false;
   Map<String, dynamic>? _serverLatest;
   String? _serverError;
+  UpdateMode _updateMode = UpdateMode.panelApi;
 
   @override
   void didChangeDependencies() {
@@ -63,6 +65,15 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
   Future<void> _loadResults() async {
     final args = ModalRoute.of(context)?.settings.arguments;
+    final updateMode = await _storage.getUpdateMode();
+    if (mounted) {
+      setState(() {
+        _updateMode = updateMode;
+      });
+    } else {
+      _updateMode = updateMode;
+    }
+
     final useServerBackend = await _storage.getUseServerBackend();
     if (useServerBackend) {
       await _loadServerLatest();
@@ -286,6 +297,58 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       if (mounted) {
         setState(() {
           _isUpdating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _updateEchOnly() async {
+    if (_updateMode != UpdateMode.cloudflareApi) {
+      _showMessage(
+        'ECH-only update is available in Cloudflare API mode',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_result == null || _result!.workingIPs.isEmpty) {
+      _showMessage(
+        'Need scan to fetch clean IPs. Use Update BPB Panel after scanning.',
+        isError: true,
+      );
+      return;
+    }
+
+    setState(() {
+      _isRefreshingEch = true;
+    });
+
+    _log.logInfo(
+      'Updating ECH only using ${_result!.workingIPs.length} working IP candidate(s)',
+    );
+
+    try {
+      final credentials = await _storage.getCredentials();
+      if (credentials == null) {
+        if (mounted) _showNoCredentialsDialog(UpdateMode.cloudflareApi);
+        return;
+      }
+
+      await _api.refreshEchOnly(
+        credentials,
+        cleanIpCandidates: _result!.workingIPs,
+      );
+
+      if (!mounted) return;
+      _showMessage('ECH updated successfully. cleanIPs were not changed.');
+    } catch (e, stackTrace) {
+      _log.logError('Failed to update ECH only: $e\n$stackTrace');
+      if (!mounted) return;
+      _showMessage('Failed to update ECH only: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshingEch = false;
         });
       }
     }
@@ -1032,94 +1095,137 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                 ],
 
                 // Action Buttons
-                if (_result!.workingIPCount > 0) ...[
-                  Builder(
-                    builder: (context) {
-                      final alreadyApplied =
-                          _result!.autoApplySucceeded == true;
-                      final idleLabel = alreadyApplied
-                          ? 'Already Applied - Apply Again'
-                          : 'Update BPB Panel';
-                      final busyLabel = alreadyApplied
-                          ? 'Applying Again...'
-                          : 'Updating...';
-                      final idleIcon = alreadyApplied
-                          ? const Icon(Icons.refresh)
-                          : const Icon(Icons.cloud_upload);
+                Builder(
+                  builder: (context) {
+                    final hasWorkingIps = _result!.workingIPCount > 0;
+                    final alreadyApplied = _result!.autoApplySucceeded == true;
+                    final idleLabel = !hasWorkingIps
+                        ? 'No working IPs - run scan first'
+                        : alreadyApplied
+                        ? 'Already Applied - Apply Again'
+                        : 'Update BPB Panel';
+                    final busyLabel = alreadyApplied
+                        ? 'Applying Again...'
+                        : 'Updating...';
+                    final idleIcon = alreadyApplied
+                        ? const Icon(Icons.refresh)
+                        : const Icon(Icons.cloud_upload);
 
-                      return ElevatedButton.icon(
-                        onPressed: _isUpdating ? null : _updateBPBPanel,
-                        icon: _isUpdating
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                    final echButtonLabel = _isRefreshingEch
+                        ? 'Updating ECH...'
+                        : _updateMode != UpdateMode.cloudflareApi
+                        ? 'ECH-only update requires Cloudflare API mode'
+                        : !hasWorkingIps
+                        ? 'Need scan to fetch clean IPs. Use Update BPB Panel.'
+                        : 'Update ECH';
+
+                    final canUpdatePanel =
+                        hasWorkingIps && !_isUpdating && !_isRefreshingEch;
+                    final canUpdateEchOnly =
+                        _updateMode == UpdateMode.cloudflareApi &&
+                        hasWorkingIps &&
+                        !_isRefreshingEch &&
+                        !_isUpdating;
+
+                    return Column(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: canUpdatePanel ? _updateBPBPanel : null,
+                          icon: _isUpdating
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : idleIcon,
+                          label: Text(_isUpdating ? busyLabel : idleLabel),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 50),
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: canUpdateEchOnly ? _updateEchOnly : null,
+                          icon: _isRefreshingEch
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.dns),
+                          label: Text(echButtonLabel),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 50),
+                            backgroundColor: Colors.indigo,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isGenerating || !hasWorkingIps
+                                    ? null
+                                    : _downloadConfigs,
+                                icon: _isGenerating
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.download),
+                                label: Text(
+                                  _isGenerating
+                                      ? 'Generating...'
+                                      : 'Download Configs',
                                 ),
-                              )
-                            : idleIcon,
-                        label: Text(_isUpdating ? busyLabel : idleLabel),
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 50),
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
+                                style: ElevatedButton.styleFrom(
+                                  minimumSize: const Size(0, 50),
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isCopying || !hasWorkingIps
+                                    ? null
+                                    : _copyConfigs,
+                                icon: _isCopying
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.copy),
+                                label: Text(
+                                  _isCopying ? 'Copying...' : 'Copy Configs',
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  minimumSize: const Size(0, 50),
+                                  backgroundColor: Colors.teal,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isGenerating ? null : _downloadConfigs,
-                          icon: _isGenerating
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.download),
-                          label: Text(
-                            _isGenerating
-                                ? 'Generating...'
-                                : 'Download Configs',
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(0, 50),
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isCopying ? null : _copyConfigs,
-                          icon: _isCopying
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.copy),
-                          label: Text(
-                            _isCopying ? 'Copying...' : 'Copy Configs',
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(0, 50),
-                            backgroundColor: Colors.teal,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    );
+                  },
+                ),
 
                 const SizedBox(height: 48),
               ],
