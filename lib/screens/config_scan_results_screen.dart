@@ -10,6 +10,9 @@ import '../services/panel_api_service.dart';
 import '../services/config_generator_service.dart';
 import '../services/log_service.dart';
 import '../services/server_backend_service.dart';
+import '../services/xray_service.dart';
+import '../services/proxy_connectivity_debug_service.dart';
+import '../models/xray_config.dart';
 import '../widgets/logs_action_button.dart';
 
 /// Screen for displaying config-based scan results
@@ -32,6 +35,9 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       ConfigGeneratorService.instance;
   final LogService _log = LogService.instance;
   final ServerBackendService _serverApi = ServerBackendService.instance;
+  final XrayService _xrayService = XrayService.instance;
+  final ProxyConnectivityDebugService _proxyDebugService =
+      ProxyConnectivityDebugService.instance;
   static const String _keyLastScanElapsedMs = 'last_scan_elapsed_ms';
 
   ConfigScanResult? _result;
@@ -166,6 +172,47 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     );
 
     try {
+      final runProxyConnectivityDebug = await _storage
+          .getDebugRunProxyConnectivityOnApply();
+      bool useProxyForPanelUpdate = false;
+      bool forceCleanIpsForPanelUpdate = false;
+      bool useProxyForCloudflareEch = false;
+
+      if (updateMode == UpdateMode.panelApi) {
+        useProxyForPanelUpdate = await _storage.getPanelUseProxyForUpdate();
+        forceCleanIpsForPanelUpdate = await _storage
+            .getPanelForceCleanIpsForUpdate();
+      } else {
+        useProxyForCloudflareEch = await _storage.getCloudflareTryEchViaProxy();
+      }
+
+      final shouldRunProxyConnectivityDebug =
+          runProxyConnectivityDebug &&
+          ((updateMode == UpdateMode.panelApi && useProxyForPanelUpdate) ||
+              (updateMode == UpdateMode.cloudflareApi &&
+                  useProxyForCloudflareEch));
+
+      _log.logInfo(
+        '[Apply proxy debug] Setting is ${runProxyConnectivityDebug ? "ON" : "OFF"}',
+      );
+      if (runProxyConnectivityDebug && !shouldRunProxyConnectivityDebug) {
+        if (updateMode == UpdateMode.panelApi) {
+          _log.logInfo(
+            '[Apply proxy debug] Skipped: panel proxy update is disabled in settings',
+          );
+        } else {
+          _log.logInfo(
+            '[Apply proxy debug] Skipped: ECH proxy fallback is disabled in settings',
+          );
+        }
+      }
+      if (shouldRunProxyConnectivityDebug) {
+        await _runProxyConnectivityDebugOnApply(
+          _result!.workingIPs,
+          _result!.templateConfig,
+        );
+      }
+
       if (updateMode == UpdateMode.cloudflareApi) {
         final credentials = await _storage.getCredentials();
         if (credentials == null) {
@@ -179,10 +226,37 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
           if (mounted) _showNoCredentialsDialog(UpdateMode.panelApi);
           return;
         }
-        // Hard timeout so UI never appears stuck forever when panel route is bad.
-        await _panelApi
-            .updateCleanIPs(credentials, _result!.workingIPs)
-            .timeout(const Duration(seconds: 45));
+        final enablePanelProxyDiagnostics = await _storage
+            .getPanelEnableProxyDiagnostics();
+        if (useProxyForPanelUpdate) {
+          _log.logInfo(
+            'Panel API update is using Xray proxy mode (diagnostics: ${enablePanelProxyDiagnostics ? "on" : "off"})',
+          );
+          await _panelApi
+              .updateCleanIPsViaXrayProxy(
+                credentials,
+                _result!.workingIPs,
+                enableDiagnostics: enablePanelProxyDiagnostics,
+                templateConfig: _result!.templateConfig,
+              )
+              .timeout(const Duration(seconds: 120));
+        } else if (forceCleanIpsForPanelUpdate) {
+          _log.logInfo(
+            'Panel API update is using forced clean IP routing mode (${_result!.workingIPs.length} candidate(s))',
+          );
+          await _panelApi
+              .updateCleanIPsViaForcedCleanIPs(
+                credentials,
+                _result!.workingIPs,
+                candidateIPs: _result!.workingIPs,
+              )
+              .timeout(const Duration(seconds: 120));
+        } else {
+          // Hard timeout so UI never appears stuck forever when panel route is bad.
+          await _panelApi
+              .updateCleanIPs(credentials, _result!.workingIPs)
+              .timeout(const Duration(seconds: 45));
+        }
       }
 
       if (!mounted) return;
@@ -215,6 +289,88 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         });
       }
     }
+  }
+
+  Future<void> _runProxyConnectivityDebugOnApply(
+    List<String> candidateIPs,
+    XrayConfig templateConfig,
+  ) async {
+    final trimmedCandidates = candidateIPs
+        .where((ip) => ip.trim().isNotEmpty)
+        .take(2)
+        .toList();
+    if (trimmedCandidates.isEmpty) {
+      _log.logWarn(
+        '[Apply proxy debug] No candidate IPs available for connectivity diagnostics',
+      );
+      return;
+    }
+
+    final config = templateConfig;
+
+    final dohHost = await _resolveDoHDebugHost();
+    _log.logInfo(
+      '[Apply proxy debug] Running SOCKS connectivity diagnostics '
+      '(target host: $dohHost, candidates: ${trimmedCandidates.join(", ")})',
+    );
+    var successCount = 0;
+    var totalChecks = 0;
+
+    for (final candidate in trimmedCandidates) {
+      try {
+        _log.logInfo(
+          '[Apply proxy debug][$candidate] Starting diagnostics suite',
+        );
+        final results = await _xrayService
+            .runWithSocksProxy<List<ProxyConnectivityCheckResult>>(
+              config: config,
+              candidateIP: candidate,
+              action: (socksPort) => _proxyDebugService.runSuite(
+                socksPort: socksPort,
+                dohQueryHost: dohHost,
+              ),
+            );
+        for (final r in results) {
+          totalChecks += 1;
+          if (r.success) {
+            successCount += 1;
+            _log.logOk(
+              '[Apply proxy debug][$candidate] ${r.name}: OK (HTTP ${r.statusCode ?? 0})',
+            );
+          } else {
+            _log.logWarn(
+              '[Apply proxy debug][$candidate] ${r.name}: FAIL '
+              '${r.statusCode != null ? "(HTTP ${r.statusCode}) " : ""}${r.error ?? ""}',
+            );
+          }
+        }
+      } catch (e, stackTrace) {
+        _log.logWarn('[Apply proxy debug][$candidate] Diagnostics failed: $e');
+        _log.logError('[Apply proxy debug] stack', e, stackTrace);
+      }
+    }
+
+    _log.logInfo(
+      '[Apply proxy debug] Completed: $successCount/$totalChecks checks passed',
+    );
+  }
+
+  Future<String> _resolveDoHDebugHost() async {
+    final panelCredentials = await _storage.getPanelCredentials();
+    if (panelCredentials != null) {
+      final panelUri = Uri.tryParse(panelCredentials.baseUrl);
+      if (panelUri != null && panelUri.host.isNotEmpty) {
+        return panelUri.host;
+      }
+    }
+    final subscriptionUrl = await _storage.getSubscriptionUrl();
+    if (subscriptionUrl != null && subscriptionUrl.isNotEmpty) {
+      final subUri = Uri.tryParse(subscriptionUrl);
+      if (subUri != null && subUri.host.isNotEmpty) {
+        return subUri.host;
+      }
+    }
+    return 'example.com';
   }
 
   void _showPanelUnreachableDialog() {
@@ -624,6 +780,11 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
           actions: [
             const LogsActionButton(),
             IconButton(
+              icon: const Icon(Icons.bug_report),
+              tooltip: 'Debug & Diagnostics',
+              onPressed: () => Navigator.pushNamed(context, '/debug'),
+            ),
+            IconButton(
               icon: const Icon(Icons.refresh),
               onPressed: _isServerLoading ? null : _loadServerLatest,
               tooltip: 'Refresh',
@@ -638,7 +799,14 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Config Scan Results'),
-          actions: const [LogsActionButton()],
+          actions: [
+            const LogsActionButton(),
+            IconButton(
+              icon: const Icon(Icons.bug_report),
+              tooltip: 'Debug & Diagnostics',
+              onPressed: () => Navigator.pushNamed(context, '/debug'),
+            ),
+          ],
         ),
         body: const Center(child: Text('No results available')),
       );
@@ -649,6 +817,11 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
         title: const Text('Config Scan Results'),
         actions: [
           const LogsActionButton(),
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            tooltip: 'Debug & Diagnostics',
+            onPressed: () => Navigator.pushNamed(context, '/debug'),
+          ),
           IconButton(
             icon: const Icon(Icons.info_outline),
             tooltip: 'Info',

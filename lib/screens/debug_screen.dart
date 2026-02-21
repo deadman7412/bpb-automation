@@ -22,14 +22,29 @@ class _DebugScreenState extends State<DebugScreen> {
   final CloudflareApiService _cloudflareAPI = CloudflareApiService.instance;
 
   bool _isRunningTest = false;
+  bool _debugRunProxyConnectivityOnApply = false;
   final List<String> _testResults = [];
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _resultsKey = GlobalKey();
 
   @override
+  void initState() {
+    super.initState();
+    _loadDebugPreferences();
+  }
+
+  @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadDebugPreferences() async {
+    final enabled = await _storage.getDebugRunProxyConnectivityOnApply();
+    if (!mounted) return;
+    setState(() {
+      _debugRunProxyConnectivityOnApply = enabled;
+    });
   }
 
   void _scrollToResults() {
@@ -69,14 +84,20 @@ class _DebugScreenState extends State<DebugScreen> {
                       Text(
                         'System Information',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       _buildInfoRow('Platform', Platform.operatingSystem),
-                      _buildInfoRow('OS Version', Platform.operatingSystemVersion),
+                      _buildInfoRow(
+                        'OS Version',
+                        Platform.operatingSystemVersion,
+                      ),
                       _buildInfoRow('Locale', Platform.localeName),
-                      _buildInfoRow('Processors', Platform.numberOfProcessors.toString()),
+                      _buildInfoRow(
+                        'Processors',
+                        Platform.numberOfProcessors.toString(),
+                      ),
                     ],
                   ),
                 ),
@@ -96,9 +117,8 @@ class _DebugScreenState extends State<DebugScreen> {
                           const SizedBox(width: 8),
                           Text(
                             'Xray Binary Diagnostics',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -138,9 +158,8 @@ class _DebugScreenState extends State<DebugScreen> {
                           const SizedBox(width: 8),
                           Text(
                             'Network Diagnostics',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -158,9 +177,43 @@ class _DebugScreenState extends State<DebugScreen> {
                       ),
                       const SizedBox(height: 8),
                       ElevatedButton.icon(
-                        onPressed: _isRunningTest ? null : _testNetworkConnectivity,
+                        onPressed: _isRunningTest
+                            ? null
+                            : _testNetworkConnectivity,
                         icon: const Icon(Icons.wifi_find),
                         label: const Text('Full Network Test'),
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Run proxy connectivity checks on Apply',
+                        ),
+                        subtitle: const Text(
+                          'When enabled, Results -> Update BPB Panel runs a full SOCKS debug suite first (both Cloudflare API and Panel API modes).',
+                        ),
+                        value: _debugRunProxyConnectivityOnApply,
+                        onChanged: (value) async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          setState(
+                            () => _debugRunProxyConnectivityOnApply = value,
+                          );
+                          await _storage.saveDebugRunProxyConnectivityOnApply(
+                            value,
+                          );
+                          if (!mounted) return;
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                value
+                                    ? 'Apply proxy connectivity checks enabled'
+                                    : 'Apply proxy connectivity checks disabled',
+                              ),
+                              behavior: SnackBarBehavior.floating,
+                              backgroundColor: Colors.blueGrey,
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -181,9 +234,8 @@ class _DebugScreenState extends State<DebugScreen> {
                           const SizedBox(width: 8),
                           Text(
                             'Storage Debug',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -219,9 +271,8 @@ class _DebugScreenState extends State<DebugScreen> {
                           children: [
                             Text(
                               'Test Results',
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                             ),
                             IconButton(
                               icon: const Icon(Icons.copy),
@@ -241,17 +292,19 @@ class _DebugScreenState extends State<DebugScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: _testResults
-                                .map((result) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 4.0),
-                                      child: Text(
-                                        result,
-                                        style: TextStyle(
-                                          fontFamily: 'monospace',
-                                          fontSize: 12,
-                                          color: _getResultColor(result),
-                                        ),
+                                .map(
+                                  (result) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 4.0),
+                                    child: Text(
+                                      result,
+                                      style: TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 12,
+                                        color: _getResultColor(result),
                                       ),
-                                    ))
+                                    ),
+                                  ),
+                                )
                                 .toList(),
                           ),
                         ),
@@ -277,8 +330,8 @@ class _DebugScreenState extends State<DebugScreen> {
                       Text(
                         'Quick Actions',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       OutlinedButton.icon(
@@ -390,7 +443,9 @@ class _DebugScreenState extends State<DebugScreen> {
       results.add(
         '[INFO] KV Namespace ID length: ${credentials?.kvNamespaceId.length ?? 0}',
       );
-      results.add('[INFO] API Token length: ${credentials?.apiToken.length ?? 0}');
+      results.add(
+        '[INFO] API Token length: ${credentials?.apiToken.length ?? 0}',
+      );
 
       if (credentials != null) {
         results.add('[INFO] Validating credentials...');
@@ -404,7 +459,9 @@ class _DebugScreenState extends State<DebugScreen> {
       }
     } catch (e, stackTrace) {
       results.add('[ERROR] Cloudflare API test failed: $e');
-      results.add('[ERROR] ${stackTrace.toString().split('\n').take(2).join(' ')}');
+      results.add(
+        '[ERROR] ${stackTrace.toString().split('\n').take(2).join(' ')}',
+      );
     }
 
     results.add('[INFO] Cloudflare API test complete');
@@ -437,12 +494,17 @@ class _DebugScreenState extends State<DebugScreen> {
 
     // HTTP
     results.add('[INFO] === Test 2: HTTP Connectivity ===');
-    for (final url in ['https://api.cloudflare.com', 'https://www.google.com']) {
+    for (final url in [
+      'https://api.cloudflare.com',
+      'https://www.google.com',
+    ]) {
       try {
         final client = HttpClient();
         final request = await client.getUrl(Uri.parse(url));
         request.headers.add('User-Agent', 'BPB-Automation/1.0');
-        final response = await request.close().timeout(const Duration(seconds: 5));
+        final response = await request.close().timeout(
+          const Duration(seconds: 5),
+        );
         results.add('[OK] $url: HTTP ${response.statusCode}');
         await response.drain();
         client.close();
@@ -459,9 +521,9 @@ class _DebugScreenState extends State<DebugScreen> {
         final credentials = await _storage.getCredentials();
         if (credentials != null) {
           final isValid = await _cloudflareAPI.validateCredentials(credentials);
-          results.add(isValid
-              ? '[OK] Credentials valid'
-              : '[ERROR] Credentials invalid');
+          results.add(
+            isValid ? '[OK] Credentials valid' : '[ERROR] Credentials invalid',
+          );
         }
       } else {
         results.add('[WARN] No credentials stored');
@@ -551,8 +613,9 @@ class _DebugScreenState extends State<DebugScreen> {
       // Fallback: ask Android for the directory directly
       try {
         const channel = MethodChannel('com.bpb.bpb_automation/native');
-        final nativeLibDir =
-            await channel.invokeMethod<String>('getNativeLibraryDir');
+        final nativeLibDir = await channel.invokeMethod<String>(
+          'getNativeLibraryDir',
+        );
         if (nativeLibDir != null && nativeLibDir.isNotEmpty) {
           return path.join(nativeLibDir, 'libxray.so');
         }
@@ -604,9 +667,11 @@ class _DebugScreenState extends State<DebugScreen> {
         if (lsResult.exitCode == 0) {
           final perms = (lsResult.stdout as String).split(' ').first;
           results.add('[INFO] Permissions: $perms');
-          results.add(perms.contains('x')
-              ? '[OK] Execute permission set'
-              : '[ERROR] Execute permission NOT set - use Fix button');
+          results.add(
+            perms.contains('x')
+                ? '[OK] Execute permission set'
+                : '[ERROR] Execute permission NOT set - use Fix button',
+          );
         }
       }
 
@@ -615,7 +680,9 @@ class _DebugScreenState extends State<DebugScreen> {
         final xattrResult = await Process.run('xattr', ['-l', binaryPath]);
         final xattrOutput = xattrResult.stdout as String;
         if (xattrOutput.contains('com.apple.quarantine')) {
-          results.add('[ERROR] Quarantine attribute detected - blocks execution');
+          results.add(
+            '[ERROR] Quarantine attribute detected - blocks execution',
+          );
           results.add('[INFO] Use the Fix button to remove it');
         } else {
           results.add('[OK] No quarantine attribute');
@@ -625,8 +692,9 @@ class _DebugScreenState extends State<DebugScreen> {
       // 5. Run binary
       results.add('[INFO] Testing binary execution...');
       try {
-        final versionResult = await Process.run(binaryPath, ['version'])
-            .timeout(const Duration(seconds: 5));
+        final versionResult = await Process.run(binaryPath, [
+          'version',
+        ]).timeout(const Duration(seconds: 5));
         if (versionResult.exitCode == 0) {
           results.add('[OK] Binary executes successfully');
           final versionLine = (versionResult.stdout as String)
@@ -636,14 +704,18 @@ class _DebugScreenState extends State<DebugScreen> {
             results.add('[OK] ${versionLine.trim()}');
           }
         } else {
-          results.add('[ERROR] Binary exited with code ${versionResult.exitCode}');
+          results.add(
+            '[ERROR] Binary exited with code ${versionResult.exitCode}',
+          );
           final stderr = (versionResult.stderr as String).trim();
           if (stderr.isNotEmpty) results.add('[INFO] stderr: $stderr');
         }
       } catch (e) {
         results.add('[ERROR] Failed to run binary: $e');
         if (Platform.isMacOS) {
-          results.add('[INFO] Use the Fix button to remove quarantine and set permissions');
+          results.add(
+            '[INFO] Use the Fix button to remove quarantine and set permissions',
+          );
         }
       }
 
@@ -653,10 +725,14 @@ class _DebugScreenState extends State<DebugScreen> {
       final versionFile = File(versionFilePath);
       if (await versionFile.exists()) {
         final installedVersion = (await versionFile.readAsString()).trim();
-        results.add('[INFO] Installed: $installedVersion  Bundled: ${XrayService.xrayVersion}');
-        results.add(installedVersion == XrayService.xrayVersion
-            ? '[OK] Version up to date'
-            : '[WARN] Version mismatch - will re-extract on next scan');
+        results.add(
+          '[INFO] Installed: $installedVersion  Bundled: ${XrayService.xrayVersion}',
+        );
+        results.add(
+          installedVersion == XrayService.xrayVersion
+              ? '[OK] Version up to date'
+              : '[WARN] Version mismatch - will re-extract on next scan',
+        );
       } else {
         results.add('[WARN] Version file not found');
       }
@@ -699,40 +775,53 @@ class _DebugScreenState extends State<DebugScreen> {
       // Fix execute permissions
       if (!Platform.isWindows) {
         final chmodResult = await Process.run('chmod', ['+x', binaryPath]);
-        results.add(chmodResult.exitCode == 0
-            ? '[OK] Execute permissions set (chmod +x)'
-            : '[ERROR] chmod failed: ${chmodResult.stderr}');
+        results.add(
+          chmodResult.exitCode == 0
+              ? '[OK] Execute permissions set (chmod +x)'
+              : '[ERROR] chmod failed: ${chmodResult.stderr}',
+        );
       }
 
       // Remove quarantine attribute on macOS
       if (Platform.isMacOS) {
         final xattrResult = await Process.run('xattr', [
-          '-d', 'com.apple.quarantine', binaryPath,
+          '-d',
+          'com.apple.quarantine',
+          binaryPath,
         ]);
         if (xattrResult.exitCode == 0) {
           results.add('[OK] Quarantine attribute removed');
         } else {
           final stderr = (xattrResult.stderr as String).trim();
-          results.add(stderr.isEmpty
-              ? '[INFO] Quarantine attribute was not present'
-              : '[WARN] xattr: $stderr');
+          results.add(
+            stderr.isEmpty
+                ? '[INFO] Quarantine attribute was not present'
+                : '[WARN] xattr: $stderr',
+          );
         }
       }
 
       // Verify
       results.add('[INFO] Verifying fix...');
       try {
-        final versionResult = await Process.run(binaryPath, ['version'])
-            .timeout(const Duration(seconds: 5));
+        final versionResult = await Process.run(binaryPath, [
+          'version',
+        ]).timeout(const Duration(seconds: 5));
         if (versionResult.exitCode == 0) {
           results.add('[OK] Binary executes successfully');
         } else {
-          results.add('[ERROR] Binary still fails (exit ${versionResult.exitCode})');
-          results.add('[INFO] stderr: ${(versionResult.stderr as String).trim()}');
+          results.add(
+            '[ERROR] Binary still fails (exit ${versionResult.exitCode})',
+          );
+          results.add(
+            '[INFO] stderr: ${(versionResult.stderr as String).trim()}',
+          );
         }
       } catch (e) {
         results.add('[ERROR] Binary still fails: $e');
-        results.add('[INFO] Try running the app again - the fix takes effect on restart');
+        results.add(
+          '[INFO] Try running the app again - the fix takes effect on restart',
+        );
       }
     } catch (e) {
       results.add('[ERROR] Fix failed: $e');
@@ -777,7 +866,9 @@ class _DebugScreenState extends State<DebugScreen> {
     debugInfo.writeln('Has credentials: ${await _storage.hasCredentials()}');
     debugInfo.writeln('Last scan: ${await _storage.getLastScanTime()}');
     debugInfo.writeln('\n=== Test Results ===');
-    debugInfo.writeln(_testResults.isEmpty ? 'No tests run yet' : _testResults.join('\n'));
+    debugInfo.writeln(
+      _testResults.isEmpty ? 'No tests run yet' : _testResults.join('\n'),
+    );
     debugInfo.writeln('\n=== Recent Logs ===');
     for (final log in _log.getLogs()) {
       debugInfo.writeln(log.format());

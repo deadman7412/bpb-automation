@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bpb_automation/services/cloudflare_api_service.dart';
 import 'package:bpb_automation/services/log_service.dart';
+import 'package:bpb_automation/services/storage_service.dart';
 import 'package:bpb_automation/models/credentials.dart';
 import 'package:bpb_automation/models/proxy_settings.dart';
 
@@ -14,7 +16,12 @@ void main() {
   late LogService logService;
   late Credentials testCredentials;
 
-  setUp(() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({
+      'subscription_url': 'https://dns.google/sub/normal/test',
+    });
+    await StorageService.instance.initialize();
+
     apiService = CloudflareApiService.instance;
     logService = LogService.instance;
     logService.clearLogs();
@@ -362,23 +369,29 @@ void main() {
                 request.url.path == '/resolve' &&
                 request.url.queryParameters['name'] == 'dns.google' &&
                 request.url.queryParameters['type'] == 'A') {
+              return http.Response(jsonEncode({'Answer': []}), 404);
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'A') {
               return http.Response(
                 jsonEncode({
                   'Answer': [
-                    {'data': '8.8.8.8'},
+                    {'type': 1, 'data': '8.8.8.8'},
                   ],
                 }),
                 200,
               );
             }
-            if (request.url.host == 'dns.google' &&
-                request.url.path == '/resolve' &&
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
                 request.url.queryParameters['name'] == 'dns.google' &&
                 request.url.queryParameters['type'] == 'AAAA') {
               return http.Response(
                 jsonEncode({
                   'Answer': [
-                    {'data': '2001:4860:4860::8888'},
+                    {'type': 28, 'data': '2001:4860:4860::8888'},
                   ],
                 }),
                 200,

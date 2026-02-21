@@ -148,8 +148,9 @@ class XrayService {
   Future<bool> _initializeAndroid() async {
     try {
       const channel = MethodChannel('com.bpb.bpb_automation/native');
-      final nativeLibDir =
-          await channel.invokeMethod<String>('getNativeLibraryDir');
+      final nativeLibDir = await channel.invokeMethod<String>(
+        'getNativeLibraryDir',
+      );
 
       if (nativeLibDir == null || nativeLibDir.isEmpty) {
         _logService.logError(
@@ -164,12 +165,8 @@ class XrayService {
       final binaryFile = File(binaryPath);
 
       if (!await binaryFile.exists()) {
-        _logService.logError(
-          '[ERROR] libxray.so not found at: $binaryPath',
-        );
-        _logService.logError(
-          '[ERROR] Reinstall the app to restore the binary',
-        );
+        _logService.logError('[ERROR] libxray.so not found at: $binaryPath');
+        _logService.logError('[ERROR] Reinstall the app to restore the binary');
         return false;
       }
 
@@ -315,11 +312,7 @@ class XrayService {
     // binaries written by sandboxed apps
     if (Platform.isMacOS) {
       try {
-        await Process.run('xattr', [
-          '-d',
-          'com.apple.quarantine',
-          binaryPath,
-        ]);
+        await Process.run('xattr', ['-d', 'com.apple.quarantine', binaryPath]);
         _logService.logInfo('Quarantine attribute removed');
       } catch (_) {
         // Attribute may not exist - ignore
@@ -404,9 +397,7 @@ class XrayService {
 
       // Start Xray process
       xrayProcess = await _startXrayProcess(configPath);
-      _logService.logInfo(
-        'Xray process started (PID: ${xrayProcess.pid})',
-      );
+      _logService.logInfo('Xray process started (PID: ${xrayProcess.pid})');
 
       // Poll until Xray binds port 10808 (up to 8 s)
       // Replaces fixed 2 s delay — Xray with ECH + fragmentation takes 3-5 s
@@ -425,8 +416,9 @@ class XrayService {
       }
 
       final xrayReadyTime = DateTime.now();
-      final xrayStartupMs =
-          xrayReadyTime.difference(xrayStartTime).inMilliseconds;
+      final xrayStartupMs = xrayReadyTime
+          .difference(xrayStartTime)
+          .inMilliseconds;
       _logService.logInfo(
         'Xray ready on port 10808 (startup: ${xrayStartupMs}ms)',
       );
@@ -435,8 +427,10 @@ class XrayService {
       // Cap at a minimum so very slow starts don't leave zero time for the test.
       const minHttpTimeoutSeconds = 5;
       final httpTimeoutSeconds =
-          (timeoutSeconds - (xrayStartupMs / 1000).ceil())
-              .clamp(minHttpTimeoutSeconds, timeoutSeconds);
+          (timeoutSeconds - (xrayStartupMs / 1000).ceil()).clamp(
+            minHttpTimeoutSeconds,
+            timeoutSeconds,
+          );
       _logService.logInfo(
         'HTTP test timeout: ${httpTimeoutSeconds}s '
         '(${timeoutSeconds}s total - ${(xrayStartupMs / 1000).ceil()}s startup)',
@@ -496,6 +490,44 @@ class XrayService {
       );
     } finally {
       // Always cleanup: kill process and delete temp file
+      await _cleanupProxyTest(xrayProcess, configPath);
+    }
+  }
+
+  /// Runs [action] through a temporary SOCKS5 proxy session backed by Xray
+  /// with [candidateIP] injected into [config].
+  ///
+  /// This is used by non-scan flows that still need a one-off proxied network
+  /// operation (for example ECH DNS lookups).
+  Future<T> runWithSocksProxy<T>({
+    required XrayConfig config,
+    required String candidateIP,
+    required Future<T> Function(int socksPort) action,
+  }) async {
+    if (!_isInitialized) {
+      final ok = await initialize();
+      if (!ok) {
+        throw Exception('XrayService initialization failed');
+      }
+    }
+
+    Process? xrayProcess;
+    String? configPath;
+    try {
+      final testConfig = config.copyWithAddress(candidateIP).withTestInbound();
+      configPath = await _writeConfigToTempFile(testConfig);
+      xrayProcess = await _startXrayProcess(configPath);
+      _logService.logInfo(
+        'Xray SOCKS proxy session started (PID: ${xrayProcess.pid}, IP: $candidateIP)',
+      );
+
+      final ready = await _waitForXrayPort(10808, maxWaitSeconds: 8);
+      if (!ready) {
+        throw Exception('Xray startup timeout (SOCKS port 10808 not ready)');
+      }
+
+      return await action(10808);
+    } finally {
       await _cleanupProxyTest(xrayProcess, configPath);
     }
   }
@@ -586,12 +618,14 @@ class XrayService {
       );
 
       // HTTP/1.1 requires CRLF (\r\n). Note: Dart string \r\n = 2 bytes.
-      conn.write(utf8.encode(
-        'GET $_phase2TestPath HTTP/1.1\r\n'
-        'Host: $_phase2TestHost\r\n'
-        'Connection: close\r\n'
-        '\r\n',
-      ));
+      conn.write(
+        utf8.encode(
+          'GET $_phase2TestPath HTTP/1.1\r\n'
+          'Host: $_phase2TestHost\r\n'
+          'Connection: close\r\n'
+          '\r\n',
+        ),
+      );
       await conn.flush();
 
       // Read response chunks until we find the HTTP status line or timeout.
@@ -599,8 +633,9 @@ class XrayService {
       // accepting SOCKS5, so this may take several seconds.
       final buf = StringBuffer();
       final httpStart = DateTime.now();
-      final deadline =
-          DateTime.now().add(Duration(seconds: httpTimeoutSeconds));
+      final deadline = DateTime.now().add(
+        Duration(seconds: httpTimeoutSeconds),
+      );
 
       while (DateTime.now().isBefore(deadline)) {
         final remaining = deadline.difference(DateTime.now()).inSeconds;
@@ -648,8 +683,7 @@ class XrayService {
         if (buf.length > 4096) break;
       }
 
-      final elapsedMs =
-          DateTime.now().difference(httpStart).inMilliseconds;
+      final elapsedMs = DateTime.now().difference(httpStart).inMilliseconds;
       // Distinguish between actual timeout (elapsedMs ≈ budget) and early
       // socket close (elapsedMs << budget, meaning Xray gave up on outbound).
       final closedEarly = elapsedMs < (httpTimeoutSeconds - 1) * 1000;

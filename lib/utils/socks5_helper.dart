@@ -112,8 +112,8 @@ class _SocketReader {
     return available;
   }
 
-  void cancel() {
-    _subscription?.cancel();
+  Future<void> cancel() async {
+    await _subscription?.cancel();
     _subscription = null;
   }
 }
@@ -127,8 +127,12 @@ class _SocketReader {
 class Socks5Connection {
   final Socket _socket;
   final _SocketReader _reader;
+  bool _readerDetached = false;
 
   Socks5Connection._(this._socket, this._reader);
+
+  /// Exposes the underlying socket for advanced flows (e.g. TLS upgrade).
+  Socket get socket => _socket;
 
   /// Write bytes to the connection (buffered; call [flush] to send).
   void write(List<int> data) => _socket.add(data);
@@ -144,9 +148,27 @@ class Socks5Connection {
   Future<List<int>> readAvailable(int timeoutSeconds) =>
       _reader.readAvailable(timeoutSeconds);
 
+  /// Upgrade this SOCKS tunnel to TLS.
+  ///
+  /// Cancels the internal plain-socket reader before TLS so handshake bytes are
+  /// not consumed by the SOCKS helper listener.
+  Future<SecureSocket> secure({
+    required String host,
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    if (!_readerDetached) {
+      await _reader.cancel();
+      _readerDetached = true;
+    }
+    return SecureSocket.secure(_socket, host: host).timeout(timeout);
+  }
+
   /// Close the connection and release resources.
   Future<void> close() async {
-    _reader.cancel();
+    if (!_readerDetached) {
+      await _reader.cancel();
+      _readerDetached = true;
+    }
     await _socket.close();
   }
 }
@@ -188,9 +210,7 @@ class Socks5Helper {
   }) async {
     Socket? socket;
     try {
-      _logService.logInfo(
-        'Connecting to SOCKS5 at $socksHost:$socksPort',
-      );
+      _logService.logInfo('Connecting to SOCKS5 at $socksHost:$socksPort');
 
       socket = await Socket.connect(
         socksHost,

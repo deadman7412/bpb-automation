@@ -27,14 +27,14 @@ In `CloudflareApiService.updateCleanIPs`:
 
 ## ECH Host Resolution Strategy
 
-When `enableECH` is true, host selection priority is:
+To match panel behavior, ECH is derived from the panel worker host (`hostName`).
 
-1. `customCdnHost` (if set and domain)
-2. Host from saved subscription URL
-3. Host from `remoteDNS` (if domain)
-4. Fallback: `cloudflare-ech.com`
+In app mode, host resolution is:
 
-The app queries DNS HTTPS records and extracts `ech=` / `echconfig=` value.
+1. Host from saved subscription URL
+2. Host from saved panel base URL
+
+If no host can be resolved, the update fails.
 
 ## Sanitized Debug Verification
 
@@ -64,5 +64,26 @@ No tokens, passwords, or full secret values are logged.
 
 ## Notes
 
-- If DNS endpoints are unreachable, update still proceeds; derived fields may remain partially unchanged.
-- When `enableECH` is false, `echConfig` is not refreshed.
+- If derived-field generation fails (DNS/ECH/proxy parsing), update fails and KV is not written.
+- When `enableECH` is false, `echConfig` is set to an empty string (panel behavior).
+
+## Live SOCKS Probe Script
+
+When app-managed Xray SOCKS is short-lived, you can run this watcher in terminal
+before pressing Apply in app. It waits for `127.0.0.1:10808`, then runs a quick
+HTTP/HTTPS/DoH probe through the same SOCKS tunnel:
+
+```bash
+while true; do
+  if nc -z 127.0.0.1 10808 2>/dev/null; then
+    echo "=== SOCKS detected $(date) ==="
+    curl -sS -v --socks5-hostname 127.0.0.1:10808 http://connectivitycheck.gstatic.com/generate_204 --max-time 8 -o /dev/null
+    curl -sS -v --socks5-hostname 127.0.0.1:10808 https://example.com --max-time 8 -o /dev/null
+    curl -sS -v --socks5-hostname 127.0.0.1:10808 "https://dns.google/resolve?name=artshop.ecomedgeinnovators.com&type=HTTPS" -H "accept: application/dns-json" --max-time 8
+    curl -sS -v --socks5-hostname 127.0.0.1:10808 "https://cloudflare-dns.com/dns-query?name=artshop.ecomedgeinnovators.com&type=HTTPS" -H "accept: application/dns-json" --max-time 8
+    echo "=== done ==="
+    break
+  fi
+  sleep 0.1
+done
+```

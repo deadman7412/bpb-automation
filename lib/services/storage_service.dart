@@ -28,11 +28,20 @@ class StorageService {
   static const String _keyKvNamespaceId = 'cf_kv_namespace_id';
   static const String _keyPanelBaseUrl = 'panel_base_url';
   static const String _keyPanelPassword = 'panel_password';
+  static const String _keyPanelUseProxyForUpdate = 'panel_use_proxy_for_update';
+  static const String _keyPanelForceCleanIpsForUpdate =
+      'panel_force_clean_ips_for_update';
+  static const String _keyPanelEnableProxyDiagnostics =
+      'panel_enable_proxy_diagnostics';
   static const String _keyUpdateMode = 'update_mode';
   static const String _keyLastScanTime = 'last_scan_time';
   static const String _keyAutoUpdateEnabled = 'auto_update_enabled';
   static const String _keyAutoUpdateInterval = 'auto_update_interval_hours';
   static const String _keyAutoApplyAfterScan = 'auto_apply_after_scan';
+  static const String _keyCloudflareTryEchViaProxy =
+      'cloudflare_try_ech_via_proxy';
+  static const String _keyDebugRunProxyConnectivityOnApply =
+      'debug_run_proxy_connectivity_on_apply';
   static const String _keyNumIpsToUse = 'num_ips_to_use';
   static const String _keySubscriptionUrl = 'subscription_url';
   static const String _keyCachedConfigs = 'cached_configs';
@@ -358,6 +367,78 @@ class StorageService {
   /// Defaults to false if not set.
   Future<bool> getAutoApplyAfterScan() async {
     return _prefs.getBool(_keyAutoApplyAfterScan) ?? false;
+  }
+
+  /// Saves whether Panel API updates should be sent via Xray proxy.
+  ///
+  /// Defaults to false for predictable behavior.
+  Future<void> savePanelUseProxyForUpdate(bool enabled) async {
+    await _prefs.setBool(_keyPanelUseProxyForUpdate, enabled);
+  }
+
+  /// Returns whether Panel API updates should be sent via Xray proxy.
+  ///
+  /// Defaults to false if not set.
+  Future<bool> getPanelUseProxyForUpdate() async {
+    return _prefs.getBool(_keyPanelUseProxyForUpdate) ?? false;
+  }
+
+  /// Saves whether Panel API updates should use direct forced clean IP routing
+  /// when proxy mode is disabled.
+  ///
+  /// Defaults to false.
+  Future<void> savePanelForceCleanIpsForUpdate(bool enabled) async {
+    await _prefs.setBool(_keyPanelForceCleanIpsForUpdate, enabled);
+  }
+
+  /// Returns whether Panel API updates should use forced clean IP routing
+  /// when proxy mode is disabled.
+  ///
+  /// Defaults to false if not set.
+  Future<bool> getPanelForceCleanIpsForUpdate() async {
+    return _prefs.getBool(_keyPanelForceCleanIpsForUpdate) ?? false;
+  }
+
+  /// Saves whether verbose panel proxy diagnostics are enabled.
+  ///
+  /// Defaults to false to avoid noisy logs.
+  Future<void> savePanelEnableProxyDiagnostics(bool enabled) async {
+    await _prefs.setBool(_keyPanelEnableProxyDiagnostics, enabled);
+  }
+
+  /// Returns whether verbose panel proxy diagnostics are enabled.
+  ///
+  /// Defaults to false if not set.
+  Future<bool> getPanelEnableProxyDiagnostics() async {
+    return _prefs.getBool(_keyPanelEnableProxyDiagnostics) ?? false;
+  }
+
+  /// Saves whether Cloudflare API mode should try ECH refresh via Xray proxy.
+  ///
+  /// Defaults to false for predictable/fast updates.
+  Future<void> saveCloudflareTryEchViaProxy(bool enabled) async {
+    await _prefs.setBool(_keyCloudflareTryEchViaProxy, enabled);
+  }
+
+  /// Returns whether Cloudflare API mode should try ECH refresh via Xray proxy.
+  ///
+  /// Defaults to false if not set.
+  Future<bool> getCloudflareTryEchViaProxy() async {
+    return _prefs.getBool(_keyCloudflareTryEchViaProxy) ?? false;
+  }
+
+  /// Saves whether Apply should run proxy connectivity diagnostics first.
+  ///
+  /// Defaults to false to avoid slowing normal apply flow.
+  Future<void> saveDebugRunProxyConnectivityOnApply(bool enabled) async {
+    await _prefs.setBool(_keyDebugRunProxyConnectivityOnApply, enabled);
+  }
+
+  /// Returns whether Apply should run proxy connectivity diagnostics first.
+  ///
+  /// Defaults to false if not set.
+  Future<bool> getDebugRunProxyConnectivityOnApply() async {
+    return _prefs.getBool(_keyDebugRunProxyConnectivityOnApply) ?? false;
   }
 
   /// Saves the auto-update interval in hours.

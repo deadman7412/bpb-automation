@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/credentials.dart';
 import '../models/proxy_settings.dart';
+import 'ech_proxy_service_stub.dart'
+    if (dart.library.io) 'ech_proxy_service.dart';
 import 'log_service.dart';
 import 'storage_service.dart';
 
@@ -15,6 +17,7 @@ class CloudflareApiService {
 
   final LogService _logService = LogService.instance;
   final StorageService _storageService = StorageService.instance;
+  final EchProxyService _echProxyService = EchProxyService.instance;
 
   /// Base URL for Cloudflare API
   static const String _baseUrl = 'https://api.cloudflare.com/client/v4';
@@ -249,20 +252,23 @@ class CloudflareApiService {
     }
 
     final enableEch = _asBool(settingsPayload['enableECH']);
-    if (enableEch) {
-      final echHost = await _resolveEchHost(settingsPayload);
-      if (echHost != null && echHost.isNotEmpty) {
-        final echConfig = await _extractEchConfig(echHost);
-        if (echConfig != null && echConfig.isNotEmpty) {
-          settingsPayload['echConfig'] = echConfig;
-        } else {
-          _logService.logWarn(
-            'ECH enabled but no HTTPS ECH record found for host: $echHost',
-          );
-        }
-      } else {
+    final existingEchConfig = settingsPayload['echConfig']?.toString() ?? '';
+    try {
+      final echConfig = await _extractEchConfig(
+        enableEch: enableEch,
+        cleanIpCandidates: _toStringList(settingsPayload['cleanIPs']),
+      );
+      settingsPayload['echConfig'] = echConfig;
+    } catch (e) {
+      if (enableEch && _isLikelyBase64(existingEchConfig)) {
         _logService.logWarn(
-          'ECH enabled but no host candidate found for ECH extraction',
+          'ECH refresh failed; preserving existing echConfig. Error: $e',
+        );
+        settingsPayload['echConfig'] = existingEchConfig;
+      } else {
+        throw _DerivedFieldException(
+          'Failed to derive ECH config and no valid fallback is available',
+          e,
         );
       }
     }
@@ -302,7 +308,8 @@ class CloudflareApiService {
   }
 
   Future<Map<String, dynamic>> _getDnsParams(String remoteDns) async {
-    final host = _extractHost(remoteDns);
+    final domain = _getDomain(remoteDns);
+    final host = domain['host']?.toString() ?? '';
     if (host.isEmpty) {
       return <String, dynamic>{
         'host': '',
@@ -312,7 +319,7 @@ class CloudflareApiService {
       };
     }
 
-    final isDomain = !_isIpLiteral(host);
+    final isDomain = _asBool(domain['isHostDomain']);
     if (!isDomain) {
       return <String, dynamic>{
         'host': host,
@@ -322,46 +329,42 @@ class CloudflareApiService {
       };
     }
 
-    final ipv4 = await _resolveDnsRecord(host, 'A');
-    final ipv6 = await _resolveDnsRecord(host, 'AAAA');
+    final records = await _resolveDns(host);
     return <String, dynamic>{
       'host': host,
       'isDomain': true,
-      'ipv4': ipv4,
-      'ipv6': ipv6,
+      'ipv4': records['ipv4'] ?? <String>[],
+      'ipv6': records['ipv6'] ?? <String>[],
     };
   }
 
-  Future<List<String>> _resolveDnsRecord(String host, String type) async {
-    try {
-      final url = Uri.https('dns.google', '/resolve', {
-        'name': host,
-        'type': type,
-      });
-      final response = await _client
-          .get(url, headers: const {'Accept': 'application/dns-json'})
-          .timeout(_defaultTimeout);
-      if (response.statusCode != 200) {
-        _logService.logWarn(
-          'DNS $type resolve failed for $host (status: ${response.statusCode})',
-        );
-        return <String>[];
-      }
+  Future<Map<String, List<String>>> _resolveDns(String host) async {
+    final base =
+        'https://cloudflare-dns.com/dns-query?name=${Uri.encodeQueryComponent(host)}';
+    final ipv4 = await _fetchDnsRecords('$base&type=A', 1);
+    final ipv6 = await _fetchDnsRecords('$base&type=AAAA', 28);
+    return <String, List<String>>{'ipv4': ipv4, 'ipv6': ipv6};
+  }
 
-      final data = jsonDecode(response.body);
-      if (data is! Map<String, dynamic>) return <String>[];
-      final answers = data['Answer'];
-      if (answers is! List) return <String>[];
-
-      return answers
-          .whereType<Map>()
-          .map((item) => item['data']?.toString() ?? '')
-          .where((value) => value.isNotEmpty)
-          .toList(growable: false);
-    } catch (e) {
-      _logService.logWarn('DNS $type resolve error for $host: $e');
-      return <String>[];
+  Future<List<String>> _fetchDnsRecords(String url, int recordType) async {
+    final response = await _client
+        .get(Uri.parse(url), headers: const {'Accept': 'application/dns-json'})
+        .timeout(_defaultTimeout);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch DNS records: ${response.statusCode}');
     }
+
+    final data = jsonDecode(response.body);
+    if (data is! Map<String, dynamic>) return <String>[];
+    final answers = data['Answer'];
+    if (answers is! List) return <String>[];
+
+    return answers
+        .whereType<Map>()
+        .where((record) => record['type'] == recordType)
+        .map((record) => record['data']?.toString() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
   }
 
   Map<String, dynamic> _extractProxyParams(String outProxy) {
@@ -369,56 +372,73 @@ class CloudflareApiService {
       final uri = Uri.parse(outProxy);
       final protocol = uri.scheme.toLowerCase();
       if (protocol.isEmpty) return <String, dynamic>{};
+      final standardProtocol = protocol == 'ss'
+          ? 'ss'
+          : protocol.replaceAll('socks5', 'socks');
 
-      if (protocol == 'vmess') {
+      if (standardProtocol == 'vmess') {
         return _extractVmessParams(uri);
       }
 
-      final params = <String, dynamic>{'protocol': protocol};
+      final configParams = <String, dynamic>{
+        'protocol': standardProtocol,
+        'server': uri.host,
+        'port': uri.hasPort ? uri.port : 0,
+      };
+      final userInfoParts = uri.userInfo.split(':');
+      final uriUsername = userInfoParts.isNotEmpty ? userInfoParts.first : '';
+      final uriPassword = userInfoParts.length > 1
+          ? userInfoParts.sublist(1).join(':')
+          : '';
 
-      if (uri.host.isNotEmpty) {
-        params['server'] = uri.host;
-      }
-      final defaultPort = _defaultPortForProtocol(protocol);
-      if (uri.hasPort) {
-        params['port'] = uri.port;
-      } else if (defaultPort != null) {
-        params['port'] = defaultPort;
-      }
-
-      if (uri.userInfo.isNotEmpty) {
-        final userInfoParts = uri.userInfo.split(':');
-        if (protocol == 'vless') {
-          params['uuid'] = userInfoParts.first;
-        } else if (protocol == 'trojan') {
-          params['password'] = userInfoParts.first;
-        } else if (protocol == 'socks' || protocol == 'http') {
-          params['user'] = userInfoParts.first;
-          if (userInfoParts.length > 1) {
-            params['pass'] = userInfoParts.sublist(1).join(':');
-          }
-        } else {
-          params['userInfo'] = uri.userInfo;
-        }
-      }
-
-      uri.queryParameters.forEach((key, value) {
-        if (value.isEmpty) return;
-        if (key == 'port') {
-          final parsed = int.tryParse(value);
-          if (parsed != null) {
-            params[key] = parsed;
-            return;
+      Map<String, dynamic> parseParams(
+        bool queryParams,
+        Map<String, dynamic> customParams,
+      ) {
+        final merged = Map<String, dynamic>.from(configParams);
+        if (queryParams) {
+          for (final entry in uri.queryParameters.entries) {
+            merged[entry.key] = entry.value.isEmpty ? null : entry.value;
           }
         }
-        params[key] = value;
-      });
-
-      if (params['path'] is String && (params['path'] as String).isEmpty) {
-        params['path'] = '/';
+        merged.addAll(customParams);
+        merged.removeWhere((_, value) => value == null);
+        return merged;
       }
 
-      return params;
+      switch (standardProtocol) {
+        case 'vless':
+          return parseParams(true, {'uuid': uriUsername});
+        case 'trojan':
+          return parseParams(true, {'password': uriUsername});
+        case 'ss':
+          final auth = _base64DecodeUtf8(uriUsername);
+          final authParts = auth.split(':');
+          return parseParams(true, {
+            'method': authParts.isNotEmpty ? authParts.first : null,
+            'password': authParts.length > 1
+                ? authParts.sublist(1).join(':')
+                : null,
+          });
+        case 'socks':
+        case 'http':
+          String? user;
+          String? pass;
+          try {
+            final userInfo = _base64DecodeUtf8(uriUsername);
+            if (userInfo.contains(':')) {
+              final infoParts = userInfo.split(':');
+              user = infoParts.first;
+              pass = infoParts.sublist(1).join(':');
+            }
+          } catch (_) {
+            user = uriUsername.isEmpty ? null : uriUsername;
+            pass = uriPassword.isEmpty ? null : uriPassword;
+          }
+          return parseParams(false, {'user': user, 'pass': pass});
+        default:
+          return {};
+      }
     } catch (e) {
       _logService.logWarn('Failed to extract outProxyParams: $e');
       return <String, dynamic>{};
@@ -428,125 +448,188 @@ class CloudflareApiService {
   Map<String, dynamic> _extractVmessParams(Uri uri) {
     try {
       final encoded = uri.host.isNotEmpty ? uri.host : uri.path;
-      final normalized = base64.normalize(encoded);
-      final decoded = utf8.decode(base64Decode(normalized));
+      final decoded = _base64DecodeUtf8(encoded);
       final payload = jsonDecode(decoded);
       if (payload is! Map<String, dynamic>) {
         return <String, dynamic>{'protocol': 'vmess'};
       }
-      final params = Map<String, dynamic>.from(payload);
-      params['protocol'] = 'vmess';
-      if (params['port'] is String) {
-        params['port'] =
-            int.tryParse(params['port'] as String) ?? params['port'];
-      }
-      return params;
+
+      final config = Map<String, dynamic>.from(payload);
+      return <String, dynamic>{
+        'protocol': 'vmess',
+        'uuid': config['id'],
+        'server': config['add'],
+        'port': int.tryParse('${config['port']}') ?? config['port'],
+        'aid': int.tryParse('${config['aid']}') ?? config['aid'],
+        'type': config['net'],
+        'headerType': config['type'],
+        'serviceName': config['path'],
+        'authority': config['authority'],
+        if ((config['path']?.toString() ?? '').isNotEmpty)
+          'path': config['path'],
+        if ((config['host']?.toString() ?? '').isNotEmpty)
+          'host': config['host'],
+        'security': config['tls'],
+        'sni': config['sni'],
+        'fp': config['fp'],
+        if ((config['alpn']?.toString() ?? '').isNotEmpty)
+          'alpn': config['alpn'],
+      };
     } catch (_) {
       return <String, dynamic>{'protocol': 'vmess'};
     }
   }
 
-  Future<String?> _resolveEchHost(Map<String, dynamic> settingsPayload) async {
-    final customCdnHost = settingsPayload['customCdnHost']?.toString() ?? '';
-    if (customCdnHost.isNotEmpty && !_isIpLiteral(customCdnHost)) {
-      return customCdnHost;
+  Future<String> _extractEchConfig({
+    required bool enableEch,
+    required List<String> cleanIpCandidates,
+  }) async {
+    if (!enableEch) return '';
+
+    final hostName = await _resolveHostNameForPanelBehavior();
+    final directResolvers = const ['dns.google', 'cloudflare-dns.com'];
+    Object? lastDirectError;
+
+    for (final resolver in directResolvers) {
+      try {
+        _logService.logInfo(
+          'Trying direct ECH lookup via $resolver for $hostName',
+        );
+        return await _extractEchConfigDirect(
+          hostName: hostName,
+          resolverHost: resolver,
+        );
+      } catch (e) {
+        lastDirectError = e;
+        _logService.logWarn(
+          'Direct ECH lookup failed via $resolver for $hostName: $e',
+        );
+      }
     }
 
+    final directFailure =
+        lastDirectError ??
+        Exception('Direct ECH lookup failed for all resolvers');
+
+    final tryViaProxy = await _storageService.getCloudflareTryEchViaProxy();
+    if (!tryViaProxy) {
+      _logService.logInfo(
+        'ECH proxy fallback disabled in settings; skipping Xray ECH retry',
+      );
+      throw directFailure;
+    }
+
+    try {
+      final socksEch = await _echProxyService.fetchEchViaCleanIPs(
+        hostName: hostName,
+        candidateIPs: cleanIpCandidates,
+        resolverHosts: directResolvers,
+      );
+      if (socksEch != null && socksEch.isNotEmpty) {
+        _logService.logOk('ECH lookup succeeded through Xray SOCKS fallback');
+        return socksEch;
+      }
+    } catch (e) {
+      _logService.logWarn('Proxy ECH lookup failed for $hostName: $e');
+    }
+
+    throw directFailure;
+  }
+
+  Future<String> _extractEchConfigDirect({
+    required String hostName,
+    required String resolverHost,
+  }) async {
+    final url = Uri.https(resolverHost, '/resolve', {
+      'name': hostName,
+      'type': 'HTTPS',
+    });
+
+    final response = await _client
+        .get(url, headers: const {'Accept': 'application/dns-json'})
+        .timeout(_defaultTimeout);
+    if (response.statusCode != 200) {
+      throw Exception(
+        'ECH extraction failed for $hostName via $resolverHost: DNS status ${response.statusCode}',
+      );
+    }
+
+    final body = jsonDecode(response.body);
+    if (body is! Map<String, dynamic>) {
+      throw Exception(
+        'ECH extraction failed for $hostName via $resolverHost: invalid response',
+      );
+    }
+    final answers = body['Answer'];
+    if (answers is! List) {
+      throw Exception(
+        'ECH extraction failed for $hostName via $resolverHost: missing Answer',
+      );
+    }
+
+    for (final item in answers) {
+      if (item is! Map) continue;
+      final record = item['data']?.toString() ?? '';
+      final ech = RegExp(r'ech=([^ ]+)').firstMatch(record)?.group(1);
+      if (ech != null && ech.isNotEmpty) {
+        return ech;
+      }
+    }
+
+    throw Exception('ECH record not found via $resolverHost');
+  }
+
+  Future<String> _resolveHostNameForPanelBehavior() async {
     try {
       final subscriptionUrl = await _storageService.getSubscriptionUrl();
       if (subscriptionUrl != null && subscriptionUrl.isNotEmpty) {
         final uri = Uri.tryParse(subscriptionUrl);
-        final host = uri?.host ?? '';
-        if (host.isNotEmpty && !_isIpLiteral(host)) {
-          return host;
+        if (uri != null && uri.host.isNotEmpty) {
+          return uri.host;
         }
       }
-    } catch (e) {
-      _logService.logWarn('Failed to read subscription URL for ECH host: $e');
-    }
+    } catch (_) {}
 
-    final remoteDnsHost = _extractHost(
-      settingsPayload['remoteDNS']?.toString() ?? '',
-    );
-    if (remoteDnsHost.isNotEmpty && !_isIpLiteral(remoteDnsHost)) {
-      return remoteDnsHost;
-    }
-
-    return 'cloudflare-ech.com';
-  }
-
-  Future<String?> _extractEchConfig(String hostName) async {
     try {
-      final url = Uri.https('dns.google', '/resolve', {
-        'name': hostName,
-        'type': 'HTTPS',
-      });
-      final response = await _client
-          .get(url, headers: const {'Accept': 'application/dns-json'})
-          .timeout(_defaultTimeout);
-      if (response.statusCode != 200) {
-        _logService.logWarn(
-          'DNS HTTPS resolve failed for $hostName (status: ${response.statusCode})',
-        );
-        return null;
-      }
-
-      final body = jsonDecode(response.body);
-      if (body is! Map<String, dynamic>) return null;
-      final answers = body['Answer'];
-      if (answers is! List) return null;
-
-      for (final item in answers) {
-        if (item is! Map) continue;
-        final record = item['data']?.toString() ?? '';
-        if (record.isEmpty) continue;
-
-        final match = RegExp(
-          r'(?:ech(?:config)?=)([^,\s"]+)',
-        ).firstMatch(record);
-        if (match != null) {
-          final value = match.group(1) ?? '';
-          if (_isLikelyBase64(value)) {
-            return value;
-          }
+      final panelCredentials = await _storageService.getPanelCredentials();
+      if (panelCredentials != null) {
+        final uri = Uri.tryParse(panelCredentials.baseUrl);
+        if (uri != null && uri.host.isNotEmpty) {
+          return uri.host;
         }
       }
-      return null;
-    } catch (e) {
-      _logService.logWarn('ECH extraction failed for $hostName: $e');
-      return null;
+    } catch (_) {}
+
+    throw Exception(
+      'Panel hostName unavailable; cannot derive echConfig exactly like BPB panel',
+    );
+  }
+
+  Map<String, dynamic> _getDomain(String url) {
+    try {
+      final parsed = Uri.parse(url);
+      final host = parsed.host;
+      return <String, dynamic>{'host': host, 'isHostDomain': _isDomain(host)};
+    } catch (_) {
+      return <String, dynamic>{'host': '', 'isHostDomain': false};
     }
   }
 
-  String _extractHost(String urlOrHost) {
-    final value = urlOrHost.trim();
-    if (value.isEmpty) return '';
-    final uri = Uri.tryParse(value);
-    if (uri != null && uri.host.isNotEmpty) {
-      return uri.host;
-    }
-    return value;
-  }
-
-  bool _isIpLiteral(String host) {
-    final value = host.trim();
+  bool _isDomain(String value) {
     if (value.isEmpty) return false;
-    final ipv4 = RegExp(r'^\d{1,3}(\.\d{1,3}){3}$');
-    if (ipv4.hasMatch(value)) {
-      final parts = value.split('.');
-      return parts.every((part) {
-        final parsed = int.tryParse(part);
-        return parsed != null && parsed >= 0 && parsed <= 255;
-      });
-    }
-    return value.contains(':');
+    final regex = RegExp(r'^(?!-)(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,}$');
+    return regex.hasMatch(value);
+  }
+
+  String _base64DecodeUtf8(String value) {
+    final normalized = base64.normalize(value);
+    return utf8.decode(base64Decode(normalized));
   }
 
   bool _isLikelyBase64(String value) {
     if (value.isEmpty) return false;
-    final normalized = base64.normalize(value);
     try {
-      base64Decode(normalized);
+      base64Decode(base64.normalize(value));
       return true;
     } catch (_) {
       return false;
@@ -574,22 +657,6 @@ class CloudflareApiService {
       return value.map((entry) => entry.toString()).toList(growable: false);
     }
     return <String>[];
-  }
-
-  int? _defaultPortForProtocol(String protocol) {
-    switch (protocol) {
-      case 'http':
-        return 80;
-      case 'https':
-      case 'vless':
-      case 'trojan':
-      case 'vmess':
-        return 443;
-      case 'socks':
-        return 1080;
-      default:
-        return null;
-    }
   }
 
   Map<String, dynamic> _sanitizeOutProxyParams(Map<String, dynamic> params) {
@@ -630,6 +697,11 @@ class CloudflareApiService {
       } catch (e) {
         if (attempt >= _maxRetries) {
           _logService.logError('Max retries ($attempt) reached, giving up');
+          rethrow;
+        }
+
+        if (e is _DerivedFieldException) {
+          _logService.logError('Derived field error, not retrying');
           rethrow;
         }
 
@@ -692,4 +764,17 @@ class CloudflareApiException implements Exception {
 
   @override
   String toString() => 'CloudflareApiException: $message (status: $statusCode)';
+}
+
+class _DerivedFieldException implements Exception {
+  final String message;
+  final Object? cause;
+
+  _DerivedFieldException(this.message, [this.cause]);
+
+  @override
+  String toString() {
+    if (cause == null) return '_DerivedFieldException: $message';
+    return '_DerivedFieldException: $message; cause: $cause';
+  }
 }

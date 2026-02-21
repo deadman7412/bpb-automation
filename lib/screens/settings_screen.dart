@@ -45,6 +45,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isServerSigningIn = false;
   bool _hasCredentials = false;
   bool _autoApplyAfterScan = false;
+  bool _cloudflareTryEchViaProxy = false;
+  bool _panelUseProxyForUpdate = false;
+  bool _panelForceCleanIpsForUpdate = false;
+  bool _panelEnableProxyDiagnostics = false;
   bool _useServerBackend = false;
   UpdateMode _updateMode = UpdateMode.panelApi;
 
@@ -76,6 +80,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final credentials = await _storage.getCredentials();
     final panelCredentials = await _storage.getPanelCredentials();
     final autoApplyAfterScan = await _storage.getAutoApplyAfterScan();
+    final cloudflareTryEchViaProxy = await _storage
+        .getCloudflareTryEchViaProxy();
+    final panelUseProxyForUpdate = await _storage.getPanelUseProxyForUpdate();
+    final panelForceCleanIpsForUpdate = await _storage
+        .getPanelForceCleanIpsForUpdate();
+    final panelEnableProxyDiagnostics = await _storage
+        .getPanelEnableProxyDiagnostics();
     final useServerBackend = await _storage.getUseServerBackend();
     final serverBaseUrl = await _storage.getServerBackendBaseUrl();
     final serverToken = await _storage.getServerBackendToken();
@@ -115,6 +126,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _serverTokenController.text.trim().isNotEmpty)
           : _hasCredentialsForMode(_updateMode);
       _autoApplyAfterScan = autoApplyAfterScan;
+      _cloudflareTryEchViaProxy = cloudflareTryEchViaProxy;
+      _panelUseProxyForUpdate = panelUseProxyForUpdate;
+      _panelForceCleanIpsForUpdate = panelForceCleanIpsForUpdate;
+      _panelEnableProxyDiagnostics = panelEnableProxyDiagnostics;
       _useServerBackend = effectiveUseServerBackend;
       _isLoading = false;
     });
@@ -238,10 +253,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return;
       }
 
-      String? autoSubscriptionUrl;
-      bool autoPopulateFailed = false;
-      Object? autoPopulateError;
-
       if (_updateMode == UpdateMode.cloudflareApi) {
         final credentials = Credentials(
           apiToken: _apiTokenController.text.trim(),
@@ -256,68 +267,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
           password: _panelPasswordController.text.trim(),
         );
         await _storage.savePanelCredentials(credentials);
-
-        try {
-          autoSubscriptionUrl = await _panelApi.fetchNormalSubscriptionUrl(
-            credentials,
-          );
-          if (autoSubscriptionUrl != null && autoSubscriptionUrl.isNotEmpty) {
-            await _storage.saveSubscriptionUrl(autoSubscriptionUrl);
-            _log.logOk(
-              'Auto-populated subscription URL from panel API settings',
-            );
-          }
-        } catch (e, stackTrace) {
-          autoPopulateFailed = true;
-          autoPopulateError = e;
-          _log.logWarn(
-            'Panel credentials were saved, but auto-populating subscription URL failed: $e',
-          );
-          _log.logError(
-            'Auto-populate subscription URL failure',
-            e,
-            stackTrace,
-          );
-        }
       }
 
       await _storage.saveUpdateMode(_updateMode);
       await _storage.saveAutoApplyAfterScan(_autoApplyAfterScan);
+      await _storage.saveCloudflareTryEchViaProxy(_cloudflareTryEchViaProxy);
+      await _storage.savePanelUseProxyForUpdate(_panelUseProxyForUpdate);
+      await _storage.savePanelForceCleanIpsForUpdate(
+        _panelForceCleanIpsForUpdate,
+      );
+      await _storage.savePanelEnableProxyDiagnostics(
+        _panelEnableProxyDiagnostics,
+      );
 
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _hasCredentials = true;
       });
-
-      if (!mounted) return;
-      final isPanelMode = _updateMode == UpdateMode.panelApi;
-      final suggestCloudflare =
-          autoPopulateError != null &&
-          _panelApi.isConnectivityError(autoPopulateError);
-      final panelMessage = autoSubscriptionUrl != null
-          ? 'Panel API settings saved. Subscription URL auto-populated.'
-          : suggestCloudflare
-          ? 'Panel API settings saved, but panel domain is unreachable right now. Switch Update Method to Cloudflare API and retry.'
-          : autoPopulateFailed
-          ? 'Panel API settings saved. Subscription URL auto-populate failed.'
-          : 'Panel API settings saved. Subscription URL not available from panel.';
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             _updateMode == UpdateMode.cloudflareApi
                 ? 'Cloudflare settings saved successfully'
-                : panelMessage,
+                : 'Panel API settings saved successfully',
           ),
-          backgroundColor: isPanelMode && autoSubscriptionUrl == null
-              ? Colors.orange
-              : Colors.green,
+          backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
         ),
       );
     } catch (e) {
-      setState(() => _isLoading = false);
       if (!mounted) return;
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to save settings: $e'),
@@ -621,6 +603,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             return null;
           },
         ),
+        const SizedBox(height: 16),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Try ECH refresh via proxy (Experimental)'),
+          subtitle: const Text(
+            'Experimental and not always reliable. Disabled by default. If enabled, app may try Xray + clean IPs when direct ECH lookup fails. This can increase apply time.',
+          ),
+          value: _cloudflareTryEchViaProxy,
+          onChanged: (value) {
+            setState(() => _cloudflareTryEchViaProxy = value);
+          },
+        ),
       ],
     );
   }
@@ -708,6 +702,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }
             return null;
           },
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Use proxy for panel update (Experimental)'),
+          subtitle: const Text(
+            'Experimental and not always reliable. If enabled, panel apply tries through Xray and clean IP candidates.',
+          ),
+          value: _panelUseProxyForUpdate,
+          onChanged: (value) {
+            setState(() {
+              _panelUseProxyForUpdate = value;
+              if (!value) {
+                _panelEnableProxyDiagnostics = false;
+              }
+            });
+          },
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Enable panel proxy diagnostics'),
+          subtitle: const Text(
+            'Runs extra proxy debug checks (GET /, GET /panel, POST /login/authenticate). Default off.',
+          ),
+          value: _panelEnableProxyDiagnostics,
+          onChanged: _panelUseProxyForUpdate
+              ? (value) {
+                  setState(() => _panelEnableProxyDiagnostics = value);
+                }
+              : null,
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Force clean IPs for panel when proxy is off'),
+          subtitle: const Text(
+            'When proxy mode is disabled, connect panel domain through clean IP candidates directly and rotate until one succeeds.',
+          ),
+          value: _panelForceCleanIpsForUpdate,
+          onChanged: _panelUseProxyForUpdate
+              ? null
+              : (value) {
+                  setState(() => _panelForceCleanIpsForUpdate = value);
+                },
         ),
         if (kIsWeb)
           Padding(
