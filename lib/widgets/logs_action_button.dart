@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Reusable AppBar action group in required order:
-/// Info -> Debug -> Log
+/// Debug -> Log
 class LogsActionButton extends StatelessWidget {
   const LogsActionButton({super.key, this.currentRoute});
 
@@ -14,13 +14,6 @@ class LogsActionButton extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          icon: const Icon(Icons.info_outline),
-          tooltip: 'Info',
-          onPressed: _isCurrent('/about')
-              ? null
-              : () => Navigator.pushNamed(context, '/about'),
-        ),
         IconButton(
           icon: const Icon(Icons.bug_report),
           tooltip: 'Debug & Diagnostics',

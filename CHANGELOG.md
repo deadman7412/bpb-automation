@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - cached fallback behavior.
 - ECH-only update keeps persisted `cleanIPs` unchanged while refreshing ECH-derived fields.
 - Home AppBar title updated from `BPB Clean IP Scanner` to `BPB Automation`.
-- Global AppBar quick actions standardized across screens to: **Info -> Debug -> Logs**.
+- Global AppBar quick actions standardized across screens to: **Debug -> Logs**.
 - Results statistics cards were compacted (smaller visual weight and spacing) for cleaner desktop/mobile layout.
 - Results statistics grid layout now enforces consistent sizing with only **2 or 4 cards per row** (no 3-card rows).
 

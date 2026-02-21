@@ -1089,7 +1089,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
-        actions: const [LogsActionButton(currentRoute: '/settings')],
+        actions: [
+          const LogsActionButton(currentRoute: '/settings'),
+          IconButton(
+            icon: const Icon(Icons.save),
+            tooltip: 'Save Settings',
+            onPressed: _isLoading ? null : _saveCurrentCredentials,
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

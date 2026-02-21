@@ -7,7 +7,6 @@ import '../services/log_service.dart';
 import '../services/storage_service.dart';
 import '../services/cloudflare_api_service.dart';
 import '../services/xray_service.dart';
-import '../widgets/logs_action_button.dart';
 
 class DebugScreen extends StatefulWidget {
   const DebugScreen({super.key});
@@ -65,7 +64,13 @@ class _DebugScreenState extends State<DebugScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Debug & Diagnostics'),
-        actions: const [LogsActionButton(currentRoute: '/debug')],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.list_alt),
+            tooltip: 'Logs',
+            onPressed: () => Navigator.pushNamed(context, '/logs'),
+          ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(

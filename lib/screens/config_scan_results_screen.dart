@@ -697,6 +697,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     String value,
     IconData icon, {
     Color? color,
+    String? detail,
   }) {
     final cs = Theme.of(context).colorScheme;
     final iconColor = color ?? cs.onSurfaceVariant;
@@ -723,6 +724,19 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
               style: Theme.of(context).textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
+            if (detail != null && detail.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                detail,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  fontSize: 11,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ],
         ),
       ),
@@ -957,17 +971,20 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
       );
     }
 
+    final phase1SuccessRate = _result!.totalTested > 0
+        ? (_result!.phase1Passed / _result!.totalTested * 100).toStringAsFixed(
+            1,
+          )
+        : '0.0';
+    final phase2SuccessRate = _result!.phase2Tested > 0
+        ? (_result!.workingIPCount / _result!.phase2Tested * 100)
+              .toStringAsFixed(1)
+        : '0.0';
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Config Scan Results'),
-        actions: [
-          const LogsActionButton(currentRoute: '/results'),
-          IconButton(
-            icon: const Icon(Icons.analytics_outlined),
-            tooltip: 'Scan details',
-            onPressed: _showResultInfo,
-          ),
-        ],
+        actions: [const LogsActionButton(currentRoute: '/results')],
       ),
       body: SafeArea(
         child: Center(
@@ -979,8 +996,8 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                 // Summary Card
                 Card(
                   color: _result!.workingIPCount > 0
-                      ? Colors.green[50]
-                      : Colors.orange[50],
+                      ? Colors.green.withValues(alpha: 0.14)
+                      : Colors.orange.withValues(alpha: 0.16),
                   child: Padding(
                     padding: const EdgeInsets.all(20.0),
                     child: Column(
@@ -1002,16 +1019,14 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: _result!.workingIPCount > 0
-                                    ? Colors.green[900]
-                                    : Colors.orange[900],
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           'Scan completed in ${_effectiveScanDuration.inSeconds} seconds',
                           style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: Colors.grey[700]),
+                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -1114,23 +1129,29 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                           'Phase 1 Tested',
                           '${_result!.totalTested}',
                           Icons.network_check,
+                          detail:
+                              'Protocol: ${_result!.templateConfig.getProtocol() ?? "unknown"}',
                         ),
                         _buildStatCard(
                           'Phase 1 Passed',
                           '${_result!.phase1Passed}',
                           Icons.done,
                           color: Colors.blue,
+                          detail: '$phase1SuccessRate% pass rate',
                         ),
                         _buildStatCard(
                           'Phase 2 Tested',
                           '${_result!.phase2Tested}',
                           Icons.verified_user,
+                          detail:
+                              'Security: ${_result!.templateConfig.isSecure() ? "TLS/Reality" : "None"}',
                         ),
                         _buildStatCard(
                           'Working IPs',
                           '${_result!.workingIPCount}',
                           Icons.check_circle,
                           color: Colors.green,
+                          detail: '$phase2SuccessRate% pass rate',
                         ),
                       ],
                     );
@@ -1352,74 +1373,4 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     _showMessage('Copied ${_result!.workingIPs.length} IPs to clipboard');
   }
 
-  void _showResultInfo() {
-    if (_result == null) return;
-
-    final phase1SuccessRate =
-        (_result!.phase1Passed / _result!.totalTested * 100).toStringAsFixed(1);
-    final phase2SuccessRate = _result!.phase2Tested > 0
-        ? (_result!.workingIPCount / _result!.phase2Tested * 100)
-              .toStringAsFixed(1)
-        : '0.0';
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Scan Details'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Protocol: ${_result!.templateConfig.getProtocol() ?? "Unknown"}',
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Security: ${_result!.templateConfig.isSecure() ? "TLS/Reality" : "None"}',
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Phase 1 (TLS Testing):',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text('  Total tested: ${_result!.totalTested}'),
-              Text('  Passed: ${_result!.phase1Passed} ($phase1SuccessRate%)'),
-              const SizedBox(height: 12),
-              const Text(
-                'Phase 2 (Proxy Testing):',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text('  Total tested: ${_result!.phase2Tested}'),
-              Text(
-                '  Working: ${_result!.workingIPCount} ($phase2SuccessRate%)',
-              ),
-              const SizedBox(height: 12),
-              Text('Duration: ${_effectiveScanDuration.inSeconds}s'),
-              Text('Timestamp: ${_formatDateTime(_result!.timestamp)}'),
-              if (_result!.autoApplyStatus != null) ...[
-                const SizedBox(height: 12),
-                const Text(
-                  'Auto Apply:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text('  ${_result!.autoApplyStatus}'),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDateTime(DateTime dt) {
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-  }
 }
