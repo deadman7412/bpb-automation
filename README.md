@@ -299,6 +299,6 @@ For issues and questions:
 
 ## Version
 
-Current: 4.3.2
+Current: 4.4.0
 
 See CHANGELOG.md for version history.

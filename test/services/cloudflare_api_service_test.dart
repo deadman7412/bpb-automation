@@ -41,7 +41,10 @@ void main() {
       test('buildHeaders creates correct authorization header', () async {
         final mockClient = MockClient((request) async {
           // Verify headers
-          expect(request.headers['Authorization'], contains('Bearer test_token_'));
+          expect(
+            request.headers['Authorization'],
+            contains('Bearer test_token_'),
+          );
           expect(request.headers['Content-Type'], equals('application/json'));
 
           return http.Response('{"success":true}', 200);
@@ -70,7 +73,10 @@ void main() {
 
       test('validateCredentials returns false for 401 unauthorized', () async {
         final mockClient = MockClient((request) async {
-          return http.Response('{"success":false,"errors":[{"message":"Invalid token"}]}', 401);
+          return http.Response(
+            '{"success":false,"errors":[{"message":"Invalid token"}]}',
+            401,
+          );
         });
 
         apiService.setClient(mockClient);
@@ -82,7 +88,10 @@ void main() {
 
       test('validateCredentials returns false for 403 forbidden', () async {
         final mockClient = MockClient((request) async {
-          return http.Response('{"success":false,"errors":[{"message":"Forbidden"}]}', 403);
+          return http.Response(
+            '{"success":false,"errors":[{"message":"Forbidden"}]}',
+            403,
+          );
         });
 
         apiService.setClient(mockClient);
@@ -94,7 +103,10 @@ void main() {
 
       test('validateCredentials returns false for 404 not found', () async {
         final mockClient = MockClient((request) async {
-          return http.Response('{"success":false,"errors":[{"message":"Not found"}]}', 404);
+          return http.Response(
+            '{"success":false,"errors":[{"message":"Not found"}]}',
+            404,
+          );
         });
 
         apiService.setClient(mockClient);
@@ -104,17 +116,22 @@ void main() {
         expect(result, isFalse);
       });
 
-      test('validateCredentials returns false for invalid credential format', () async {
-        final invalidCredentials = Credentials(
-          apiToken: '', // Empty token
-          accountId: 'account_123',
-          kvNamespaceId: 'namespace_456',
-        );
+      test(
+        'validateCredentials returns false for invalid credential format',
+        () async {
+          final invalidCredentials = Credentials(
+            apiToken: '', // Empty token
+            accountId: 'account_123',
+            kvNamespaceId: 'namespace_456',
+          );
 
-        final result = await apiService.validateCredentials(invalidCredentials);
+          final result = await apiService.validateCredentials(
+            invalidCredentials,
+          );
 
-        expect(result, isFalse);
-      });
+          expect(result, isFalse);
+        },
+      );
 
       test('validateCredentials handles network errors', () async {
         final mockClient = MockClient((request) async {
@@ -233,10 +250,10 @@ void main() {
 
         apiService.setClient(mockClient);
 
-        final result = await apiService.updateCleanIPs(
-          testCredentials,
-          ['2.2.2.2', '3.3.3.3'],
-        );
+        final result = await apiService.updateCleanIPs(testCredentials, [
+          '2.2.2.2',
+          '3.3.3.3',
+        ]);
 
         expect(result, isTrue);
       });
@@ -268,10 +285,9 @@ void main() {
 
         apiService.setClient(mockClient);
 
-        final result = await apiService.updateCleanIPs(
-          testCredentials,
-          ['2.2.2.2'],
-        );
+        final result = await apiService.updateCleanIPs(testCredentials, [
+          '2.2.2.2',
+        ]);
 
         expect(result, isTrue);
       });
@@ -315,6 +331,126 @@ void main() {
           throwsA(isA<CloudflareApiException>()),
         );
       });
+
+      test(
+        'updateCleanIPs applies panel-compatible derived fields before PUT',
+        () async {
+          final currentSettings = <String, dynamic>{
+            'remoteDNS': 'https://dns.google/dns-query',
+            'remoteDnsHost': {
+              'host': 'stale.example',
+              'isDomain': true,
+              'ipv4': [],
+              'ipv6': [],
+            },
+            'localDNS': '8.8.8.8',
+            'cleanIPs': ['1.1.1.1'],
+            'proxyIPs': [],
+            'outProxy':
+                'vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@liberty.example.com:443?type=ws&security=tls&fp=chrome&alpn=h2%2Chttp%2F1.1&path=%2Fedge',
+            'outProxyParams': {'protocol': 'vless', 'server': 'stale.example'},
+            'enableECH': true,
+            'echConfig': 'stale-ech',
+          };
+
+          final mockClient = MockClient((request) async {
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'GET') {
+              return http.Response(jsonEncode(currentSettings), 200);
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'A') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'data': '8.8.8.8'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'AAAA') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'data': '2001:4860:4860::8888'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'HTTPS') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'data': '1 . alpn="h2,h3" ech=AEX+DQBBzgAgACCRYoEAAA=='},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'PUT') {
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              expect(body['cleanIPs'], equals(['2.2.2.2', '3.3.3.3']));
+              expect(
+                body['remoteDnsHost'],
+                equals({
+                  'host': 'dns.google',
+                  'isDomain': true,
+                  'ipv4': ['8.8.8.8'],
+                  'ipv6': ['2001:4860:4860::8888'],
+                }),
+              );
+              expect(
+                body['outProxyParams'],
+                containsPair('server', 'liberty.example.com'),
+              );
+              expect(body['outProxyParams'], containsPair('protocol', 'vless'));
+              expect(
+                body['outProxyParams'],
+                containsPair('uuid', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'),
+              );
+              expect(body['echConfig'], equals('AEX+DQBBzgAgACCRYoEAAA=='));
+              return http.Response('{"success":true}', 200);
+            }
+            return http.Response('Not found', 404);
+          });
+
+          apiService.setClient(mockClient);
+
+          final result = await apiService.updateCleanIPs(testCredentials, [
+            '2.2.2.2',
+            '3.3.3.3',
+          ]);
+
+          expect(result, isTrue);
+
+          final logs = logService.getLogs();
+          expect(
+            logs.any(
+              (entry) =>
+                  entry.message.contains('Derived fields snapshot (before)'),
+            ),
+            isTrue,
+          );
+          expect(
+            logs.any(
+              (entry) =>
+                  entry.message.contains('Derived fields snapshot (after)'),
+            ),
+            isTrue,
+          );
+        },
+      );
     });
 
     group('Connection Testing', () {
@@ -330,17 +466,20 @@ void main() {
         expect(result, isTrue);
       });
 
-      test('testConnection returns true even for 401 (proves connectivity)', () async {
-        final mockClient = MockClient((request) async {
-          return http.Response('{"success":false}', 401);
-        });
+      test(
+        'testConnection returns true even for 401 (proves connectivity)',
+        () async {
+          final mockClient = MockClient((request) async {
+            return http.Response('{"success":false}', 401);
+          });
 
-        apiService.setClient(mockClient);
+          apiService.setClient(mockClient);
 
-        final result = await apiService.testConnection();
+          final result = await apiService.testConnection();
 
-        expect(result, isTrue);
-      });
+          expect(result, isTrue);
+        },
+      );
 
       test('testConnection returns false for network error', () async {
         final mockClient = MockClient((request) async {
