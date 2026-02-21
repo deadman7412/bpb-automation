@@ -150,7 +150,7 @@ jobs:
               printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
               printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
               printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
-              printf 'storeFile=%s\n' "upload-keystore.jks"
+              printf 'storeFile=%s\n' "../upload-keystore.jks"
             } > android/key.properties
             echo "Configured release signing from repository secrets."
           else
