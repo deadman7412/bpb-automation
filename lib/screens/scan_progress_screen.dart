@@ -56,6 +56,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
   int _phase2Tested = 0;
   int _phase2Total = 0;
   int _phase2Success = 0;
+  int _phase2Target = 0;
 
   StreamSubscription<TlsTestProgress>? _progressSubscription;
   StreamSubscription<Phase2Progress>? _phase2ProgressSubscription;
@@ -237,6 +238,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       _phase2Tested = 0;
       _phase2Total = 0;
       _phase2Success = 0;
+      _phase2Target = 0;
     });
 
     // Subscribe to Phase 1 (TCP) + Phase 2 (TLS) progress updates
@@ -268,6 +270,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         _phase2Tested = progress.testedIPs;
         _phase2Total = progress.totalIPs;
         _phase2Success = progress.workingIPs;
+        _phase2Target = progress.targetWorkingIPs;
       });
     });
 
@@ -350,6 +353,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
       p2tested = lastP2.testedIPs;
       p2total = lastP2.totalIPs;
       p2success = lastP2.workingIPs;
+      _phase2Target = lastP2.targetWorkingIPs;
       phase = 'Phase 3: Proxy Testing';
     }
 
@@ -408,6 +412,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         _phase2Tested = progress.testedIPs;
         _phase2Total = progress.totalIPs;
         _phase2Success = progress.workingIPs;
+        _phase2Target = progress.targetWorkingIPs;
       });
     });
 
@@ -561,10 +566,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
           'Auto-apply failure classified as ${details.debugCode} '
           '(mode=${mode.displayName}, action=manual Update BPB Panel)',
         );
-        return _AutoApplyOutcome(
-          message: details.userMessage,
-          success: false,
-        );
+        return _AutoApplyOutcome(message: details.userMessage, success: false);
       }
     }
   }
@@ -895,7 +897,9 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Working: $_phase2Success IPs',
+                              _phase2Target > 0
+                                  ? 'Working: $_phase2Success/$_phase2Target IPs'
+                                  : 'Working: $_phase2Success IPs',
                               style: TextStyle(
                                 color: Colors.blue[700],
                                 fontWeight: FontWeight.bold,

@@ -5,6 +5,22 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.3] - 2026-02-22
+
+### Changed
+- Version bump to `4.6.3+20`.
+- Scan progress Phase 3 working counter now shows target-aware format: `Working: current/target IPs`.
+- Android foreground scan notification Phase 3 counter now shows `ok: current/target`.
+
+### Fixed
+- Home status setup logic now requires both:
+  - a subscription URL
+  - at least one configured update method (Panel API credentials or Cloudflare API credentials).
+- Home setup notice no longer disappears when only subscription URL is filled.
+- Home light-mode action notice now uses theme error container colors for better readability (removes poor brown tint appearance).
+
+---
+
 ## [4.6.2] - 2026-02-22
 
 ### Changed

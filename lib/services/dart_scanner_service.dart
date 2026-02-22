@@ -21,6 +21,9 @@ class Phase2Progress {
   /// Number of IPs that work (proxy test passed)
   final int workingIPs;
 
+  /// User target from "Working IPs to find" setting.
+  final int targetWorkingIPs;
+
   /// Current IP being tested (null if between tests)
   final String? currentIP;
 
@@ -28,6 +31,7 @@ class Phase2Progress {
     required this.totalIPs,
     required this.testedIPs,
     required this.workingIPs,
+    required this.targetWorkingIPs,
     this.currentIP,
   });
 
@@ -39,7 +43,7 @@ class Phase2Progress {
 
   @override
   String toString() {
-    return 'Phase2Progress($testedIPs/$totalIPs tested, $workingIPs working, current: $currentIP)';
+    return 'Phase2Progress($testedIPs/$totalIPs tested, $workingIPs/$targetWorkingIPs working, current: $currentIP)';
   }
 }
 
@@ -367,12 +371,14 @@ class DartScannerService {
           totalIPs: phase2Candidates.length,
           testedIPs: 0,
           workingIPs: 0,
+          targetWorkingIPs: desiredIPCount,
         ),
       );
       if (Platform.isAndroid) {
         await _androidForeground.updateProgress(
           title: 'BPB scheduler scan running',
-          text: 'Phase 3/3 Proxy 0/${phase2Candidates.length} (ok: 0)',
+          text:
+              'Phase 3/3 Proxy 0/${phase2Candidates.length} (ok: 0/$desiredIPCount)',
           progressCurrent: 0,
           progressTotal: phase2Candidates.length,
         );
@@ -395,6 +401,7 @@ class DartScannerService {
             totalIPs: phase2Candidates.length,
             testedIPs: i,
             workingIPs: workingCount,
+            targetWorkingIPs: desiredIPCount,
             currentIP: candidateIP,
           ),
         );
@@ -419,13 +426,14 @@ class DartScannerService {
               totalIPs: phase2Candidates.length,
               testedIPs: i + 1,
               workingIPs: workingCount,
+              targetWorkingIPs: desiredIPCount,
             ),
           );
           if (Platform.isAndroid) {
             await _androidForeground.updateProgress(
               title: 'BPB scheduler scan running',
               text:
-                  'Phase 3/3 Proxy ${i + 1}/${phase2Candidates.length} (ok: $workingCount)',
+                  'Phase 3/3 Proxy ${i + 1}/${phase2Candidates.length} (ok: $workingCount/$desiredIPCount)',
               progressCurrent: i + 1,
               progressTotal: phase2Candidates.length,
             );
@@ -445,13 +453,14 @@ class DartScannerService {
               totalIPs: phase2Candidates.length,
               testedIPs: i + 1,
               workingIPs: workingCount,
+              targetWorkingIPs: desiredIPCount,
             ),
           );
           if (Platform.isAndroid) {
             await _androidForeground.updateProgress(
               title: 'BPB scheduler scan running',
               text:
-                  'Phase 3/3 Proxy ${i + 1}/${phase2Candidates.length} (ok: $workingCount)',
+                  'Phase 3/3 Proxy ${i + 1}/${phase2Candidates.length} (ok: $workingCount/$desiredIPCount)',
               progressCurrent: i + 1,
               progressTotal: phase2Candidates.length,
             );
@@ -464,6 +473,7 @@ class DartScannerService {
           totalIPs: phase2Candidates.length,
           testedIPs: phase2Results.length,
           workingIPs: workingCount,
+          targetWorkingIPs: desiredIPCount,
         ),
       );
 

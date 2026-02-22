@@ -32,6 +32,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   DateTime? _lastScanTime;
   String? _subscriptionUrl;
+  bool _hasPanelConfig = false;
+  bool _hasCloudflareConfig = false;
   bool _useServerBackend = false;
   bool _startingServerRun = false;
   bool _webHasServerConfig = false;
@@ -57,6 +59,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadInfo() async {
     final lastScan = await _storage.getLastScanTime();
     final url = await _storage.getSubscriptionUrl();
+    final hasPanelConfig = await _storage.hasPanelCredentials();
+    final hasCloudflareConfig = await _storage.hasCredentials();
     final useServerBackend = await _storage.getUseServerBackend();
     final serverBaseUrl =
         (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
@@ -109,6 +113,8 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _lastScanTime = effectiveLastScan;
       _subscriptionUrl = url;
+      _hasPanelConfig = hasPanelConfig;
+      _hasCloudflareConfig = hasCloudflareConfig;
       _useServerBackend = effectiveUseServerBackend;
       _webHasServerConfig = serverBaseUrl.isNotEmpty;
       _webHasSession = serverJwt.isNotEmpty;
@@ -268,10 +274,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hasSubscription =
+        _subscriptionUrl != null && _subscriptionUrl!.trim().isNotEmpty;
+    final hasUpdateSettings = _hasPanelConfig || _hasCloudflareConfig;
+    final localSetupComplete = hasSubscription && hasUpdateSettings;
     final webAuthBlocked = kIsWeb && (!_webHasServerConfig || !_webHasSession);
-    final missingConfig =
-        !_useServerBackend &&
-        (_subscriptionUrl == null || _subscriptionUrl!.isEmpty);
+    final missingConfig = !_useServerBackend && !localSetupComplete;
     final needsSetupNotice = missingConfig || webAuthBlocked;
     return Scaffold(
       appBar: AppBar(
@@ -421,16 +429,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ? Icons.cloud
                                     : (_scanner.isScanning
                                           ? Icons.sync
-                                          : (_subscriptionUrl != null &&
-                                                    _subscriptionUrl!.isNotEmpty
+                                          : (localSetupComplete
                                                 ? Icons.check_circle
                                                 : Icons.warning)),
                                 color: _useServerBackend
                                     ? Colors.indigo
                                     : (_scanner.isScanning
                                           ? Colors.blue
-                                          : (_subscriptionUrl != null &&
-                                                    _subscriptionUrl!.isNotEmpty
+                                          : (localSetupComplete
                                                 ? Colors.green
                                                 : Colors.orange)),
                               ),
@@ -443,9 +449,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                             : 'Server backend mode enabled (WIP)')
                                       : (_scanner.isScanning
                                             ? 'Scan in progress'
-                                            : (_subscriptionUrl != null &&
-                                                      _subscriptionUrl!
-                                                          .isNotEmpty
+                                            : (localSetupComplete
                                                   ? 'Ready to scan'
                                                   : 'Configuration needed')),
                                   style: TextStyle(
@@ -455,9 +459,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                               : Colors.indigo[700])
                                         : (_scanner.isScanning
                                               ? Colors.blue[700]
-                                              : (_subscriptionUrl != null &&
-                                                        _subscriptionUrl!
-                                                            .isNotEmpty
+                                              : (localSetupComplete
                                                     ? Colors.green[700]
                                                     : Colors.orange[700])),
                                     fontWeight: FontWeight.bold,
@@ -493,15 +495,20 @@ class _HomeScreenState extends State<HomeScreen> {
                           if (needsSetupNotice) ...[
                             const SizedBox(height: 12),
                             Card(
-                              color: Colors.orange.withValues(alpha: 0.1),
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.errorContainer,
                               child: Padding(
                                 padding: const EdgeInsets.all(12),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
-                                      'Action needed: update Configuration and Settings.',
+                                    Text(
+                                      'Action needed: add subscription URL and configure at least one update method (Panel or Cloudflare).',
                                       style: TextStyle(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onErrorContainer,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
