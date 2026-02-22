@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Mobile home status notice/button layout no longer stacks awkwardly or clips on narrow screens.
 - Home status message now better reflects partial setup states (`Configuration needed` vs `Settings recommended`).
+- Home setup action buttons now keep consistent single-line label styling (`Configuration` / `Settings`) to prevent label wrapping and mismatched text appearance on mobile.
 
 ---
 

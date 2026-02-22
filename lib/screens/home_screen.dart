@@ -537,13 +537,13 @@ class _HomeScreenState extends State<HomeScreen> {
                               const SizedBox(height: 8),
                               SizedBox(
                                 width: double.infinity,
-                                child: OutlinedButton.icon(
+                                child: _buildSetupActionButton(
+                                  icon: Icons.settings,
+                                  label: 'Settings',
                                   onPressed: () => Navigator.pushNamed(
                                     context,
                                     '/settings',
                                   ).then((_) => _loadInfo()),
-                                  icon: const Icon(Icons.settings),
-                                  label: const Text('Settings'),
                                 ),
                               ),
                             ] else if (localNoticeVisible) ...[
@@ -564,24 +564,24 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: OutlinedButton.icon(
+                                      child: _buildSetupActionButton(
+                                        icon: Icons.tune,
+                                        label: 'Configuration',
                                         onPressed: () => Navigator.pushNamed(
                                           context,
                                           '/config',
                                         ).then((_) => _loadInfo()),
-                                        icon: const Icon(Icons.tune),
-                                        label: const Text('Configuration'),
                                       ),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: OutlinedButton.icon(
+                                      child: _buildSetupActionButton(
+                                        icon: Icons.settings,
+                                        label: 'Settings',
                                         onPressed: () => Navigator.pushNamed(
                                           context,
                                           '/settings',
                                         ).then((_) => _loadInfo()),
-                                        icon: const Icon(Icons.settings),
-                                        label: const Text('Settings'),
                                       ),
                                     ),
                                   ],
@@ -589,23 +589,19 @@ class _HomeScreenState extends State<HomeScreen> {
                               else
                                 SizedBox(
                                   width: double.infinity,
-                                  child: OutlinedButton.icon(
+                                  child: _buildSetupActionButton(
+                                    icon: showConfigAction
+                                        ? Icons.tune
+                                        : Icons.settings,
+                                    label: showConfigAction
+                                        ? 'Configuration'
+                                        : 'Settings',
                                     onPressed: () => Navigator.pushNamed(
                                       context,
                                       showConfigAction
                                           ? '/config'
                                           : '/settings',
                                     ).then((_) => _loadInfo()),
-                                    icon: Icon(
-                                      showConfigAction
-                                          ? Icons.tune
-                                          : Icons.settings,
-                                    ),
-                                    label: Text(
-                                      showConfigAction
-                                          ? 'Configuration'
-                                          : 'Settings',
-                                    ),
                                   ),
                                 ),
                               if (settingsOnlyMissing) ...[
@@ -713,6 +709,42 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSetupActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      height: 44,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
