@@ -5,6 +5,22 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.5] - 2026-02-22
+
+### Changed
+- Logs screen AppBar actions were simplified to reduce crowding:
+  - kept **Filter** and **Clear logs** as visible actions
+  - moved **Copy all logs** and **Export to file** into a **More actions** menu.
+- Home status now backfills missing `last_scan_time` from saved scan result timestamp so existing users no longer see incorrect `Last scan: Never`.
+- Completed scans now always persist `last_scan_time` at scan completion.
+- Auto-apply failure messages are now user-friendly and action-oriented, guiding users to apply manually via **Update BPB Panel** when needed.
+
+### Fixed
+- Results screen now sanitizes legacy raw exception text in auto-apply status cards and shows a cleaner failure explanation instead of low-level network exception details.
+- Added clearer auto-apply failure diagnostics in logs with failure classification codes to make similar incidents easier to debug later.
+
+---
+
 ## [4.5.3] - 2026-02-22
 
 ### Changed
