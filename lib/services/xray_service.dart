@@ -102,7 +102,7 @@ class XrayService {
       // Create directory if it doesn't exist
       if (!await xrayDir.exists()) {
         await xrayDir.create(recursive: true);
-        _logService.logInfo('Created Xray directory: ${xrayDir.path}');
+        _logService.logInfo('Created Xray working directory');
       }
 
       final binaryPath = path.join(xrayDir.path, binaryFileName);
@@ -393,7 +393,7 @@ class XrayService {
 
       // Write config to temp file
       configPath = await _writeConfigToTempFile(configWithInbound);
-      _logService.logInfo('Config written to: $configPath');
+      _logService.logInfo('Temp config written for Xray proxy test');
 
       // Start Xray process
       xrayProcess = await _startXrayProcess(configPath);
@@ -543,11 +543,17 @@ class XrayService {
 
       // Listen to stdout/stderr for debugging (don't wait for completion)
       process.stdout.listen((data) {
-        _logService.logInfo('Xray stdout: ${utf8.decode(data).trim()}');
+        final text = _sanitizeProcessOutput(utf8.decode(data, allowMalformed: true));
+        if (text.isNotEmpty) {
+          _logService.logInfo('Xray stdout: $text');
+        }
       });
 
       process.stderr.listen((data) {
-        _logService.logWarn('Xray stderr: ${utf8.decode(data).trim()}');
+        final text = _sanitizeProcessOutput(utf8.decode(data, allowMalformed: true));
+        if (text.isNotEmpty) {
+          _logService.logWarn('Xray stderr: $text');
+        }
       });
 
       return process;
@@ -555,6 +561,22 @@ class XrayService {
       _logService.logError('Failed to start Xray process: $e');
       rethrow;
     }
+  }
+
+  String _sanitizeProcessOutput(String input) {
+    var out = input;
+    out = out.replaceAllMapped(RegExp(r'/Users/[^/\s]+'), (_) => '/Users/[redacted]');
+    out = out.replaceAllMapped(RegExp(r'/home/[^/\s]+'), (_) => '/home/[redacted]');
+    out = out.replaceAllMapped(
+      RegExp(r'C:\\Users\\[^\\\s]+', caseSensitive: false),
+      (_) => r'C:\Users\[redacted]',
+    );
+    out = out.replaceAll(
+      RegExp(r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]', unicode: true),
+      '',
+    );
+    out = out.replaceAll('\r', ' ').replaceAll('\n', ' ').trim();
+    return out;
   }
 
   /// Poll until Xray binds [port] or [maxWaitSeconds] elapses.

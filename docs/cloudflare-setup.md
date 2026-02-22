@@ -80,10 +80,10 @@ Give it a descriptive name, e.g., `BPB Clean IP Updater` or `PanelAutomation`
 Click "Add more" and set:
 - **Account** → **Workers KV Storage** → **Edit**
 
-⚠️ **IMPORTANT:** Make sure you select **"Workers KV Storage"**, NOT:
-- ❌ Workers Agents Configuration
-- ❌ Workers Scripts
-- ❌ Workers KV Namespace
+**IMPORTANT:** Make sure you select **"Workers KV Storage"**, NOT:
+- Workers Agents Configuration
+- Workers Scripts
+- Workers KV Namespace
 
 The correct permission is specifically **"Workers KV Storage"** with **"Edit"** access.
 

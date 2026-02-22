@@ -5,6 +5,26 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.2] - 2026-02-22
+
+### Changed
+- Version bump to `4.6.2+19`.
+- README refreshed to emphasize core app features:
+  - local auto-scan scheduler and auto-apply flow
+  - Panel API + Cloudflare API update methods
+  - ECH-only update and `echServerName`-first fallback behavior
+  - clear WIP/experimental status for server/web mode.
+
+### Fixed
+- Runtime log sanitization hardened:
+  - redacts local user paths for macOS/Linux/Windows formats
+  - removes emoji/symbol glyphs from logged runtime text.
+- Xray process output logging now sanitizes stdout/stderr before persistence to avoid leaking local temp config paths.
+- Subscription config description/remarks logs now sanitize external text before writing to logs.
+- Active docs adjusted to comply with no-emoji documentation rule.
+
+---
+
 ## [4.6.1] - 2026-02-22
 
 ### Fixed

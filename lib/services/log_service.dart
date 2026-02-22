@@ -237,9 +237,15 @@ class LogService {
     var out = input;
     // Avoid leaking local user paths in logs.
     out = out.replaceAllMapped(RegExp(r'/Users/[^/\s]+'), (_) => '/Users/[redacted]');
+    out = out.replaceAllMapped(RegExp(r'/home/[^/\s]+'), (_) => '/home/[redacted]');
     out = out.replaceAllMapped(
       RegExp(r'C:\\Users\\[^\\\s]+', caseSensitive: false),
       (_) => r'C:\Users\[redacted]',
+    );
+    // Remove emoji/symbol glyphs from runtime logs to keep output policy-safe.
+    out = out.replaceAll(
+      RegExp(r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]', unicode: true),
+      '',
     );
     return out;
   }

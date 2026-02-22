@@ -85,12 +85,12 @@ class SubscriptionService {
           if (config.isValid()) {
             configs.add(config);
             _logService.logInfo(
-              'Config ${i + 1}: ${config.getDescription()} - Valid',
+              'Config ${i + 1}: ${_sanitizeConfigText(config.getDescription())} - Valid',
             );
           } else {
             final errors = config.getValidationErrors();
             _logService.logWarn(
-              'Config ${i + 1}: ${config.remarks ?? "Unnamed"} - Invalid: ${errors.join(", ")}',
+              'Config ${i + 1}: ${_sanitizeConfigText(config.remarks ?? "Unnamed")} - Invalid: ${errors.join(", ")}',
             );
           }
         } catch (e) {
@@ -269,5 +269,12 @@ class SubscriptionService {
   /// Disposes resources used by the service.
   void dispose() {
     _client.close();
+  }
+
+  String _sanitizeConfigText(String input) {
+    return input.replaceAll(
+      RegExp(r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]', unicode: true),
+      '',
+    );
   }
 }

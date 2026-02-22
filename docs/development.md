@@ -190,8 +190,8 @@ dart fix --apply
 #### NO EMOJIS
 ```dart
 // WRONG
-print("Scan complete! 🎉");
-String message = "✅ Success";
+print("Scan complete!");
+String message = "Success";
 
 // CORRECT
 print("[OK] Scan complete");
