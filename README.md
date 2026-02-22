@@ -310,6 +310,6 @@ For issues and questions:
 
 ## Version
 
-Current: 4.5.2
+Current: 4.5.3
 
 See CHANGELOG.md for version history.

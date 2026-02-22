@@ -5,6 +5,15 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.3] - 2026-02-22
+
+### Changed
+- ECH refresh in Cloudflare API mode now prioritizes `echServerName` (when configured) and falls back to panel/subscription hostname if the preferred domain fails.
+- Added a Cloudflare API settings notice for BPB Panel `v4.1.3+` explaining client-side ECH handling and recommended fallback behavior.
+- Version bump to `4.5.3+16` across Flutter, iOS, macOS, and documentation metadata.
+
+---
+
 ## [4.5.2] - 2026-02-22
 
 ### Added
