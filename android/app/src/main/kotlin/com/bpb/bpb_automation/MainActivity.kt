@@ -1,11 +1,13 @@
 package com.bpb.bpb_automation
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -15,12 +17,17 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.bpb.bpb_automation/native"
     private val SCHEDULER_NOTIFICATION_CHANNEL_ID = "bpb_scheduler_events"
+    private val REQUEST_POST_NOTIFICATIONS = 41042
+    private var pendingNotificationPermissionResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "requestNotificationPermission" -> {
+                        requestNotificationPermission(result)
+                    }
                     "getNativeLibraryDir" -> {
                         result.success(applicationInfo.nativeLibraryDir)
                     }
@@ -103,11 +110,55 @@ class MainActivity : FlutterActivity() {
             }
     }
 
+    private fun requestNotificationPermission(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            result.success(true)
+            return
+        }
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            result.success(true)
+            return
+        }
+        if (pendingNotificationPermissionResult != null) {
+            result.error(
+                "NOTIFICATION_PERMISSION_BUSY",
+                "Notification permission request already in progress",
+                null
+            )
+            return
+        }
+        pendingNotificationPermissionResult = result
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            REQUEST_POST_NOTIFICATIONS
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_POST_NOTIFICATIONS) return
+
+        val pending = pendingNotificationPermissionResult
+        pendingNotificationPermissionResult = null
+        if (pending == null) return
+        val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+        pending.success(granted)
+    }
+
     private fun showLocalNotification(title: String, body: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 this,
-                android.Manifest.permission.POST_NOTIFICATIONS
+                Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
             if (!granted) {
                 throw IllegalStateException("POST_NOTIFICATIONS permission is not granted")

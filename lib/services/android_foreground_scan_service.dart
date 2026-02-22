@@ -13,9 +13,29 @@ class AndroidForegroundScanService {
     'com.bpb.bpb_automation/native',
   );
   final LogService _log = LogService.instance;
+  bool _notificationPermissionRequested = false;
+
+  Future<void> _ensureNotificationPermission() async {
+    if (!Platform.isAndroid) return;
+    if (_notificationPermissionRequested) return;
+    _notificationPermissionRequested = true;
+    try {
+      final granted = await _channel.invokeMethod<bool>(
+        'requestNotificationPermission',
+      );
+      if (granted != true) {
+        _log.logWarn(
+          'Android notification permission denied. Foreground scan notification may be hidden.',
+        );
+      }
+    } catch (e) {
+      _log.logWarn('Failed to request Android notification permission: $e');
+    }
+  }
 
   Future<void> start() async {
     if (!Platform.isAndroid) return;
+    await _ensureNotificationPermission();
     try {
       await _channel.invokeMethod<bool>('startForegroundScanService');
       _log.logInfo('Android foreground scan service started');

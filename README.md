@@ -315,6 +315,6 @@ For issues and questions:
 
 ## Version
 
-Current: 4.6.0
+Current: 4.6.1
 
 See CHANGELOG.md for version history.

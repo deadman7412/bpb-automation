@@ -21,13 +21,20 @@ class NativeNotificationService {
   bool get _isMobileRuntime => _isIOSRuntime || _isAndroidRuntime;
 
   Future<void> ensurePermissionIfNeeded() async {
-    if (!_isIOSRuntime) return;
+    if (!_isMobileRuntime) return;
     if (_permissionRequested) return;
     _permissionRequested = true;
     try {
-      await _channel.invokeMethod<bool>('requestNotificationPermission');
+      final granted = await _channel.invokeMethod<bool>(
+        'requestNotificationPermission',
+      );
+      if (granted != true) {
+        _log.logWarn(
+          'Notification permission denied on mobile runtime; notifications may be hidden.',
+        );
+      }
     } catch (e) {
-      _log.logWarn('iOS notification permission request failed: $e');
+      _log.logWarn('Mobile notification permission request failed: $e');
     }
   }
 
@@ -45,9 +52,7 @@ class NativeNotificationService {
 
   Future<void> _show(String title, String body) async {
     if (!_isMobileRuntime) return;
-    if (_isIOSRuntime) {
-      await ensurePermissionIfNeeded();
-    }
+    await ensurePermissionIfNeeded();
     try {
       await _channel.invokeMethod<bool>('showLocalNotification', {
         'title': title,

@@ -5,6 +5,15 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.1] - 2026-02-22
+
+### Fixed
+- Android runtime notification permission flow now supports scheduler notifications directly (not only foreground scan startup path).
+- Scheduler notifications now request/ensure mobile notification permission before display, which fixes first-run Android 13+ missing "Scheduler started" behavior.
+- Server-backend scheduler path on Android now uses the same permission ensure flow, preventing silent scheduler notification failures when no foreground scan service is started.
+
+---
+
 ## [4.6.0] - 2026-02-22
 
 ### Added
