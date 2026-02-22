@@ -724,22 +724,22 @@ class _HomeScreenState extends State<HomeScreen> {
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 18),
-            const SizedBox(width: 6),
+            Icon(icon, size: 16),
+            const SizedBox(width: 4),
             Flexible(
               child: Text(
                 label,
                 maxLines: 1,
                 softWrap: false,
-                overflow: TextOverflow.ellipsis,
+                overflow: TextOverflow.clip,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 16,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
               ),

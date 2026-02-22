@@ -129,9 +129,9 @@ void main() {
         expect(mode, equals(UpdateMode.panelApi));
       });
 
-      test('getUpdateMode defaults to panelApi', () async {
+      test('getUpdateMode defaults to cloudflareApi', () async {
         final mode = await storage.getUpdateMode();
-        expect(mode, equals(UpdateMode.panelApi));
+        expect(mode, equals(UpdateMode.cloudflareApi));
       });
     });
 

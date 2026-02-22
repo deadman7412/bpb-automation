@@ -332,7 +332,7 @@ class StorageService {
     await _prefs.setString(_keyUpdateMode, mode.storageValue);
   }
 
-  /// Returns the configured update mode. Defaults to Panel API.
+  /// Returns the configured update mode. Defaults to Cloudflare API.
   Future<UpdateMode> getUpdateMode() async {
     final value = _prefs.getString(_keyUpdateMode);
     return UpdateModeX.fromStorageValue(value);

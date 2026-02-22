@@ -55,7 +55,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _panelForceCleanIpsForUpdate = false;
   bool _panelEnableProxyDiagnostics = false;
   bool _useServerBackend = false;
-  UpdateMode _updateMode = UpdateMode.panelApi;
+  UpdateMode _updateMode = UpdateMode.cloudflareApi;
 
   @override
   void initState() {
@@ -524,7 +524,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           .map(
             (mode) => DropdownMenuItem<UpdateMode>(
               value: mode,
-              child: Text(mode.displayName),
+              child: Text(
+                mode == UpdateMode.cloudflareApi
+                    ? '${mode.displayName} (Recommended)'
+                    : mode.displayName,
+              ),
             ),
           )
           .toList(),

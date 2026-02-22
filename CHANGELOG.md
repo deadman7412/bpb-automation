@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Home setup copy now clearly explains:
   - Configuration is mandatory for entering subscription URL
   - Settings is for selecting update method, with Cloudflare API suggested.
+- Settings now defaults Local Apply Method to `Cloudflare API (Recommended)` for new installs.
 
 ### Added
 - Home status card now includes a user-controlled settings reminder toggle:
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mobile home status notice/button layout no longer stacks awkwardly or clips on narrow screens.
 - Home status message now better reflects partial setup states (`Configuration needed` vs `Settings recommended`).
 - Home setup action buttons now keep consistent single-line label styling (`Configuration` / `Settings`) to prevent label wrapping and mismatched text appearance on mobile.
+- Storage/update-mode tests aligned with new Cloudflare default to keep CI green.
 
 ---
 

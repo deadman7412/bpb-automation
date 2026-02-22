@@ -26,7 +26,7 @@ extension UpdateModeX on UpdateMode {
       case 'cloudflare_api':
         return UpdateMode.cloudflareApi;
       default:
-        return UpdateMode.panelApi;
+        return UpdateMode.cloudflareApi;
     }
   }
 }
