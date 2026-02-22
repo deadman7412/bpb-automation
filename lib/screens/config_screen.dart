@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models/xray_config.dart';
+import '../services/local_scheduler_service.dart';
 import '../services/storage_service.dart';
 import '../services/log_service.dart';
 import '../services/subscription_service.dart';
@@ -17,13 +20,12 @@ class ConfigScreen extends StatefulWidget {
 }
 
 class _ConfigScreenState extends State<ConfigScreen> {
-  static const String _localSchedulerEnabledKey = 'local_scheduler_enabled';
-  static const String _localSchedulerIntervalKey =
-      'local_scheduler_interval_hours';
   final StorageService _storage = StorageService.instance;
   final LogService _log = LogService.instance;
   final SubscriptionService _subscription = SubscriptionService.instance;
+  final LocalSchedulerService _localScheduler = LocalSchedulerService.instance;
   final TextEditingController _urlController = TextEditingController();
+  StreamSubscription<LocalSchedulerStatus>? _schedulerStatusSubscription;
 
   bool _isLoading = false;
   bool _saveUrl = false;
@@ -35,16 +37,29 @@ class _ConfigScreenState extends State<ConfigScreen> {
   int _batchSize = 200; // default: 200 concurrent connections
   bool _localSchedulerEnabled = false;
   int _localSchedulerIntervalHours = 6;
+  LocalSchedulerStatus _schedulerStatus = const LocalSchedulerStatus(
+    enabled: false,
+    intervalHours: 6,
+    running: false,
+  );
   List<XrayConfig>? _cachedConfigs;
 
   @override
   void initState() {
     super.initState();
+    _schedulerStatus = _localScheduler.status;
+    _schedulerStatusSubscription = _localScheduler.statusStream.listen((
+      status,
+    ) {
+      if (!mounted) return;
+      setState(() => _schedulerStatus = status);
+    });
     _loadConfig();
   }
 
   @override
   void dispose() {
+    _schedulerStatusSubscription?.cancel();
     _urlController.dispose();
     super.dispose();
   }
@@ -56,8 +71,12 @@ class _ConfigScreenState extends State<ConfigScreen> {
     final params = await _storage.getScanParameters();
     final fullScan = await _storage.getFullScan();
     final cachedConfigsJson = await _storage.getCachedConfigs();
-    final schedulerEnabled = await _storage.getBool(_localSchedulerEnabledKey);
-    final schedulerInterval = await _storage.getInt(_localSchedulerIntervalKey);
+    final schedulerEnabled = await _storage.getBool(
+      LocalSchedulerService.localSchedulerEnabledKey,
+    );
+    final schedulerInterval = await _storage.getInt(
+      LocalSchedulerService.localSchedulerIntervalKey,
+    );
 
     // Convert JSON to XrayConfig objects
     List<XrayConfig>? configs;
@@ -223,11 +242,10 @@ class _ConfigScreenState extends State<ConfigScreen> {
       scanBatchSize: _batchSize,
       fullScan: _fullScan,
     );
-    await _storage.saveInt(
-      _localSchedulerIntervalKey,
-      _localSchedulerIntervalHours,
+    await _localScheduler.applySettings(
+      enabled: _localSchedulerEnabled,
+      intervalHours: _localSchedulerIntervalHours,
     );
-    await _storage.saveBool(_localSchedulerEnabledKey, _localSchedulerEnabled);
 
     _log.logOk('Configuration saved successfully');
 
@@ -278,6 +296,41 @@ class _ConfigScreenState extends State<ConfigScreen> {
       ),
     );
     return result ?? false;
+  }
+
+  String _formatDateTime(DateTime? value) {
+    if (value == null) return '-';
+    final local = value.toLocal();
+    return '${local.year.toString().padLeft(4, '0')}-'
+        '${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')} '
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}:'
+        '${local.second.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _runSchedulerNow() async {
+    if (_schedulerStatus.running) return;
+    try {
+      await _localScheduler.runNow(trigger: 'manual');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Scheduler run started'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to start scheduler run: $e'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _showHelp(String title, String message) {
@@ -1008,7 +1061,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                               ),
                               subtitle: Text(
                                 _localSchedulerEnabled
-                                    ? 'Enabled: scans can run on your configured OS schedule.'
+                                    ? 'Enabled: app-managed scheduler is active.'
                                     : 'Disabled by default: no local auto-scheduling.',
                               ),
                               onChanged: (value) {
@@ -1042,36 +1095,67 @@ class _ConfigScreenState extends State<ConfigScreen> {
                             ),
                             Text(
                               _localSchedulerEnabled
-                                  ? 'This saves your preferred interval in the app. You must still update your OS scheduler separately.'
-                                  : 'Scheduler is disabled. Enable it first, then update your OS scheduler separately.',
+                                  ? 'This interval is enforced directly by the app scheduler.'
+                                  : 'Scheduler is disabled.',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Note: local scheduling runs while the app process is alive.',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(color: Colors.orange.shade800),
                             ),
                             const SizedBox(height: 12),
-                            const Text(
-                              'Use this interval when configuring scheduler adapters:',
+                            Text(
+                              'Runtime status',
                               style: TextStyle(fontWeight: FontWeight.w600),
                             ),
                             const SizedBox(height: 8),
-                            SelectableText(
-                              'Linux VPS installer: --timer-hours $_localSchedulerIntervalHours',
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                              ),
+                            Text(
+                              'State: ${_schedulerStatus.running ? "Running" : (_schedulerStatus.enabled ? "Idle" : "Disabled")}',
+                              style: const TextStyle(fontSize: 12),
                             ),
                             const SizedBox(height: 4),
-                            SelectableText(
-                              'macOS launchd: install-launchd.sh --interval-hours $_localSchedulerIntervalHours',
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                              ),
+                            Text(
+                              'Next run: ${_formatDateTime(_schedulerStatus.nextRunAt)}',
+                              style: const TextStyle(fontSize: 12),
                             ),
                             const SizedBox(height: 4),
-                            const Text(
-                              'Windows: update task trigger repetition to match this interval.',
+                            Text(
+                              'Last run: ${_formatDateTime(_schedulerStatus.lastRunAt)}',
                               style: TextStyle(fontSize: 12),
+                            ),
+                            if ((_schedulerStatus.lastResult ?? '')
+                                .isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Last result: ${_schedulerStatus.lastResult}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ],
+                            if ((_schedulerStatus.lastError ?? '')
+                                .isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Last error: ${_schedulerStatus.lastError}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.red.shade700,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: OutlinedButton.icon(
+                                onPressed:
+                                    (_schedulerStatus.running ||
+                                        !_schedulerStatus.enabled)
+                                    ? null
+                                    : _runSchedulerNow,
+                                icon: const Icon(Icons.play_arrow),
+                                label: const Text('Run Scheduler Now'),
+                              ),
                             ),
                           ],
                         ),

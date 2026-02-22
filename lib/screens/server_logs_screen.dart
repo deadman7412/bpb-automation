@@ -36,9 +36,12 @@ class _ServerLogsScreenState extends State<ServerLogsScreen> {
       _error = null;
     });
     final baseUrl = (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
+    final jwt = (await _storage.getServerBackendJwt())?.trim() ?? '';
+    final internalToken =
+        (await _storage.getServerBackendToken())?.trim() ?? '';
     final authToken = kIsWeb
-        ? (await _storage.getServerBackendJwt())?.trim() ?? ''
-        : '';
+        ? jwt
+        : (internalToken.isNotEmpty ? internalToken : jwt);
     if (baseUrl.isEmpty) {
       setState(() {
         _loading = false;

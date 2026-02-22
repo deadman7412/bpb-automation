@@ -208,6 +208,39 @@ class DartScannerService {
       _logService.logWarn('Failed to enable wake lock: $e');
     }
     await _androidForeground.start();
+    StreamSubscription<TlsTestProgress>? androidProgressSubscription;
+    if (Platform.isAndroid) {
+      await _androidForeground.showIndeterminate(
+        title: 'BPB scheduler scan running',
+        text: 'Preparing local scan...',
+      );
+      androidProgressSubscription = _configTester.progressStream.listen((p) {
+        if (p.phase == ScanPhaseType.tcp) {
+          unawaited(
+            _androidForeground.updateProgress(
+              title: 'BPB scheduler scan running',
+              text:
+                  'Phase 1/3 TCP ${p.processedIPs}/${p.totalIPs} (ok: ${p.successfulIPs})',
+              progressCurrent: p.processedIPs,
+              progressTotal: p.totalIPs,
+            ),
+          );
+        } else {
+          final pass = (p.passLabel != null && p.passLabel != 'done')
+              ? ' pass ${p.passLabel}'
+              : '';
+          unawaited(
+            _androidForeground.updateProgress(
+              title: 'BPB scheduler scan running',
+              text:
+                  'Phase 2/3 TLS$pass ${p.processedIPs}/${p.totalIPs} (ok: ${p.successfulIPs})',
+              progressCurrent: p.processedIPs,
+              progressTotal: p.totalIPs,
+            ),
+          );
+        }
+      });
+    }
 
     try {
       // Step 1: Initialize Xray service
@@ -336,6 +369,14 @@ class DartScannerService {
           workingIPs: 0,
         ),
       );
+      if (Platform.isAndroid) {
+        await _androidForeground.updateProgress(
+          title: 'BPB scheduler scan running',
+          text: 'Phase 3/3 Proxy 0/${phase2Candidates.length} (ok: 0)',
+          progressCurrent: 0,
+          progressTotal: phase2Candidates.length,
+        );
+      }
 
       for (var i = 0; i < phase2Candidates.length; i++) {
         if (_isCancelled) {
@@ -380,6 +421,15 @@ class DartScannerService {
               workingIPs: workingCount,
             ),
           );
+          if (Platform.isAndroid) {
+            await _androidForeground.updateProgress(
+              title: 'BPB scheduler scan running',
+              text:
+                  'Phase 3/3 Proxy ${i + 1}/${phase2Candidates.length} (ok: $workingCount)',
+              progressCurrent: i + 1,
+              progressTotal: phase2Candidates.length,
+            );
+          }
 
           if (workingCount >= desiredIPCount) {
             _logService.logOk(
@@ -397,6 +447,15 @@ class DartScannerService {
               workingIPs: workingCount,
             ),
           );
+          if (Platform.isAndroid) {
+            await _androidForeground.updateProgress(
+              title: 'BPB scheduler scan running',
+              text:
+                  'Phase 3/3 Proxy ${i + 1}/${phase2Candidates.length} (ok: $workingCount)',
+              progressCurrent: i + 1,
+              progressTotal: phase2Candidates.length,
+            );
+          }
         }
       }
 
@@ -495,6 +554,7 @@ class DartScannerService {
       _completionController.add(result);
       return result;
     } finally {
+      await androidProgressSubscription?.cancel();
       await _androidForeground.stop();
       if (wakeLockEnabled) {
         try {

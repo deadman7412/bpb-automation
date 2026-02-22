@@ -33,4 +33,43 @@ class AndroidForegroundScanService {
       _log.logWarn('Failed to stop Android foreground scan service: $e');
     }
   }
+
+  Future<void> updateProgress({
+    required String title,
+    required String text,
+    required int progressCurrent,
+    required int progressTotal,
+    bool indeterminate = false,
+  }) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('updateForegroundScanNotification', {
+        'title': title,
+        'text': text,
+        'progressCurrent': progressCurrent,
+        'progressTotal': progressTotal,
+        'indeterminate': indeterminate,
+      });
+    } catch (e) {
+      _log.logWarn('Failed to update Android foreground notification: $e');
+    }
+  }
+
+  Future<void> showIndeterminate({
+    required String title,
+    required String text,
+  }) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('updateForegroundScanNotification', {
+        'title': title,
+        'text': text,
+        'progressCurrent': 0,
+        'progressTotal': 0,
+        'indeterminate': true,
+      });
+    } catch (e) {
+      _log.logWarn('Failed to update Android foreground notification: $e');
+    }
+  }
 }

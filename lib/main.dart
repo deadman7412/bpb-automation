@@ -11,6 +11,8 @@ import 'screens/server_history_screen.dart';
 import 'screens/server_run_detail_screen.dart';
 import 'screens/server_logs_screen.dart';
 import 'screens/server_backend_settings_screen.dart';
+import 'services/local_scheduler_service.dart';
+import 'services/log_service.dart';
 import 'services/storage_service.dart';
 import 'services/theme_service.dart';
 
@@ -18,7 +20,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await StorageService.instance.initialize();
+  await LogService.instance.initialize();
   await ThemeService.instance.initialize();
+  await LocalSchedulerService.instance.initialize();
 
   runApp(const BPBAutomationApp());
 }

@@ -50,6 +50,8 @@ The app fetches your BPB Panel's Xray subscription configs, then runs a 3-phase 
 - **Bundled Xray-core** - No external installation required; binary is bundled per platform
 - **ECH refresh strategy controls** - Direct DoH, panel DoH, proxy fallback (experimental), cached fallback, and optional panel DoH URL override
 - **Panel API routing controls** - Proxy update mode (experimental), proxy diagnostics, and forced clean-IP direct routing
+- **App-managed local scheduler** - In-app interval scheduling with runtime status and manual run trigger
+- **Native mobile scheduler notifications** - Android and iOS local notifications for scheduler start/completion/failure
 - Scan from your actual network (mobile ISP, home internet, etc.)
 - Automatic BPB Panel settings update (Panel API or Cloudflare API)
 - Cross-platform support: Android, iOS, macOS, Linux, Windows, Web
@@ -310,6 +312,6 @@ For issues and questions:
 
 ## Version
 
-Current: 4.5.3
+Current: 4.6.0
 
 See CHANGELOG.md for version history.

@@ -5,6 +5,32 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.0] - 2026-02-22
+
+### Added
+- App-managed local scheduler service with persisted runtime state (`enabled`, interval, next run, last run/result/error) and manual **Run Scheduler Now** trigger.
+- Native mobile scheduler notifications:
+  - Android local notifications for scheduler start/completion/failure.
+  - iOS local notifications for scheduler start/completion/failure with runtime permission request flow.
+- Android foreground scan notification improvements with richer status/progress updates during scan phases.
+
+### Changed
+- Configuration screen **Local Scheduler** now controls real runtime scheduler behavior instead of adapter-only guidance text.
+- App startup now initializes scheduler and log hydration earlier for consistent runtime state and diagnostics visibility.
+- CI workflow Flutter version updated to `3.41.1` for analyzer/test/build parity with local toolchain.
+
+### Fixed
+- Prevented false success on **Run Scheduler Now** when scheduler is disabled by disabling the action in UI for disabled state.
+- `applySettings` no longer forces scheduler `running=false` while a run is active, preventing mid-run status clobbering.
+- Scheduler initialization guard hardened to avoid concurrent init race behavior during repeated startup calls.
+- iOS notification bridge now returns Flutter method results on the main thread to avoid crash/undefined behavior risk.
+- Android foreground service `ACTION_RESET` now exits cleanly after reset/update without re-entering foreground start path.
+- Android native `showLocalNotification` method now sends real notifications (no-op removed).
+- Removed redundant Android foreground-notification reset call after fresh service start.
+- Log output redaction tightened to avoid leaking local machine path information in exported diagnostics.
+
+---
+
 ## [4.5.5] - 2026-02-22
 
 ### Changed

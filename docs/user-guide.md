@@ -153,6 +153,24 @@ The Results screen also has a **Download Configs** button. This generates Xray c
 
 Where you set your BPB Panel subscription URL and scan parameters. See [Scanner Configuration Guide](scanner-configuration.md) for parameter details.
 
+#### Local Scheduler (In-App)
+
+The Configuration screen also includes a **Local Scheduler** card.
+
+- **Enable local scheduler**: turns on in-app periodic runs.
+- **Preferred interval**: sets run cadence from 1 to 24 hours.
+- **Run Scheduler Now**: manual trigger for immediate execution.
+- **Runtime status**: shows current state, next run, last run, last result, and last error.
+
+Platform behavior:
+- **Android / iOS**: scheduler runs while app process is alive; scheduler start/completion/failure local notifications are shown.
+- **macOS / Linux / Windows**: scheduler runs while app process is alive; no native local scheduler notifications in the current implementation.
+- **Web**: use VPS/backend scheduler flow instead of local in-app scheduler.
+
+Important:
+- If the app process is killed by the OS or user, in-app local scheduling pauses until the app starts again.
+- For strict always-on schedules on server environments, use OS/backend scheduler adapters.
+
 ### Settings Screen
 
 Where you configure auto-update method and credentials:
@@ -232,6 +250,7 @@ Header actions:
 Full log history with all scan events.
 - Built-in actions: filter, copy all logs, export logs, clear logs
 - Logs screen intentionally hides the redundant "open logs" header icon
+- Scheduler lifecycle and run outcomes are logged with `[INFO]`, `[OK]`, `[WARN]`, and `[ERROR]` tags for troubleshooting.
 
 ## Best Practices
 

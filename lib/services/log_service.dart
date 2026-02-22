@@ -206,11 +206,13 @@ class LogService {
     Object? error,
     StackTrace? stackTrace,
   }) {
+    final sanitizedMessage = _sanitizeLogText(message);
+    final sanitizedError = error == null ? null : _sanitizeLogText(error.toString());
     final entry = LogEntry(
       timestamp: DateTime.now(),
       level: level,
-      message: message,
-      error: error?.toString(),
+      message: sanitizedMessage,
+      error: sanitizedError,
       stackTrace: stackTrace,
     );
 
@@ -229,6 +231,17 @@ class LogService {
 
     // File output
     _writeToFile(entry);
+  }
+
+  String _sanitizeLogText(String input) {
+    var out = input;
+    // Avoid leaking local user paths in logs.
+    out = out.replaceAllMapped(RegExp(r'/Users/[^/\s]+'), (_) => '/Users/[redacted]');
+    out = out.replaceAllMapped(
+      RegExp(r'C:\\Users\\[^\\\s]+', caseSensitive: false),
+      (_) => r'C:\Users\[redacted]',
+    );
+    return out;
   }
 
   /// Writes a log entry to file.
