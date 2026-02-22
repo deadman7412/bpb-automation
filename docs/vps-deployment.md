@@ -5,6 +5,9 @@ Use this guide when deploying BPB Automation on Ubuntu VPS with:
 - Server-side scheduled scans
 - Automatic apply via backend worker
 
+WIP status:
+- Server backend, web control flows, and trigger/rollback endpoints are currently **WIP / Experimental** and not guaranteed stable in all environments.
+
 ## Architecture
 
 1. Flutter web UI is served as static files.

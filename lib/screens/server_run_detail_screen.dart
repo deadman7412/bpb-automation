@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../services/server_backend_service.dart';
 import '../services/storage_service.dart';
+import '../widgets/experimental_server_banner.dart';
 import '../widgets/logs_action_button.dart';
 
 class ServerRunDetailScreen extends StatefulWidget {
@@ -97,7 +98,7 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
     final run = _run;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Run Detail'),
+        title: const Text('Run Detail (WIP)'),
         actions: [
           const LogsActionButton(currentRoute: '/server-run-detail'),
           IconButton(
@@ -127,6 +128,8 @@ class _ServerRunDetailScreenState extends State<ServerRunDetailScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  const ExperimentalServerBanner(),
+                  const SizedBox(height: 12),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),

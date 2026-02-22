@@ -8,6 +8,7 @@ import '../services/cloudflare_api_service.dart';
 import '../services/panel_api_service.dart';
 import '../services/server_backend_service.dart';
 import '../services/log_service.dart';
+import '../widgets/experimental_server_banner.dart';
 import '../widgets/logs_action_button.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -953,9 +954,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(Icons.lock),
-            title: Text('Server Backend (Web required)'),
+            title: Text('Server Backend (Web required, WIP)'),
             subtitle: Text(
-              'Web builds always run in server backend mode and require sign-in.',
+              'WIP / Experimental: Web builds run in server backend mode and require sign-in.',
             ),
           )
         else
@@ -971,7 +972,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: 'local',
                 child: Text('Local Device Scanner'),
               ),
-              DropdownMenuItem(value: 'server', child: Text('Server Backend')),
+              DropdownMenuItem(
+                value: 'server',
+                child: Text('Server Backend (WIP)'),
+              ),
             ],
             onChanged: (value) async {
               if (value == null) return;
@@ -989,7 +993,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 8),
         Text(
           _useServerBackend
-              ? 'Server mode is active. Home/Results/Logs actions use server endpoints.'
+              ? 'Server mode (WIP) is active. Home/Results/Logs actions use server endpoints.'
               : 'Local mode is active. Scans run on this device.',
           style: Theme.of(
             context,
@@ -1007,6 +1011,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Text(
           'Server Backend Settings',
           style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
+        const ExperimentalServerBanner(
+          message:
+              'WIP / Experimental: server and web backend control actions are not fully stable yet.',
         ),
         const SizedBox(height: 8),
         Text(

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../services/server_backend_service.dart';
 import '../services/storage_service.dart';
+import '../widgets/experimental_server_banner.dart';
 import '../widgets/logs_action_button.dart';
 
 class ServerLogsScreen extends StatefulWidget {
@@ -90,7 +91,7 @@ class _ServerLogsScreenState extends State<ServerLogsScreen> {
         : 1;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Server Logs'),
+        title: const Text('Server Logs (WIP)'),
         actions: [
           const LogsActionButton(currentRoute: '/server-logs'),
           IconButton(
@@ -112,6 +113,10 @@ class _ServerLogsScreenState extends State<ServerLogsScreen> {
           : SafeArea(
               child: Column(
                 children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(12, 12, 12, 0),
+                    child: ExperimentalServerBanner(),
+                  ),
                   Padding(
                     padding: const EdgeInsets.all(12),
                     child: Row(

@@ -465,6 +465,9 @@ docker run -d -p 80:80 bpb-updater-web
 
 The web version CANNOT execute binaries. For web deployment:
 
+WIP status:
+- Web + server control paths are currently **WIP / Experimental** and may be partially functional.
+
 1. **Backend Service Required**: Create a backend API that:
    - Runs the scanner binary
    - Exposes REST endpoints

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../services/log_service.dart';
 import '../services/server_backend_service.dart';
 import '../services/storage_service.dart';
+import '../widgets/experimental_server_banner.dart';
 import '../widgets/logs_action_button.dart';
 
 class ServerBackendSettingsScreen extends StatefulWidget {
@@ -219,7 +220,7 @@ class _ServerBackendSettingsScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Server Backend'),
+        title: const Text('Server Backend (WIP)'),
         actions: const [
           LogsActionButton(currentRoute: '/server-backend-settings'),
         ],
@@ -234,6 +235,8 @@ class _ServerBackendSettingsScreenState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      const ExperimentalServerBanner(),
+                      const SizedBox(height: 12),
                       Card(
                         color: Theme.of(context).colorScheme.secondaryContainer,
                         child: Padding(
@@ -248,7 +251,8 @@ class _ServerBackendSettingsScreenState
                               ),
                               const SizedBox(height: 8),
                               const Text(
-                                'When enabled, Home/Results/Logs actions use the server backend, not this local device scanner. Use this when a VPS or another device performs scheduled scans.',
+                                'WIP / Experimental: server mode can be partially functional. '
+                                'When enabled, Home/Results/Logs actions use the server backend, not this local device scanner.',
                               ),
                             ],
                           ),

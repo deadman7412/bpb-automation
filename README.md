@@ -21,6 +21,9 @@ It supports two update methods:
 
 The app fetches your BPB Panel's Xray subscription configs, then runs a 3-phase scan to find IPs that actually work as a proxy on your network.
 
+Server/Web note:
+- **WIP / Experimental**: server backend mode, web mode, and server control actions (trigger/rollback/history/logs) are currently experimental and may be partially functional.
+
 ## Navigation Table
 
 | Section | Link |

@@ -13,6 +13,7 @@ import '../services/server_backend_service.dart';
 import '../services/xray_service.dart';
 import '../services/proxy_connectivity_debug_service.dart';
 import '../models/xray_config.dart';
+import '../widgets/experimental_server_banner.dart';
 import '../widgets/logs_action_button.dart';
 
 /// Screen for displaying config-based scan results
@@ -843,6 +844,8 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
           child: ListView(
             padding: const EdgeInsets.all(24.0),
             children: [
+              const ExperimentalServerBanner(),
+              const SizedBox(height: 12),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(20),
@@ -916,7 +919,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                     child: ElevatedButton.icon(
                       onPressed: _isUpdating ? null : _triggerServerRun,
                       icon: const Icon(Icons.play_arrow),
-                      label: const Text('Trigger Server Run'),
+                      label: const Text('Trigger Server Run (WIP)'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -925,7 +928,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                       onPressed: () =>
                           Navigator.pushNamed(context, '/server-history'),
                       icon: const Icon(Icons.history),
-                      label: const Text('Open Run History'),
+                      label: const Text('Open Run History (WIP)'),
                     ),
                   ),
                 ],
@@ -934,7 +937,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
               OutlinedButton.icon(
                 onPressed: () => Navigator.pushNamed(context, '/server-logs'),
                 icon: const Icon(Icons.article),
-                label: const Text('Open Server Logs'),
+                label: const Text('Open Server Logs (WIP)'),
               ),
               const SizedBox(height: 16),
               if (ips.isNotEmpty) ...[
@@ -982,7 +985,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     if (_useServerBackend) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Server Results'),
+          title: const Text('Server Results (WIP)'),
           actions: [
             const LogsActionButton(currentRoute: '/results'),
             IconButton(

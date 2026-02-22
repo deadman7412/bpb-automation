@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../services/storage_service.dart';
 import '../widgets/logs_action_button.dart';
 import '../widgets/theme_mode_action_button.dart';
+import '../widgets/experimental_server_banner.dart';
 import '../services/dart_scanner_service.dart';
 import '../services/server_backend_service.dart';
 
@@ -355,8 +356,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             ? 'Sign In Required'
                             : _useServerBackend
                             ? (_startingServerRun
-                                  ? 'Starting Server Scan...'
-                                  : 'Start Server Scan')
+                                  ? 'Starting Server Scan (WIP)...'
+                                  : 'Start Server Scan (WIP)')
                             : (_scanner.isScanning
                                   ? 'View Current Scan'
                                   : 'Start Scan'),
@@ -439,7 +440,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   _useServerBackend
                                       ? (webAuthBlocked
                                             ? 'Authentication required'
-                                            : 'Server backend mode enabled')
+                                            : 'Server backend mode enabled (WIP)')
                                       : (_scanner.isScanning
                                             ? 'Scan in progress'
                                             : (_subscriptionUrl != null &&
@@ -530,6 +531,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                           ],
+                          if (_useServerBackend) ...[
+                            const SizedBox(height: 12),
+                            const ExperimentalServerBanner(),
+                          ],
                         ],
                       ),
                     ),
@@ -572,7 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       _buildActionCard(
                         context,
-                        _useServerBackend ? 'Run History' : 'Results',
+                        _useServerBackend ? 'Run History (WIP)' : 'Results',
                         Icons.list_alt,
                         Colors.green,
                         () => Navigator.pushNamed(

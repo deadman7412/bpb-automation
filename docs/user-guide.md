@@ -2,6 +2,14 @@
 
 Complete guide for using BPB Automation.
 
+## Server/Web Status
+
+Server backend and web control flows are currently **WIP / Experimental**.
+
+- Server trigger/rollback/history/logs flows may be partially functional depending on backend setup.
+- Web mode currently depends on backend API/session behavior and may not be stable in all environments.
+- If you need maximum reliability, use local device scan/update mode.
+
 ## What This App Does
 
 BPB Automation helps you:

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../services/server_backend_service.dart';
 import '../services/storage_service.dart';
+import '../widgets/experimental_server_banner.dart';
 import '../widgets/logs_action_button.dart';
 
 class ServerHistoryScreen extends StatefulWidget {
@@ -170,7 +171,7 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Server Run History'),
+        title: const Text('Server Run History (WIP)'),
         actions: [
           const LogsActionButton(currentRoute: '/server-history'),
           IconButton(
@@ -198,6 +199,8 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  const ExperimentalServerBanner(),
+                  const SizedBox(height: 12),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -227,14 +230,16 @@ class _ServerHistoryScreenState extends State<ServerHistoryScreen> {
                                   )
                                 : const Icon(Icons.play_arrow),
                             label: Text(
-                              _triggering ? 'Triggering...' : 'Trigger Run Now',
+                              _triggering
+                                  ? 'Triggering (WIP)...'
+                                  : 'Trigger Run Now (WIP)',
                             ),
                           ),
                           const SizedBox(height: 8),
                           OutlinedButton.icon(
                             onPressed: _triggering ? null : _rollbackLastApply,
                             icon: const Icon(Icons.restore),
-                            label: const Text('Rollback Last Apply'),
+                            label: const Text('Rollback Last Apply (WIP)'),
                           ),
                         ],
                       ),

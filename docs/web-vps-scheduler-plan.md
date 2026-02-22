@@ -1,5 +1,8 @@
 # Web + VPS Scheduler Plan (Ubuntu LTS)
 
+Status:
+- This area is currently **WIP / Experimental**. Treat server/web scheduler-control behavior as not fully stable yet.
+
 This document defines the recommended architecture for:
 
 - Web UI access from any device
