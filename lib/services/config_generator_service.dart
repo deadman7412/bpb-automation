@@ -85,6 +85,9 @@ class ConfigGeneratorService {
           remarks: newRemarks,
           dns: config.dns,
           routing: config.routing,
+          policy: config.policy,
+          stats: config.stats,
+          api: config.api,
         );
 
         configs.add(finalConfig);

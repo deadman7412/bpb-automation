@@ -185,6 +185,65 @@ void main() {
 
         expect(modified, equals(original));
       });
+
+      test('replaces address in servers', () {
+        final original = Outbound.fromJson({
+          'protocol': 'trojan',
+          'settings': {
+            'servers': [
+              {'address': 'old.example.com', 'port': 443},
+            ],
+          },
+        });
+
+        final modified = original.copyWithAddress('1.1.1.1');
+
+        expect(modified.getAddress(), equals('1.1.1.1'));
+        expect(modified.getPort(), equals(443));
+      });
+
+      test('preserves unknown fields in round-trip', () {
+        final json = {
+          'protocol': 'vless',
+          'sendThrough': '0.0.0.0',
+          'settings': {
+            'vnext': [
+              {
+                'address': '1.1.1.1',
+                'port': 443,
+                'users': [
+                  {
+                    'id': '12345678-1234-1234-1234-123456789012',
+                    'level': 8,
+                  },
+                ],
+              },
+            ],
+            'domainStrategy': 'UseIPv4',
+          },
+          'streamSettings': {
+            'network': 'tcp',
+            'security': 'tls',
+            'sockopt': {'dialerProxy': 'proxy'},
+            'tlsSettings': {
+              'serverName': 'example.com',
+              'echConfigList': ['base64-ech'],
+            },
+          },
+        };
+
+        final outbound = Outbound.fromJson(json);
+        final output = outbound.toJson();
+
+        expect(output['sendThrough'], equals('0.0.0.0'));
+        expect(output['settings']['domainStrategy'], equals('UseIPv4'));
+        expect(output['settings']['vnext'][0]['users'][0]['level'], equals(8));
+        expect(output['streamSettings']['sockopt'], isNotNull);
+        expect(
+          output['streamSettings']['tlsSettings']['echConfigList'],
+          equals(['base64-ech']),
+        );
+      });
     });
   });
 

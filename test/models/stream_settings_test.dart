@@ -66,6 +66,24 @@ void main() {
         expect(json['tlsSettings']['serverName'], equals('example.com'));
       });
 
+      test('preserves unknown stream/tls fields in round-trip', () {
+        final json = {
+          'network': 'tcp',
+          'security': 'tls',
+          'sockopt': {'dialerProxy': 'proxy'},
+          'tlsSettings': {
+            'serverName': 'example.com',
+            'echConfigList': ['base64-ech'],
+          },
+        };
+
+        final settings = StreamSettings.fromJson(json);
+        final output = settings.toJson();
+
+        expect(output['sockopt'], isNotNull);
+        expect(output['tlsSettings']['echConfigList'], equals(['base64-ech']));
+      });
+
       test('handles null fields in JSON', () {
         final json = {'network': 'tcp', 'security': 'none'};
 

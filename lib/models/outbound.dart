@@ -22,6 +22,9 @@ class Outbound {
   /// Mux settings
   final Map<String, dynamic>? mux;
 
+  /// Additional unknown fields preserved during JSON round-trip.
+  final Map<String, dynamic> additionalFields;
+
   /// Creates an Outbound instance.
   const Outbound({
     required this.protocol,
@@ -29,10 +32,25 @@ class Outbound {
     this.streamSettings,
     this.tag,
     this.mux,
+    this.additionalFields = const {},
   });
 
   /// Creates an Outbound instance from a JSON map.
   factory Outbound.fromJson(Map<String, dynamic> json) {
+    const knownFields = {
+      'protocol',
+      'settings',
+      'streamSettings',
+      'tag',
+      'mux',
+    };
+    final additionalFields = <String, dynamic>{};
+    json.forEach((key, value) {
+      if (!knownFields.contains(key)) {
+        additionalFields[key] = value;
+      }
+    });
+
     return Outbound(
       protocol: json['protocol'] as String,
       settings: json['settings'] != null
@@ -45,6 +63,7 @@ class Outbound {
           : null,
       tag: json['tag'] as String?,
       mux: json['mux'] as Map<String, dynamic>?,
+      additionalFields: additionalFields,
     );
   }
 
@@ -58,6 +77,7 @@ class Outbound {
     }
     if (tag != null) json['tag'] = tag;
     if (mux != null) json['mux'] = mux;
+    json.addAll(additionalFields);
 
     return json;
   }
@@ -70,6 +90,10 @@ class Outbound {
     if (vnextList != null && vnextList.isNotEmpty) {
       return vnextList[0].address;
     }
+    final servers = settings?.servers;
+    if (servers != null && servers.isNotEmpty) {
+      return servers[0]['address']?.toString();
+    }
     return null;
   }
 
@@ -80,6 +104,13 @@ class Outbound {
     final vnextList = settings?.vnext;
     if (vnextList != null && vnextList.isNotEmpty) {
       return vnextList[0].port;
+    }
+    final servers = settings?.servers;
+    if (servers != null && servers.isNotEmpty) {
+      final rawPort = servers[0]['port'];
+      if (rawPort is int) return rawPort;
+      if (rawPort is String) return int.tryParse(rawPort);
+      if (rawPort is num) return rawPort.toInt();
     }
     return null;
   }
@@ -109,21 +140,46 @@ class Outbound {
   /// This is used during IP testing to replace the server address
   /// with candidate IPs while preserving all other settings.
   Outbound copyWithAddress(String newAddress) {
-    if (settings?.vnext == null || settings!.vnext!.isEmpty) {
+    if (settings == null) return this;
+
+    if (settings!.vnext != null && settings!.vnext!.isNotEmpty) {
+      final newVnext = settings!.vnext!.map((vnext) {
+        // Only replace address of the first vnext entry
+        if (vnext == settings!.vnext!.first) {
+          return vnext.copyWithAddress(newAddress);
+        }
+        return vnext;
+      }).toList();
+
+      final newSettings = OutboundSettings(
+        vnext: newVnext,
+        servers: settings!.servers,
+        additionalFields: settings!.additionalFields,
+      );
+
+      return Outbound(
+        protocol: protocol,
+        settings: newSettings,
+        streamSettings: streamSettings,
+        tag: tag,
+        mux: mux,
+        additionalFields: additionalFields,
+      );
+    }
+
+    if (settings!.servers == null || settings!.servers!.isEmpty) {
       return this;
     }
 
-    final newVnext = settings!.vnext!.map((vnext) {
-      // Only replace address of the first vnext entry
-      if (vnext == settings!.vnext!.first) {
-        return vnext.copyWithAddress(newAddress);
-      }
-      return vnext;
-    }).toList();
+    final newServers = List<Map<String, dynamic>>.from(settings!.servers!);
+    final firstServer = Map<String, dynamic>.from(newServers.first);
+    firstServer['address'] = newAddress;
+    newServers[0] = firstServer;
 
     final newSettings = OutboundSettings(
-      vnext: newVnext,
-      servers: settings!.servers,
+      vnext: settings!.vnext,
+      servers: newServers,
+      additionalFields: settings!.additionalFields,
     );
 
     return Outbound(
@@ -132,6 +188,7 @@ class Outbound {
       streamSettings: streamSettings,
       tag: tag,
       mux: mux,
+      additionalFields: additionalFields,
     );
   }
 
@@ -149,11 +206,26 @@ class OutboundSettings {
   /// Trojan/Shadowsocks server list (servers)
   final List<Map<String, dynamic>>? servers;
 
+  /// Additional unknown fields preserved during JSON round-trip.
+  final Map<String, dynamic> additionalFields;
+
   /// Creates an OutboundSettings instance.
-  const OutboundSettings({this.vnext, this.servers});
+  const OutboundSettings({
+    this.vnext,
+    this.servers,
+    this.additionalFields = const {},
+  });
 
   /// Creates an OutboundSettings instance from a JSON map.
   factory OutboundSettings.fromJson(Map<String, dynamic> json) {
+    const knownFields = {'vnext', 'servers'};
+    final additionalFields = <String, dynamic>{};
+    json.forEach((key, value) {
+      if (!knownFields.contains(key)) {
+        additionalFields[key] = value;
+      }
+    });
+
     return OutboundSettings(
       vnext: json['vnext'] != null
           ? (json['vnext'] as List)
@@ -165,6 +237,7 @@ class OutboundSettings {
                 .map((e) => e as Map<String, dynamic>)
                 .toList()
           : null,
+      additionalFields: additionalFields,
     );
   }
 
@@ -176,6 +249,7 @@ class OutboundSettings {
       json['vnext'] = vnext!.map((e) => e.toJson()).toList();
     }
     if (servers != null) json['servers'] = servers;
+    json.addAll(additionalFields);
 
     return json;
   }
@@ -192,11 +266,27 @@ class Vnext {
   /// User list
   final List<VnextUser>? users;
 
+  /// Additional unknown fields preserved during JSON round-trip.
+  final Map<String, dynamic> additionalFields;
+
   /// Creates a Vnext instance.
-  const Vnext({required this.address, required this.port, this.users});
+  const Vnext({
+    required this.address,
+    required this.port,
+    this.users,
+    this.additionalFields = const {},
+  });
 
   /// Creates a Vnext instance from a JSON map.
   factory Vnext.fromJson(Map<String, dynamic> json) {
+    const knownFields = {'address', 'port', 'users'};
+    final additionalFields = <String, dynamic>{};
+    json.forEach((key, value) {
+      if (!knownFields.contains(key)) {
+        additionalFields[key] = value;
+      }
+    });
+
     return Vnext(
       address: json['address'] as String,
       port: json['port'] as int,
@@ -205,6 +295,7 @@ class Vnext {
                 .map((e) => VnextUser.fromJson(e as Map<String, dynamic>))
                 .toList()
           : null,
+      additionalFields: additionalFields,
     );
   }
 
@@ -215,13 +306,19 @@ class Vnext {
     if (users != null) {
       json['users'] = users!.map((e) => e.toJson()).toList();
     }
+    json.addAll(additionalFields);
 
     return json;
   }
 
   /// Creates a copy of this vnext with a new address.
   Vnext copyWithAddress(String newAddress) {
-    return Vnext(address: newAddress, port: port, users: users);
+    return Vnext(
+      address: newAddress,
+      port: port,
+      users: users,
+      additionalFields: additionalFields,
+    );
   }
 }
 
@@ -242,6 +339,9 @@ class VnextUser {
   /// Alter ID (for VMess)
   final int? alterId;
 
+  /// Additional unknown fields preserved during JSON round-trip.
+  final Map<String, dynamic> additionalFields;
+
   /// Creates a VnextUser instance.
   const VnextUser({
     required this.id,
@@ -249,16 +349,26 @@ class VnextUser {
     this.flow,
     this.security,
     this.alterId,
+    this.additionalFields = const {},
   });
 
   /// Creates a VnextUser instance from a JSON map.
   factory VnextUser.fromJson(Map<String, dynamic> json) {
+    const knownFields = {'id', 'encryption', 'flow', 'security', 'alterId'};
+    final additionalFields = <String, dynamic>{};
+    json.forEach((key, value) {
+      if (!knownFields.contains(key)) {
+        additionalFields[key] = value;
+      }
+    });
+
     return VnextUser(
       id: json['id'] as String,
       encryption: json['encryption'] as String?,
       flow: json['flow'] as String?,
       security: json['security'] as String?,
       alterId: json['alterId'] as int?,
+      additionalFields: additionalFields,
     );
   }
 
@@ -270,6 +380,7 @@ class VnextUser {
     if (flow != null) json['flow'] = flow;
     if (security != null) json['security'] = security;
     if (alterId != null) json['alterId'] = alterId;
+    json.addAll(additionalFields);
 
     return json;
   }

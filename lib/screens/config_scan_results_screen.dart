@@ -705,17 +705,20 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, size: 24, color: iconColor),
             const SizedBox(height: 6),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: valueColor,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: valueColor,
+                ),
               ),
             ),
             const SizedBox(height: 2),
@@ -723,9 +726,11 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
               title,
               style: Theme.of(context).textTheme.bodySmall,
               textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
             if (detail != null && detail.trim().isNotEmpty) ...[
-              const SizedBox(height: 4),
+              const SizedBox(height: 3),
               Text(
                 detail,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -733,7 +738,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                   fontSize: 11,
                 ),
                 textAlign: TextAlign.center,
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ],
@@ -844,11 +849,14 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final crossAxisCount = constraints.maxWidth >= 780 ? 4 : 2;
+                  final childAspectRatio = constraints.maxWidth >= 780
+                      ? 1.7
+                      : 1.25;
                   return GridView.count(
                     crossAxisCount: crossAxisCount,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    childAspectRatio: 2.1,
+                    childAspectRatio: childAspectRatio,
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
                     children: [
@@ -1026,7 +1034,11 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                         Text(
                           'Scan completed in ${_effectiveScanDuration.inSeconds} seconds',
                           style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                         ),
                       ],
                     ),
@@ -1117,11 +1129,14 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final crossAxisCount = constraints.maxWidth >= 780 ? 4 : 2;
+                    final childAspectRatio = constraints.maxWidth >= 780
+                        ? 1.7
+                        : 1.25;
                     return GridView.count(
                       crossAxisCount: crossAxisCount,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      childAspectRatio: 2.1,
+                      childAspectRatio: childAspectRatio,
                       mainAxisSpacing: 12,
                       crossAxisSpacing: 12,
                       children: [
@@ -1235,7 +1250,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                     final echButtonLabel = _isRefreshingEch
                         ? 'Updating ECH...'
                         : _updateMode != UpdateMode.cloudflareApi
-                        ? 'ECH-only update requires Cloudflare API mode'
+                        ? 'ECH update requires Cloudflare API mode'
                         : _isEchStrategyDisabled
                         ? 'ECH update disabled: all ECH toggles are OFF in Settings'
                         : !hasWorkingIps
@@ -1291,56 +1306,84 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Config Actions',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: _isGenerating || !hasWorkingIps
-                                    ? null
-                                    : _downloadConfigs,
-                                icon: _isGenerating
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.download),
-                                label: Text(
-                                  _isGenerating
-                                      ? 'Generating...'
-                                      : 'Download Configs',
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size(0, 50),
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
+                              child: SizedBox(
+                                height: 50,
+                                child: ElevatedButton.icon(
+                                  onPressed: _isGenerating || !hasWorkingIps
+                                      ? null
+                                      : _downloadConfigs,
+                                  icon: _isGenerating
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.download),
+                                  label: Text(
+                                    _isGenerating
+                                        ? 'Generating...'
+                                        : 'Download',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    softWrap: false,
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(0, 50),
+                                    maximumSize: const Size(
+                                      double.infinity,
+                                      50,
+                                    ),
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                  ),
                                 ),
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: _isCopying || !hasWorkingIps
-                                    ? null
-                                    : _copyConfigs,
-                                icon: _isCopying
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.copy),
-                                label: Text(
-                                  _isCopying ? 'Copying...' : 'Copy Configs',
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size(0, 50),
-                                  backgroundColor: Colors.teal,
-                                  foregroundColor: Colors.white,
+                              child: SizedBox(
+                                height: 50,
+                                child: ElevatedButton.icon(
+                                  onPressed: _isCopying || !hasWorkingIps
+                                      ? null
+                                      : _copyConfigs,
+                                  icon: _isCopying
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.copy),
+                                  label: Text(
+                                    _isCopying ? 'Copying...' : 'Copy',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    softWrap: false,
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(0, 50),
+                                    maximumSize: const Size(
+                                      double.infinity,
+                                      50,
+                                    ),
+                                    backgroundColor: Colors.teal,
+                                    foregroundColor: Colors.white,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1372,5 +1415,4 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     Clipboard.setData(ClipboardData(text: ipsText));
     _showMessage('Copied ${_result!.workingIPs.length} IPs to clipboard');
   }
-
 }

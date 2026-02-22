@@ -23,6 +23,9 @@ class StreamSettings {
   /// HTTPUpgrade settings (when network is 'httpupgrade')
   final HttpUpgradeSettings? httpUpgradeSettings;
 
+  /// Additional unknown fields preserved during JSON round-trip.
+  final Map<String, dynamic> additionalFields;
+
   /// Creates a StreamSettings instance.
   const StreamSettings({
     this.network,
@@ -31,10 +34,26 @@ class StreamSettings {
     this.wsSettings,
     this.grpcSettings,
     this.httpUpgradeSettings,
+    this.additionalFields = const {},
   });
 
   /// Creates a StreamSettings instance from a JSON map.
   factory StreamSettings.fromJson(Map<String, dynamic> json) {
+    const knownFields = {
+      'network',
+      'security',
+      'tlsSettings',
+      'wsSettings',
+      'grpcSettings',
+      'httpupgradeSettings',
+    };
+    final additionalFields = <String, dynamic>{};
+    json.forEach((key, value) {
+      if (!knownFields.contains(key)) {
+        additionalFields[key] = value;
+      }
+    });
+
     return StreamSettings(
       network: json['network'] as String?,
       security: json['security'] as String?,
@@ -52,6 +71,7 @@ class StreamSettings {
               json['httpupgradeSettings'] as Map<String, dynamic>,
             )
           : null,
+      additionalFields: additionalFields,
     );
   }
 
@@ -67,6 +87,7 @@ class StreamSettings {
     if (httpUpgradeSettings != null) {
       json['httpupgradeSettings'] = httpUpgradeSettings!.toJson();
     }
+    json.addAll(additionalFields);
 
     return json;
   }
@@ -113,6 +134,9 @@ class TlsSettings {
   /// Spider X for Reality protocol
   final String? spiderX;
 
+  /// Additional unknown fields preserved during JSON round-trip.
+  final Map<String, dynamic> additionalFields;
+
   /// Creates a TlsSettings instance.
   const TlsSettings({
     this.serverName,
@@ -121,10 +145,26 @@ class TlsSettings {
     this.publicKey,
     this.shortId,
     this.spiderX,
+    this.additionalFields = const {},
   });
 
   /// Creates a TlsSettings instance from a JSON map.
   factory TlsSettings.fromJson(Map<String, dynamic> json) {
+    const knownFields = {
+      'serverName',
+      'alpn',
+      'fingerprint',
+      'publicKey',
+      'shortId',
+      'spiderX',
+    };
+    final additionalFields = <String, dynamic>{};
+    json.forEach((key, value) {
+      if (!knownFields.contains(key)) {
+        additionalFields[key] = value;
+      }
+    });
+
     return TlsSettings(
       serverName: json['serverName'] as String?,
       alpn: json['alpn'] != null
@@ -134,6 +174,7 @@ class TlsSettings {
       publicKey: json['publicKey'] as String?,
       shortId: json['shortId'] as String?,
       spiderX: json['spiderX'] as String?,
+      additionalFields: additionalFields,
     );
   }
 
@@ -147,6 +188,7 @@ class TlsSettings {
     if (publicKey != null) json['publicKey'] = publicKey;
     if (shortId != null) json['shortId'] = shortId;
     if (spiderX != null) json['spiderX'] = spiderX;
+    json.addAll(additionalFields);
 
     return json;
   }
@@ -160,14 +202,30 @@ class WsSettings {
   /// HTTP headers
   final Map<String, dynamic>? headers;
 
+  /// Additional unknown fields preserved during JSON round-trip.
+  final Map<String, dynamic> additionalFields;
+
   /// Creates a WsSettings instance.
-  const WsSettings({this.path, this.headers});
+  const WsSettings({
+    this.path,
+    this.headers,
+    this.additionalFields = const {},
+  });
 
   /// Creates a WsSettings instance from a JSON map.
   factory WsSettings.fromJson(Map<String, dynamic> json) {
+    const knownFields = {'path', 'headers'};
+    final additionalFields = <String, dynamic>{};
+    json.forEach((key, value) {
+      if (!knownFields.contains(key)) {
+        additionalFields[key] = value;
+      }
+    });
+
     return WsSettings(
       path: json['path'] as String?,
       headers: json['headers'] as Map<String, dynamic>?,
+      additionalFields: additionalFields,
     );
   }
 
@@ -177,6 +235,7 @@ class WsSettings {
 
     if (path != null) json['path'] = path;
     if (headers != null) json['headers'] = headers;
+    json.addAll(additionalFields);
 
     return json;
   }
@@ -190,14 +249,30 @@ class GrpcSettings {
   /// Multi-mode setting
   final bool? multiMode;
 
+  /// Additional unknown fields preserved during JSON round-trip.
+  final Map<String, dynamic> additionalFields;
+
   /// Creates a GrpcSettings instance.
-  const GrpcSettings({this.serviceName, this.multiMode});
+  const GrpcSettings({
+    this.serviceName,
+    this.multiMode,
+    this.additionalFields = const {},
+  });
 
   /// Creates a GrpcSettings instance from a JSON map.
   factory GrpcSettings.fromJson(Map<String, dynamic> json) {
+    const knownFields = {'serviceName', 'multiMode'};
+    final additionalFields = <String, dynamic>{};
+    json.forEach((key, value) {
+      if (!knownFields.contains(key)) {
+        additionalFields[key] = value;
+      }
+    });
+
     return GrpcSettings(
       serviceName: json['serviceName'] as String?,
       multiMode: json['multiMode'] as bool?,
+      additionalFields: additionalFields,
     );
   }
 
@@ -207,6 +282,7 @@ class GrpcSettings {
 
     if (serviceName != null) json['serviceName'] = serviceName;
     if (multiMode != null) json['multiMode'] = multiMode;
+    json.addAll(additionalFields);
 
     return json;
   }
@@ -220,14 +296,30 @@ class HttpUpgradeSettings {
   /// HTTP host header
   final String? host;
 
+  /// Additional unknown fields preserved during JSON round-trip.
+  final Map<String, dynamic> additionalFields;
+
   /// Creates an HttpUpgradeSettings instance.
-  const HttpUpgradeSettings({this.path, this.host});
+  const HttpUpgradeSettings({
+    this.path,
+    this.host,
+    this.additionalFields = const {},
+  });
 
   /// Creates an HttpUpgradeSettings instance from a JSON map.
   factory HttpUpgradeSettings.fromJson(Map<String, dynamic> json) {
+    const knownFields = {'path', 'host'};
+    final additionalFields = <String, dynamic>{};
+    json.forEach((key, value) {
+      if (!knownFields.contains(key)) {
+        additionalFields[key] = value;
+      }
+    });
+
     return HttpUpgradeSettings(
       path: json['path'] as String?,
       host: json['host'] as String?,
+      additionalFields: additionalFields,
     );
   }
 
@@ -237,6 +329,7 @@ class HttpUpgradeSettings {
 
     if (path != null) json['path'] = path;
     if (host != null) json['host'] = host;
+    json.addAll(additionalFields);
 
     return json;
   }

@@ -124,6 +124,47 @@ void main() {
         expect(configs[0].getServerAddress(), equals('9.9.9.9'));
       });
 
+      test('preserves policy/stats/api sections', () async {
+        final template = XrayConfig(
+          outbounds: [
+            Outbound.fromJson({
+              'tag': 'proxy',
+              'protocol': 'vless',
+              'settings': {
+                'vnext': [
+                  {
+                    'address': '1.1.1.1',
+                    'port': 443,
+                    'users': [
+                      {'id': 'test-uuid', 'encryption': 'none'},
+                    ],
+                  },
+                ],
+              },
+            }),
+          ],
+          inbounds: [],
+          log: {},
+          policy: {
+            'levels': {
+              '0': {'handshake': 4},
+            },
+          },
+          stats: {'enabled': true},
+          api: {'services': ['StatsService']},
+        );
+
+        final configs = await service.generateConfigsWithIPs(
+          template: template,
+          workingIPs: ['9.9.9.9'],
+        );
+
+        expect(configs.length, equals(1));
+        expect(configs[0].policy, isNotNull);
+        expect(configs[0].stats, isNotNull);
+        expect(configs[0].api, isNotNull);
+      });
+
       test('returns empty list for empty IPs', () async {
         final template = XrayConfig(
           outbounds: [
