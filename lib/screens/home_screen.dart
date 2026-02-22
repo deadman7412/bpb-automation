@@ -26,6 +26,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const String _keyHideSettingsReminder =
+      'home_hide_settings_reminder_after_config';
+
   final StorageService _storage = StorageService.instance;
   final DartScannerService _scanner = DartScannerService.instance;
   final ServerBackendService _serverApi = ServerBackendService.instance;
@@ -34,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _subscriptionUrl;
   bool _hasPanelConfig = false;
   bool _hasCloudflareConfig = false;
+  bool _hideSettingsReminder = false;
   bool _useServerBackend = false;
   bool _startingServerRun = false;
   bool _webHasServerConfig = false;
@@ -61,6 +65,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final url = await _storage.getSubscriptionUrl();
     final hasPanelConfig = await _storage.hasPanelCredentials();
     final hasCloudflareConfig = await _storage.hasCredentials();
+    final hideSettingsReminder =
+        await _storage.getBool(_keyHideSettingsReminder) ?? false;
     final useServerBackend = await _storage.getUseServerBackend();
     final serverBaseUrl =
         (await _storage.getServerBackendBaseUrl())?.trim() ?? '';
@@ -115,10 +121,18 @@ class _HomeScreenState extends State<HomeScreen> {
       _subscriptionUrl = url;
       _hasPanelConfig = hasPanelConfig;
       _hasCloudflareConfig = hasCloudflareConfig;
+      _hideSettingsReminder = hideSettingsReminder;
       _useServerBackend = effectiveUseServerBackend;
       _webHasServerConfig = serverBaseUrl.isNotEmpty;
       _webHasSession = serverJwt.isNotEmpty;
     });
+  }
+
+  Future<void> _setHideSettingsReminder(bool value) async {
+    setState(() {
+      _hideSettingsReminder = value;
+    });
+    await _storage.saveBool(_keyHideSettingsReminder, value);
   }
 
   DateTime? _parseLastResultScanTime(Map<String, dynamic>? result) {
@@ -274,13 +288,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isCompactPhone = screenWidth < 430;
+    final quickActionsCrossAxisCount = isCompactPhone ? 2 : 3;
+    final quickActionsAspectRatio = isCompactPhone ? 1.35 : 0.9;
     final hasSubscription =
         _subscriptionUrl != null && _subscriptionUrl!.trim().isNotEmpty;
     final hasUpdateSettings = _hasPanelConfig || _hasCloudflareConfig;
-    final localSetupComplete = hasSubscription && hasUpdateSettings;
+    final localSetupComplete =
+        _useServerBackend || (hasSubscription && hasUpdateSettings);
+    final showConfigAction = !_useServerBackend && !hasSubscription;
+    final showSettingsAction = !_useServerBackend && !hasUpdateSettings;
+    final settingsOnlyMissing =
+        !_useServerBackend && hasSubscription && !hasUpdateSettings;
+    final shouldHideSettingsReminder =
+        settingsOnlyMissing && _hideSettingsReminder;
+    final localNoticeVisible =
+        !_useServerBackend &&
+        (showConfigAction ||
+            (showSettingsAction && !shouldHideSettingsReminder));
     final webAuthBlocked = kIsWeb && (!_webHasServerConfig || !_webHasSession);
-    final missingConfig = !_useServerBackend && !localSetupComplete;
-    final needsSetupNotice = missingConfig || webAuthBlocked;
+    final needsSetupNotice = localNoticeVisible || webAuthBlocked;
+    final statusLabel = _useServerBackend
+        ? (webAuthBlocked
+              ? 'Authentication required'
+              : 'Server backend mode enabled (WIP)')
+        : (_scanner.isScanning
+              ? 'Scan in progress'
+              : (localSetupComplete
+                    ? 'Ready to scan'
+                    : (!hasSubscription
+                          ? 'Configuration needed'
+                          : 'Settings recommended')));
     return Scaffold(
       appBar: AppBar(
         title: const Text('BPB Automation'),
@@ -295,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
+              padding: EdgeInsets.all(isCompactPhone ? 16.0 : 24.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -443,15 +482,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  _useServerBackend
-                                      ? (webAuthBlocked
-                                            ? 'Authentication required'
-                                            : 'Server backend mode enabled (WIP)')
-                                      : (_scanner.isScanning
-                                            ? 'Scan in progress'
-                                            : (localSetupComplete
-                                                  ? 'Ready to scan'
-                                                  : 'Configuration needed')),
+                                  statusLabel,
                                   style: TextStyle(
                                     color: _useServerBackend
                                         ? (webAuthBlocked
@@ -494,47 +525,110 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           if (needsSetupNotice) ...[
                             const SizedBox(height: 12),
-                            Card(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.errorContainer,
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                            if (webAuthBlocked) ...[
+                              Text(
+                                'Open Settings to configure server backend access and sign in.',
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => Navigator.pushNamed(
+                                    context,
+                                    '/settings',
+                                  ).then((_) => _loadInfo()),
+                                  icon: const Icon(Icons.settings),
+                                  label: const Text('Settings'),
+                                ),
+                              ),
+                            ] else if (localNoticeVisible) ...[
+                              Text(
+                                showConfigAction
+                                    ? (showSettingsAction
+                                          ? 'Configuration is mandatory for your subscription URL. After that, choose an update method in Settings (Cloudflare API suggested).'
+                                          : 'Configuration is mandatory. Add your subscription URL in Configuration.')
+                                    : 'Choose an update method in Settings (Cloudflare API suggested).',
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              if (showConfigAction && showSettingsAction)
+                                Row(
                                   children: [
-                                    Text(
-                                      'Action needed: add subscription URL and configure at least one update method (Panel or Cloudflare).',
-                                      style: TextStyle(
-                                        color: Theme.of(
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () => Navigator.pushNamed(
                                           context,
-                                        ).colorScheme.onErrorContainer,
-                                        fontWeight: FontWeight.w600,
+                                          '/config',
+                                        ).then((_) => _loadInfo()),
+                                        icon: const Icon(Icons.tune),
+                                        label: const Text('Configuration'),
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      children: [
-                                        TextButton(
-                                          onPressed: () => Navigator.pushNamed(
-                                            context,
-                                            '/config',
-                                          ).then((_) => _loadInfo()),
-                                          child: const Text(
-                                            'Update Configuration',
-                                          ),
-                                        ),
-                                        TextButton(
-                                          onPressed: () => Navigator.pushNamed(
-                                            context,
-                                            '/settings',
-                                          ).then((_) => _loadInfo()),
-                                          child: const Text('Open Settings'),
-                                        ),
-                                      ],
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () => Navigator.pushNamed(
+                                          context,
+                                          '/settings',
+                                        ).then((_) => _loadInfo()),
+                                        icon: const Icon(Icons.settings),
+                                        label: const Text('Settings'),
+                                      ),
                                     ),
                                   ],
+                                )
+                              else
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => Navigator.pushNamed(
+                                      context,
+                                      showConfigAction
+                                          ? '/config'
+                                          : '/settings',
+                                    ).then((_) => _loadInfo()),
+                                    icon: Icon(
+                                      showConfigAction
+                                          ? Icons.tune
+                                          : Icons.settings,
+                                    ),
+                                    label: Text(
+                                      showConfigAction
+                                          ? 'Configuration'
+                                          : 'Settings',
+                                    ),
+                                  ),
                                 ),
+                              if (settingsOnlyMissing) ...[
+                                const SizedBox(height: 8),
+                                SwitchListTile.adaptive(
+                                  value: _hideSettingsReminder,
+                                  onChanged: _setHideSettingsReminder,
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text('Hide settings reminder'),
+                                ),
+                              ],
+                            ],
+                          ] else if (settingsOnlyMissing &&
+                              shouldHideSettingsReminder) ...[
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: () =>
+                                    _setHideSettingsReminder(false),
+                                icon: const Icon(Icons.visibility_outlined),
+                                label: const Text('Show settings reminder'),
                               ),
                             ),
                           ],
@@ -557,12 +651,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
 
                   GridView.count(
-                    crossAxisCount: 3,
+                    crossAxisCount: quickActionsCrossAxisCount,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
-                    childAspectRatio: 0.9,
+                    childAspectRatio: quickActionsAspectRatio,
                     children: [
                       _buildActionCard(
                         context,
@@ -631,22 +725,24 @@ class _HomeScreenState extends State<HomeScreen> {
     Color color,
     VoidCallback onTap,
   ) {
+    final isCompactPhone = MediaQuery.of(context).size.width < 430;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(8.0),
+          padding: EdgeInsets.all(isCompactPhone ? 10.0 : 8.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(icon, size: 28, color: color),
-              const SizedBox(height: 4),
+              SizedBox(height: isCompactPhone ? 8 : 4),
               Text(
                 label,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  fontSize: isCompactPhone ? 12 : null,
+                ),
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,

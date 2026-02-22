@@ -5,6 +5,28 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.4] - 2026-02-22
+
+### Changed
+- Version bump to `4.6.4+21`.
+- Home setup notice is now action-first and mobile-friendly:
+  - `Configuration` and `Settings` actions render as one row with two equal columns when both are needed
+  - if only one step is missing, only that action is shown as a full-width button.
+- Home setup copy now clearly explains:
+  - Configuration is mandatory for entering subscription URL
+  - Settings is for selecting update method, with Cloudflare API suggested.
+
+### Added
+- Home status card now includes a user-controlled settings reminder toggle:
+  - `Hide settings reminder` is available when subscription is configured but update method is not
+  - `Show settings reminder` action is shown when reminder is hidden, so reminder can be restored from Home.
+
+### Fixed
+- Mobile home status notice/button layout no longer stacks awkwardly or clips on narrow screens.
+- Home status message now better reflects partial setup states (`Configuration needed` vs `Settings recommended`).
+
+---
+
 ## [4.6.3] - 2026-02-22
 
 ### Changed
