@@ -69,6 +69,14 @@ Server backend mode and web control flows are currently **WIP / Experimental**.
 - **Subnet-aware IP diversity:** one IPv4 IP per /24 subnet for better routing spread
 - **Offline-first local workflow:** no hosting required for standard app mode
 
+## Donations
+
+If this project was beneficial to you, you can support us with a donation:
+
+<a href="https://nowpayments.io/donation?api_key=0968506a-9102-45ad-83ce-f29864982a43" target="_blank" rel="noreferrer noopener">
+    <img src="https://nowpayments.io/images/embeds/donation-button-white.svg" alt="Cryptocurrency & Bitcoin donation button by NOWPayments">
+</a>
+
 ## Supported Platforms
 
 - Android (Primary)
