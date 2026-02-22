@@ -5,6 +5,28 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.5] - 2026-02-22
+
+### Changed
+- Version bump to `4.6.5+22`.
+- Settings `Local Apply Method` selector now uses compact mobile text sizing/padding to prevent crowding near the dropdown arrow.
+- Cloudflare ECH bypass switch label simplified to `Bypass app ECH handling`.
+- Added explicit bypass notes in UI/docs:
+  - bypass is applied only when `panelVersion >= 4.1.3`
+  - older/missing panel version keeps legacy app-side ECH handling.
+
+### Fixed
+- Removed unreachable ECH results-page branches:
+  - dead bypass label path in `Update ECH` button text
+  - dead bypass guard inside `_updateEchOnly()` while button is hidden.
+- Added Cloudflare ECH compatibility test coverage for:
+  - bypass ON + `panelVersion < 4.1.3`
+  - bypass OFF + `panelVersion >= 4.1.3`
+  - bypass ON + missing `panelVersion`
+  - `refreshEchOnly` skip behavior under active bypass.
+
+---
+
 ## [4.6.4] - 2026-02-22
 
 ### Changed

@@ -465,6 +465,432 @@ void main() {
         },
       );
 
+      test(
+        'updateCleanIPs bypasses app-side ECH handling for panel v4.1.3+ when enabled',
+        () async {
+          await StorageService.instance
+              .saveCloudflareBypassEchHandlingForPanelV413Plus(true);
+
+          var echDnsLookupAttempted = false;
+          final currentSettings = <String, dynamic>{
+            'remoteDNS': 'https://dns.google/dns-query',
+            'remoteDnsHost': {
+              'host': 'stale.example',
+              'isDomain': true,
+              'ipv4': [],
+              'ipv6': [],
+            },
+            'localDNS': '8.8.8.8',
+            'cleanIPs': ['1.1.1.1'],
+            'proxyIPs': [],
+            'enableECH': true,
+            'panelVersion': '4.1.3',
+            'echConfig': 'stale-ech',
+          };
+
+          final mockClient = MockClient((request) async {
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'GET') {
+              return http.Response(jsonEncode(currentSettings), 200);
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['type'] == 'HTTPS') {
+              echDnsLookupAttempted = true;
+              return http.Response(jsonEncode({'Answer': []}), 404);
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'A') {
+              return http.Response(jsonEncode({'Answer': []}), 404);
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'A') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 1, 'data': '8.8.8.8'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'AAAA') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 28, 'data': '2001:4860:4860::8888'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'PUT') {
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              expect(body['echConfig'], equals('stale-ech'));
+              return http.Response('{"success":true}', 200);
+            }
+            return http.Response('Not found', 404);
+          });
+
+          apiService.setClient(mockClient);
+
+          final result = await apiService.updateCleanIPs(testCredentials, [
+            '2.2.2.2',
+          ]);
+
+          expect(result, isTrue);
+          expect(echDnsLookupAttempted, isFalse);
+        },
+      );
+
+      test(
+        'updateCleanIPs does not bypass when panelVersion is below 4.1.3',
+        () async {
+          await StorageService.instance
+              .saveCloudflareBypassEchHandlingForPanelV413Plus(true);
+          await StorageService.instance.saveCloudflareTryEchViaDirectResolvers(
+            true,
+          );
+          await StorageService.instance.saveCloudflareTryEchViaPanelDoh(false);
+          await StorageService.instance.saveCloudflareTryEchViaProxy(false);
+
+          var echDnsLookupAttempted = false;
+          final currentSettings = <String, dynamic>{
+            'remoteDNS': 'https://dns.google/dns-query',
+            'remoteDnsHost': {
+              'host': 'stale.example',
+              'isDomain': true,
+              'ipv4': [],
+              'ipv6': [],
+            },
+            'localDNS': '8.8.8.8',
+            'cleanIPs': ['1.1.1.1'],
+            'proxyIPs': [],
+            'enableECH': true,
+            'panelVersion': '4.1.2',
+            'echConfig': 'stale-ech',
+          };
+
+          final mockClient = MockClient((request) async {
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'GET') {
+              return http.Response(jsonEncode(currentSettings), 200);
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'A') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 1, 'data': '8.8.8.8'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'AAAA') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 28, 'data': '2001:4860:4860::8888'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'HTTPS') {
+              echDnsLookupAttempted = true;
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'data': '1 . alpn="h2,h3" ech=NEW_ECH_BELOW_MIN=='},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'PUT') {
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              expect(body['echConfig'], equals('NEW_ECH_BELOW_MIN=='));
+              return http.Response('{"success":true}', 200);
+            }
+            return http.Response('Not found', 404);
+          });
+
+          apiService.setClient(mockClient);
+
+          final result = await apiService.updateCleanIPs(testCredentials, [
+            '2.2.2.2',
+          ]);
+
+          expect(result, isTrue);
+          expect(echDnsLookupAttempted, isTrue);
+        },
+      );
+
+      test(
+        'updateCleanIPs does not bypass when toggle is disabled even on panel v4.1.3+',
+        () async {
+          await StorageService.instance
+              .saveCloudflareBypassEchHandlingForPanelV413Plus(false);
+          await StorageService.instance.saveCloudflareTryEchViaDirectResolvers(
+            true,
+          );
+          await StorageService.instance.saveCloudflareTryEchViaPanelDoh(false);
+          await StorageService.instance.saveCloudflareTryEchViaProxy(false);
+
+          var echDnsLookupAttempted = false;
+          final currentSettings = <String, dynamic>{
+            'remoteDNS': 'https://dns.google/dns-query',
+            'remoteDnsHost': {
+              'host': 'stale.example',
+              'isDomain': true,
+              'ipv4': [],
+              'ipv6': [],
+            },
+            'localDNS': '8.8.8.8',
+            'cleanIPs': ['1.1.1.1'],
+            'proxyIPs': [],
+            'enableECH': true,
+            'panelVersion': '4.1.3',
+            'echConfig': 'stale-ech',
+          };
+
+          final mockClient = MockClient((request) async {
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'GET') {
+              return http.Response(jsonEncode(currentSettings), 200);
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'A') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 1, 'data': '8.8.8.8'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'AAAA') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 28, 'data': '2001:4860:4860::8888'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'HTTPS') {
+              echDnsLookupAttempted = true;
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'data': '1 . alpn="h2,h3" ech=NEW_ECH_TOGGLE_OFF=='},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'PUT') {
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              expect(body['echConfig'], equals('NEW_ECH_TOGGLE_OFF=='));
+              return http.Response('{"success":true}', 200);
+            }
+            return http.Response('Not found', 404);
+          });
+
+          apiService.setClient(mockClient);
+
+          final result = await apiService.updateCleanIPs(testCredentials, [
+            '2.2.2.2',
+          ]);
+
+          expect(result, isTrue);
+          expect(echDnsLookupAttempted, isTrue);
+        },
+      );
+
+      test(
+        'updateCleanIPs does not bypass when panelVersion is missing',
+        () async {
+          await StorageService.instance
+              .saveCloudflareBypassEchHandlingForPanelV413Plus(true);
+          await StorageService.instance.saveCloudflareTryEchViaDirectResolvers(
+            true,
+          );
+          await StorageService.instance.saveCloudflareTryEchViaPanelDoh(false);
+          await StorageService.instance.saveCloudflareTryEchViaProxy(false);
+
+          var echDnsLookupAttempted = false;
+          final currentSettings = <String, dynamic>{
+            'remoteDNS': 'https://dns.google/dns-query',
+            'remoteDnsHost': {
+              'host': 'stale.example',
+              'isDomain': true,
+              'ipv4': [],
+              'ipv6': [],
+            },
+            'localDNS': '8.8.8.8',
+            'cleanIPs': ['1.1.1.1'],
+            'proxyIPs': [],
+            'enableECH': true,
+            'echConfig': 'stale-ech',
+          };
+
+          final mockClient = MockClient((request) async {
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'GET') {
+              return http.Response(jsonEncode(currentSettings), 200);
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'A') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 1, 'data': '8.8.8.8'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'AAAA') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 28, 'data': '2001:4860:4860::8888'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'HTTPS') {
+              echDnsLookupAttempted = true;
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'data': '1 . alpn="h2,h3" ech=NEW_ECH_MISSING_VERSION=='},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'PUT') {
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              expect(body['echConfig'], equals('NEW_ECH_MISSING_VERSION=='));
+              return http.Response('{"success":true}', 200);
+            }
+            return http.Response('Not found', 404);
+          });
+
+          apiService.setClient(mockClient);
+
+          final result = await apiService.updateCleanIPs(testCredentials, [
+            '2.2.2.2',
+          ]);
+
+          expect(result, isTrue);
+          expect(echDnsLookupAttempted, isTrue);
+          final logs = logService.getLogs();
+          expect(
+            logs.any(
+              (entry) => entry.message.contains(
+                'panelVersion is missing in proxySettings',
+              ),
+            ),
+            isTrue,
+          );
+        },
+      );
+
+      test(
+        'refreshEchOnly returns false and skips network ECH when bypass is active',
+        () async {
+          await StorageService.instance
+              .saveCloudflareBypassEchHandlingForPanelV413Plus(true);
+
+          var echDnsLookupAttempted = false;
+          var putAttempted = false;
+          final currentSettings = <String, dynamic>{
+            'remoteDNS': 'https://dns.google/dns-query',
+            'remoteDnsHost': {
+              'host': 'stale.example',
+              'isDomain': true,
+              'ipv4': [],
+              'ipv6': [],
+            },
+            'localDNS': '8.8.8.8',
+            'cleanIPs': ['1.1.1.1'],
+            'proxyIPs': [],
+            'enableECH': true,
+            'panelVersion': '4.1.3',
+            'echConfig': 'stale-ech',
+          };
+
+          final mockClient = MockClient((request) async {
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'GET') {
+              return http.Response(jsonEncode(currentSettings), 200);
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['type'] == 'HTTPS') {
+              echDnsLookupAttempted = true;
+              return http.Response(jsonEncode({'Answer': []}), 404);
+            }
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'PUT') {
+              putAttempted = true;
+              return http.Response('{"success":true}', 200);
+            }
+            return http.Response('Not found', 404);
+          });
+
+          apiService.setClient(mockClient);
+
+          final result = await apiService.refreshEchOnly(testCredentials);
+
+          expect(result, isFalse);
+          expect(echDnsLookupAttempted, isFalse);
+          expect(putAttempted, isFalse);
+        },
+      );
+
       test('updateCleanIPs uses echServerName first when provided', () async {
         await StorageService.instance.saveCloudflareTryEchViaDirectResolvers(
           true,

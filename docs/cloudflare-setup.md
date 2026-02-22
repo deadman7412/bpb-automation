@@ -154,6 +154,17 @@ If successful, you'll receive the current proxySettings JSON.
 
 When BPB Automation updates `proxySettings` in Cloudflare API mode, it can also refresh `echConfig` (if `enableECH` is enabled in your panel settings).
 
+### Bypass switch for BPB Panel v4.1.3+
+
+- Setting: **Bypass app ECH handling**
+- Recommended: **ON**
+- Behavior:
+  - If `panelVersion >= 4.1.3` in KV, app skips app-side ECH refresh/update (client cores handle ECH).
+  - If panel version is older or missing, app keeps legacy app-side ECH handling for compatibility.
+- UI impact when enabled:
+  - ECH strategy controls are hidden in Settings.
+  - **Update ECH** button is hidden on results screen.
+
 Open:
 - **Settings**
 - **Update Method = Cloudflare API**

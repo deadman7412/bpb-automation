@@ -212,6 +212,13 @@ class CloudflareApiService {
         );
         return false;
       }
+      final bypassEch = await _shouldBypassEchHandling(payload);
+      if (bypassEch) {
+        _logService.logInfo(
+          'ECH-only update skipped: app-side ECH handling is bypassed for panelVersion=${payload['panelVersion']}.',
+        );
+        return false;
+      }
       final persistedCleanIps = _toStringList(payload['cleanIPs']);
       final candidateIps = cleanIpCandidates
           .map((ip) => ip.trim())
@@ -350,6 +357,14 @@ class CloudflareApiService {
       if (outProxyParams.isNotEmpty) {
         settingsPayload['outProxyParams'] = outProxyParams;
       }
+    }
+
+    final bypassEch = await _shouldBypassEchHandling(settingsPayload);
+    if (bypassEch) {
+      _logService.logInfo(
+        'Skipping app-side ECH refresh for panelVersion=${settingsPayload['panelVersion']} (bypass enabled).',
+      );
+      return;
     }
 
     await _applyEchOnlyTransform(
@@ -826,6 +841,51 @@ class CloudflareApiService {
       'Ignoring invalid echServerName value from proxySettings: $raw',
     );
     return null;
+  }
+
+  Future<bool> _shouldBypassEchHandling(
+    Map<String, dynamic> settingsPayload,
+  ) async {
+    final bypassEnabled = await _storageService
+        .getCloudflareBypassEchHandlingForPanelV413Plus();
+    if (!bypassEnabled) return false;
+
+    final panelVersion =
+        settingsPayload['panelVersion']?.toString().trim() ?? '';
+    if (panelVersion.isEmpty) {
+      _logService.logWarn(
+        'Bypass ECH handling is enabled, but panelVersion is missing in proxySettings. Keeping legacy app-side ECH handling.',
+      );
+      return false;
+    }
+    if (!_isVersionAtLeast(panelVersion, const [4, 1, 3])) {
+      _logService.logInfo(
+        'Bypass ECH handling is enabled, but panelVersion=$panelVersion is below 4.1.3. Keeping legacy app-side ECH handling.',
+      );
+      return false;
+    }
+    return true;
+  }
+
+  bool _isVersionAtLeast(String rawVersion, List<int> minimum) {
+    if (rawVersion.trim().isEmpty) return false;
+    final matches = RegExp(r'\d+').allMatches(rawVersion);
+    if (matches.isEmpty) return false;
+    final versionParts = matches
+        .take(3)
+        .map((m) => int.tryParse(m.group(0) ?? '0') ?? 0)
+        .toList(growable: true);
+    while (versionParts.length < minimum.length) {
+      versionParts.add(0);
+    }
+
+    for (var i = 0; i < minimum.length; i++) {
+      final current = versionParts[i];
+      final min = minimum[i];
+      if (current > min) return true;
+      if (current < min) return false;
+    }
+    return true;
   }
 
   Future<void> _cacheSuccessfulEch({

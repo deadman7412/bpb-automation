@@ -55,6 +55,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
   UpdateMode _updateMode = UpdateMode.panelApi;
   bool? _isPanelEchEnabled;
   bool _isEchStrategyDisabled = false;
+  bool _bypassEchHandlingForPanelV413Plus = true;
 
   @override
   void didChangeDependencies() {
@@ -176,15 +177,19 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     final tryProxy = await _storage.getCloudflareTryEchViaProxy();
     final useCachedFallback = await _storage
         .getCloudflareUseCachedEchFallback();
+    final bypassEchHandling = await _storage
+        .getCloudflareBypassEchHandlingForPanelV413Plus();
     final allOff =
         !tryDirect && !tryPanelDoh && !tryProxy && !useCachedFallback;
 
     if (mounted) {
       setState(() {
         _isEchStrategyDisabled = allOff;
+        _bypassEchHandlingForPanelV413Plus = bypassEchHandling;
       });
     } else {
       _isEchStrategyDisabled = allOff;
+      _bypassEchHandlingForPanelV413Plus = bypassEchHandling;
     }
   }
 
@@ -1279,6 +1284,8 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                     final idleIcon = alreadyApplied
                         ? const Icon(Icons.refresh)
                         : const Icon(Icons.cloud_upload);
+                    final isEchBypassActive =
+                        _bypassEchHandlingForPanelV413Plus;
 
                     final echButtonLabel = _isRefreshingEch
                         ? 'Updating ECH...'
@@ -1294,6 +1301,7 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                         hasWorkingIps && !_isUpdating && !_isRefreshingEch;
                     final canUpdateEchOnly =
                         _updateMode == UpdateMode.cloudflareApi &&
+                        !isEchBypassActive &&
                         !_isEchStrategyDisabled &&
                         hasWorkingIps &&
                         !_isRefreshingEch &&
@@ -1319,25 +1327,27 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                             foregroundColor: Colors.white,
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        ElevatedButton.icon(
-                          onPressed: canUpdateEchOnly ? _updateEchOnly : null,
-                          icon: _isRefreshingEch
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.dns),
-                          label: Text(echButtonLabel),
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 50),
-                            backgroundColor: Colors.indigo,
-                            foregroundColor: Colors.white,
+                        if (!isEchBypassActive) ...[
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            onPressed: canUpdateEchOnly ? _updateEchOnly : null,
+                            icon: _isRefreshingEch
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.dns),
+                            label: Text(echButtonLabel),
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 50),
+                              backgroundColor: Colors.indigo,
+                              foregroundColor: Colors.white,
+                            ),
                           ),
-                        ),
+                        ],
                         const SizedBox(height: 12),
                         Align(
                           alignment: Alignment.centerLeft,

@@ -56,8 +56,9 @@ Server backend mode and web control flows are currently **WIP / Experimental**.
 - **Auto scan scheduling:** app-managed local scheduler with runtime state, next/last run, last result/error, and manual `Run Scheduler Now`
 - **Auto upload after scan:** optional auto-apply to BPB after successful scan
 - **Multiple panel update methods:** Panel API (default) or Cloudflare API (fallback)
-- **Auto ECH update support:** update ECH-derived fields with dedicated controls in Cloudflare API mode
-- **ECH-only update action:** refresh ECH using clean IP results from the last scan without running a new scan
+- **Auto ECH update support:** app-side ECH refresh controls in Cloudflare API mode (legacy-compatible)
+- **ECH bypass for BPB v4.1.3+:** optional switch to bypass app-side ECH handling when panel reports `panelVersion >= 4.1.3`
+- **ECH-only update action:** refresh ECH using clean IP results from the last scan without running a new scan (hidden when bypass switch is enabled)
 - **ECH Server Name aware logic:** when `echServerName` exists in panel proxy settings, ECH lookup tries it first, then falls back to panel/subscription host
 - **Multiple ECH strategies:** direct DoH, panel DoH, proxy fallback (experimental), cached fallback, optional panel DoH URL override
 - **ECH-safe behavior:** respects panel ECH state and surfaces user-facing guidance when ECH is disabled
@@ -215,6 +216,8 @@ Top candidates are tested through bundled Xray-core. Only true working proxy pat
 - Cloudflare API mode updates Workers KV proxy settings
 - ECH-only update can use the latest saved scan results and keeps persisted `cleanIPs` unchanged
 - ECH update respects `echServerName` first (when configured), then follows configured fallback strategy options
+- If **Bypass app ECH handling** is enabled, bypass mode applies only when `panelVersion >= 4.1.3`
+- For older or unknown panel versions, app keeps legacy app-side ECH handling for compatibility
 
 ## Security and Privacy
 

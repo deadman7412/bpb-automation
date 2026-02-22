@@ -44,6 +44,8 @@ class StorageService {
       'cloudflare_try_ech_via_direct_resolvers';
   static const String _keyCloudflareTryEchViaPanelDoh =
       'cloudflare_try_ech_via_panel_doh';
+  static const String _keyCloudflareBypassEchHandlingForPanelV413Plus =
+      'cloudflare_bypass_ech_handling_for_panel_v413_plus';
   static const String _keyCloudflareUseCachedEchFallback =
       'cloudflare_use_cached_ech_fallback';
   static const String _keyCloudflareLastSuccessfulEchConfig =
@@ -469,6 +471,28 @@ class StorageService {
   /// Defaults to true if not set.
   Future<bool> getCloudflareTryEchViaPanelDoh() async {
     return _prefs.getBool(_keyCloudflareTryEchViaPanelDoh) ?? true;
+  }
+
+  /// Saves whether app-side ECH handling should be bypassed for
+  /// BPB Panel versions 4.1.3+.
+  ///
+  /// Defaults to true.
+  Future<void> saveCloudflareBypassEchHandlingForPanelV413Plus(
+    bool enabled,
+  ) async {
+    await _prefs.setBool(
+      _keyCloudflareBypassEchHandlingForPanelV413Plus,
+      enabled,
+    );
+  }
+
+  /// Returns whether app-side ECH handling should be bypassed for
+  /// BPB Panel versions 4.1.3+.
+  ///
+  /// Defaults to true if not set.
+  Future<bool> getCloudflareBypassEchHandlingForPanelV413Plus() async {
+    return _prefs.getBool(_keyCloudflareBypassEchHandlingForPanelV413Plus) ??
+        true;
   }
 
   /// Saves whether Cloudflare API mode may use cached ECH fallback when live

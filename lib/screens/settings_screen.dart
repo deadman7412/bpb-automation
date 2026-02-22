@@ -50,6 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _cloudflareTryEchViaProxy = false;
   bool _cloudflareTryEchViaDirectResolvers = true;
   bool _cloudflareTryEchViaPanelDoh = true;
+  bool _cloudflareBypassEchHandlingForPanelV413Plus = true;
   bool _cloudflareUseCachedEchFallback = true;
   bool _panelUseProxyForUpdate = false;
   bool _panelForceCleanIpsForUpdate = false;
@@ -92,6 +93,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         .getCloudflareTryEchViaDirectResolvers();
     final cloudflareTryEchViaPanelDoh = await _storage
         .getCloudflareTryEchViaPanelDoh();
+    final cloudflareBypassEchHandlingForPanelV413Plus = await _storage
+        .getCloudflareBypassEchHandlingForPanelV413Plus();
     final cloudflareUseCachedEchFallback = await _storage
         .getCloudflareUseCachedEchFallback();
     final panelDohUrlOverride = await _storage
@@ -143,6 +146,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _cloudflareTryEchViaProxy = cloudflareTryEchViaProxy;
       _cloudflareTryEchViaDirectResolvers = cloudflareTryEchViaDirectResolvers;
       _cloudflareTryEchViaPanelDoh = cloudflareTryEchViaPanelDoh;
+      _cloudflareBypassEchHandlingForPanelV413Plus =
+          cloudflareBypassEchHandlingForPanelV413Plus;
       _cloudflareUseCachedEchFallback = cloudflareUseCachedEchFallback;
       _panelDohUrlOverrideController.text = panelDohUrlOverride ?? '';
       _panelUseProxyForUpdate = panelUseProxyForUpdate;
@@ -295,6 +300,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       await _storage.saveCloudflareTryEchViaPanelDoh(
         _cloudflareTryEchViaPanelDoh,
+      );
+      await _storage.saveCloudflareBypassEchHandlingForPanelV413Plus(
+        _cloudflareBypassEchHandlingForPanelV413Plus,
       );
       await _storage.saveCloudflareUseCachedEchFallback(
         _cloudflareUseCachedEchFallback,
@@ -513,12 +521,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildUpdateModeSelector() {
+    final isCompactMobile = MediaQuery.of(context).size.width < 380;
+    final selectedTextStyle = Theme.of(
+      context,
+    ).textTheme.titleLarge?.copyWith(fontSize: isCompactMobile ? 16 : null);
+    final menuTextStyle = Theme.of(
+      context,
+    ).textTheme.bodyLarge?.copyWith(fontSize: isCompactMobile ? 15 : null);
+
     return DropdownButtonFormField<UpdateMode>(
       initialValue: _updateMode,
-      decoration: const InputDecoration(
+      isExpanded: true,
+      style: selectedTextStyle,
+      decoration: InputDecoration(
         labelText: 'Local Apply Method',
-        border: OutlineInputBorder(),
-        prefixIcon: Icon(Icons.sync_alt),
+        border: const OutlineInputBorder(),
+        prefixIcon: const Icon(Icons.sync_alt),
+        contentPadding: EdgeInsets.only(
+          left: 12,
+          right: isCompactMobile ? 36 : 12,
+          top: 14,
+          bottom: 14,
+        ),
       ),
       items: UpdateMode.values
           .map(
@@ -528,6 +552,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 mode == UpdateMode.cloudflareApi
                     ? '${mode.displayName} (Recommended)'
                     : mode.displayName,
+                style: menuTextStyle,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           )
@@ -665,70 +691,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 8),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('Try ECH refresh via direct DoH resolvers'),
+          title: const Text('Bypass app ECH handling'),
           subtitle: const Text(
-            'Uses dns.google and cloudflare-dns.com first. Disable this if your network consistently blocks public DoH.',
+            'Recommended ON. Applies automatically when panel version 4.1.3 or newer is detected in KV.',
           ),
-          value: _cloudflareTryEchViaDirectResolvers,
+          value: _cloudflareBypassEchHandlingForPanelV413Plus,
           onChanged: (value) {
-            setState(() => _cloudflareTryEchViaDirectResolvers = value);
+            setState(() {
+              _cloudflareBypassEchHandlingForPanelV413Plus = value;
+            });
           },
         ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Try ECH refresh via panel DoH'),
-          subtitle: const Text(
-            'Uses your panel /dns-query route for ECH lookup. Useful when public DoH is filtered.',
+        const SizedBox(height: 4),
+        if (_cloudflareBypassEchHandlingForPanelV413Plus)
+          Text(
+            'ECH strategy controls are hidden while bypass is enabled. Older or unknown panel versions keep legacy app-side ECH handling.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade700),
           ),
-          value: _cloudflareTryEchViaPanelDoh,
-          onChanged: (value) {
-            setState(() => _cloudflareTryEchViaPanelDoh = value);
-          },
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Try ECH refresh via proxy (Experimental)'),
-          subtitle: const Text(
-            'Experimental and not always reliable. Disabled by default. If enabled, app may try Xray + clean IPs when direct ECH lookup fails. This can increase apply time.',
+        if (!_cloudflareBypassEchHandlingForPanelV413Plus) ...[
+          const SizedBox(height: 4),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Try ECH refresh via direct DoH resolvers'),
+            subtitle: const Text(
+              'Uses dns.google and cloudflare-dns.com first. Disable this if your network consistently blocks public DoH.',
+            ),
+            value: _cloudflareTryEchViaDirectResolvers,
+            onChanged: (value) {
+              setState(() => _cloudflareTryEchViaDirectResolvers = value);
+            },
           ),
-          value: _cloudflareTryEchViaProxy,
-          onChanged: (value) {
-            setState(() => _cloudflareTryEchViaProxy = value);
-          },
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Use last successful ECH when refresh fails'),
-          subtitle: const Text(
-            'If enabled, app can reuse previously fetched ECH config when network blocks live DoH lookup.',
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Try ECH refresh via panel DoH'),
+            subtitle: const Text(
+              'Uses your panel /dns-query route for ECH lookup. Useful when public DoH is filtered.',
+            ),
+            value: _cloudflareTryEchViaPanelDoh,
+            onChanged: (value) {
+              setState(() => _cloudflareTryEchViaPanelDoh = value);
+            },
           ),
-          value: _cloudflareUseCachedEchFallback,
-          onChanged: (value) {
-            setState(() => _cloudflareUseCachedEchFallback = value);
-          },
-        ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: _panelDohUrlOverrideController,
-          decoration: const InputDecoration(
-            labelText: 'Panel DoH URL override (optional)',
-            hintText: 'https://your-domain/dns-query/<subPath>',
-            border: OutlineInputBorder(),
-            helperText:
-                'If set, ECH lookup uses this URL first. Leave empty to auto-derive from saved subscription URL.',
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Try ECH refresh via proxy (Experimental)'),
+            subtitle: const Text(
+              'Experimental and not always reliable. Disabled by default. If enabled, app may try Xray + clean IPs when direct ECH lookup fails. This can increase apply time.',
+            ),
+            value: _cloudflareTryEchViaProxy,
+            onChanged: (value) {
+              setState(() => _cloudflareTryEchViaProxy = value);
+            },
           ),
-          keyboardType: TextInputType.url,
-          validator: (value) {
-            if (_updateMode != UpdateMode.cloudflareApi) return null;
-            final raw = value?.trim() ?? '';
-            if (raw.isEmpty) return null;
-            final uri = Uri.tryParse(raw);
-            if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-              return 'Enter a valid absolute URL';
-            }
-            return null;
-          },
-        ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Use last successful ECH when refresh fails'),
+            subtitle: const Text(
+              'If enabled, app can reuse previously fetched ECH config when network blocks live DoH lookup.',
+            ),
+            value: _cloudflareUseCachedEchFallback,
+            onChanged: (value) {
+              setState(() => _cloudflareUseCachedEchFallback = value);
+            },
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _panelDohUrlOverrideController,
+            decoration: const InputDecoration(
+              labelText: 'Panel DoH URL override (optional)',
+              hintText: 'https://your-domain/dns-query/<subPath>',
+              border: OutlineInputBorder(),
+              helperText:
+                  'If set, ECH lookup uses this URL first. Leave empty to auto-derive from saved subscription URL.',
+            ),
+            keyboardType: TextInputType.url,
+            validator: (value) {
+              if (_updateMode != UpdateMode.cloudflareApi) return null;
+              final raw = value?.trim() ?? '';
+              if (raw.isEmpty) return null;
+              final uri = Uri.tryParse(raw);
+              if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+                return 'Enter a valid absolute URL';
+              }
+              return null;
+            },
+          ),
+        ],
       ],
     );
   }

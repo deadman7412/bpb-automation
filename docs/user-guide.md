@@ -208,6 +208,12 @@ If you use **Panel API** mode, these options control routing/debug behavior:
 
 If you use **Cloudflare API** mode, the app also provides ECH refresh controls:
 
+0. **Bypass app ECH handling**
+- Recommended ON.
+- If `panelVersion >= 4.1.3`, app-side ECH refresh is bypassed (client-side ECH in cores).
+- If panel version is older or missing, app continues legacy app-side ECH handling.
+- When ON, ECH strategy toggles are hidden and the **Update ECH** button is hidden on results page.
+
 1. **Try ECH refresh via direct DoH resolvers**
 - Uses `dns.google` and `cloudflare-dns.com`
 - Disable if public DoH is blocked on your network
