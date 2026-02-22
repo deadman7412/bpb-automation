@@ -439,6 +439,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
 
     await _storage.saveInt(_keyLastScanElapsedMs, _elapsed.inMilliseconds);
     await _storage.remove(_keyActiveScanStartMs);
+    await _storage.saveLastScanTime(finalResult.timestamp);
     await _storage.saveLastScanResult(finalResult.toJson());
     _stopElapsedTimer();
     await _progressSubscription?.cancel();
@@ -544,6 +545,10 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
           'Auto-apply failed: panel unreachable from current network. '
           'Switch to Cloudflare API mode for updates.',
         );
+        _log.logInfo(
+          'Auto-apply failure classified as panel_connectivity_error '
+          '(mode=${mode.displayName}, action=switch update mode or manual retry)',
+        );
         return const _AutoApplyOutcome(
           message:
               'Auto-apply failed: panel is not reachable from this network. Switch Update Method to Cloudflare API.',
@@ -551,12 +556,58 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         );
       } else {
         _log.logError('Auto-apply failed: $e', e, stackTrace);
+        final details = _buildAutoApplyFailureDetails(e, mode);
+        _log.logWarn(
+          'Auto-apply failure classified as ${details.debugCode} '
+          '(mode=${mode.displayName}, action=manual Update BPB Panel)',
+        );
         return _AutoApplyOutcome(
-          message: 'Auto-apply failed: $e',
+          message: details.userMessage,
           success: false,
         );
       }
     }
+  }
+
+  _AutoApplyFailureDetails _buildAutoApplyFailureDetails(
+    Object error,
+    UpdateMode mode,
+  ) {
+    final raw = error.toString();
+    final lower = raw.toLowerCase();
+    final isNetworkIssue =
+        lower.contains('socketexception') ||
+        lower.contains('failed host lookup') ||
+        lower.contains('no address associated with hostname') ||
+        lower.contains('network is unreachable') ||
+        lower.contains('connection refused') ||
+        lower.contains('timed out') ||
+        lower.contains('timeoutexception');
+
+    if (mode == UpdateMode.cloudflareApi && isNetworkIssue) {
+      return const _AutoApplyFailureDetails(
+        debugCode: 'cloudflare_network_or_dns',
+        userMessage:
+            'Auto-apply failed: could not reach Cloudflare API due to a temporary network/DNS issue. '
+            'Scan results are saved. Tap Update BPB Panel to apply manually.',
+      );
+    }
+
+    if (mode == UpdateMode.cloudflareApi) {
+      return const _AutoApplyFailureDetails(
+        debugCode: 'cloudflare_api_error',
+        userMessage:
+            'Auto-apply failed while updating Cloudflare API. '
+            'Scan results are saved. Tap Update BPB Panel to apply manually.',
+      );
+    }
+
+    return const _AutoApplyFailureDetails(
+      debugCode: 'panel_or_unknown_error',
+      userMessage:
+          'Auto-apply failed. Scan results are saved. '
+          'Tap Update BPB Panel to apply manually.',
+    );
   }
 
   void _showError(
@@ -890,4 +941,14 @@ class _AutoApplyOutcome {
   final bool? success;
 
   const _AutoApplyOutcome({required this.message, required this.success});
+}
+
+class _AutoApplyFailureDetails {
+  final String debugCode;
+  final String userMessage;
+
+  const _AutoApplyFailureDetails({
+    required this.debugCode,
+    required this.userMessage,
+  });
 }

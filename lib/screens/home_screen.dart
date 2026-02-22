@@ -70,6 +70,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     DateTime? effectiveLastScan = lastScan;
+    if (effectiveLastScan == null) {
+      final lastResult = await _storage.getLastScanResult();
+      final recoveredScanTime = _parseLastResultScanTime(lastResult);
+      if (recoveredScanTime != null) {
+        effectiveLastScan = recoveredScanTime;
+        await _storage.saveLastScanTime(recoveredScanTime);
+      }
+    }
     final effectiveUseServerBackend = kIsWeb ? true : useServerBackend;
     final canQueryServerHistory = kIsWeb
         ? serverJwt.isNotEmpty
@@ -104,6 +112,17 @@ class _HomeScreenState extends State<HomeScreen> {
       _webHasServerConfig = serverBaseUrl.isNotEmpty;
       _webHasSession = serverJwt.isNotEmpty;
     });
+  }
+
+  DateTime? _parseLastResultScanTime(Map<String, dynamic>? result) {
+    if (result == null) return null;
+    final raw = result['timestamp']?.toString().trim();
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return DateTime.parse(raw);
+    } catch (_) {
+      return null;
+    }
   }
 
   DateTime? _parseServerScanTime(Map<String, dynamic> run) {

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../services/log_service.dart';
 
+enum _LogsOverflowAction { copyAll, export }
+
 class LogsScreen extends StatefulWidget {
   const LogsScreen({super.key});
 
@@ -161,19 +163,43 @@ class _LogsScreenState extends State<LogsScreen> {
             onPressed: () => _showFilterDialog(),
           ),
           IconButton(
-            icon: const Icon(Icons.copy),
-            tooltip: 'Copy all logs',
-            onPressed: _copyLogsToClipboard,
-          ),
-          IconButton(
-            icon: const Icon(Icons.save_alt),
-            tooltip: 'Export to file',
-            onPressed: _exportLogs,
-          ),
-          IconButton(
             icon: const Icon(Icons.delete_outline),
             tooltip: 'Clear logs',
             onPressed: _clearLogs,
+          ),
+          PopupMenuButton<_LogsOverflowAction>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More actions',
+            onSelected: (action) {
+              switch (action) {
+                case _LogsOverflowAction.copyAll:
+                  _copyLogsToClipboard();
+                  break;
+                case _LogsOverflowAction.export:
+                  _exportLogs();
+                  break;
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<_LogsOverflowAction>(
+                value: _LogsOverflowAction.copyAll,
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.copy),
+                  title: Text('Copy all logs'),
+                ),
+              ),
+              PopupMenuItem<_LogsOverflowAction>(
+                value: _LogsOverflowAction.export,
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.save_alt),
+                  title: Text('Export to file'),
+                ),
+              ),
+            ],
           ),
         ],
       ),

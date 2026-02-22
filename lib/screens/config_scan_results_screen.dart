@@ -239,6 +239,33 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
     return _result?.scanDuration ?? Duration.zero;
   }
 
+  String _formatAutoApplyStatus({
+    required String status,
+    required bool isSuccess,
+  }) {
+    if (isSuccess) return status;
+
+    final lower = status.toLowerCase();
+    final containsRawException =
+        lower.contains('clientexception') ||
+        lower.contains('socketexception') ||
+        lower.contains('failed host lookup') ||
+        lower.contains('errno =') ||
+        lower.contains('uri=http');
+    final hasManualGuidance = lower.contains('update bpb panel');
+
+    if (containsRawException) {
+      return 'Auto-apply failed due to a temporary network/API issue. '
+          'Scan results are saved. Tap Update BPB Panel to apply manually.';
+    }
+
+    if (!hasManualGuidance) {
+      return '$status\n\nYou can still apply these IPs manually with Update BPB Panel.';
+    }
+
+    return status;
+  }
+
   Future<void> _updateBPBPanel() async {
     if (_result == null || _result!.workingIPs.isEmpty) {
       _showMessage('No working IPs to update', isError: true);
@@ -1086,7 +1113,10 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      _result!.autoApplyStatus!,
+                                      _formatAutoApplyStatus(
+                                        status: _result!.autoApplyStatus!,
+                                        isSuccess: isSuccess,
+                                      ),
                                       style: TextStyle(color: fgColor),
                                     ),
                                   ],
