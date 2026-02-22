@@ -369,6 +369,7 @@ class CloudflareApiService {
       final echConfig = await _extractEchConfig(
         enableEch: enableEch,
         cleanIpCandidates: cleanIpCandidates,
+        settingsPayload: settingsPayload,
       );
       settingsPayload['echConfig'] = echConfig;
       if (echConfig == existingEchConfig) {
@@ -621,10 +622,14 @@ class CloudflareApiService {
   Future<String> _extractEchConfig({
     required bool enableEch,
     required List<String> cleanIpCandidates,
+    required Map<String, dynamic> settingsPayload,
   }) async {
     if (!enableEch) return '';
 
     final hostName = await _resolveHostNameForPanelBehavior();
+    final preferredEchHostName = _resolvePreferredEchServerName(
+      settingsPayload,
+    );
     final directResolvers = const ['dns.google', 'cloudflare-dns.com'];
     final tryViaDirect = await _storageService
         .getCloudflareTryEchViaDirectResolvers();
@@ -635,6 +640,50 @@ class CloudflareApiService {
       'ECH source strategy: direct=$tryViaDirect, panelDoH=$tryViaPanelDoh, proxy=$tryViaProxy',
     );
 
+    if (preferredEchHostName != null &&
+        preferredEchHostName.isNotEmpty &&
+        preferredEchHostName != hostName) {
+      try {
+        _logService.logInfo(
+          'Trying ECH Server Name first: $preferredEchHostName',
+        );
+        return await _extractEchConfigForHost(
+          hostName: preferredEchHostName,
+          cleanIpCandidates: cleanIpCandidates,
+          directResolvers: directResolvers,
+          tryViaDirect: tryViaDirect,
+          tryViaPanelDoh: tryViaPanelDoh,
+          tryViaProxy: tryViaProxy,
+        );
+      } catch (e) {
+        _logService.logWarn(
+          'ECH lookup failed for ECH Server Name $preferredEchHostName; falling back to panel/subscription host $hostName. Error: $e',
+        );
+      }
+    } else if (preferredEchHostName == hostName) {
+      _logService.logInfo(
+        'ECH Server Name matches panel/subscription host; using $hostName',
+      );
+    }
+
+    return _extractEchConfigForHost(
+      hostName: hostName,
+      cleanIpCandidates: cleanIpCandidates,
+      directResolvers: directResolvers,
+      tryViaDirect: tryViaDirect,
+      tryViaPanelDoh: tryViaPanelDoh,
+      tryViaProxy: tryViaProxy,
+    );
+  }
+
+  Future<String> _extractEchConfigForHost({
+    required String hostName,
+    required List<String> cleanIpCandidates,
+    required List<String> directResolvers,
+    required bool tryViaDirect,
+    required bool tryViaPanelDoh,
+    required bool tryViaProxy,
+  }) async {
     final startedAt = DateTime.now();
     const totalBudget = Duration(seconds: 16);
     Duration remainingBudget() {
@@ -767,6 +816,16 @@ class CloudflareApiService {
     }
 
     throw lastError ?? Exception('ECH lookup failed for all enabled sources');
+  }
+
+  String? _resolvePreferredEchServerName(Map<String, dynamic> settingsPayload) {
+    final raw = settingsPayload['echServerName']?.toString().trim() ?? '';
+    if (raw.isEmpty) return null;
+    if (_isDomain(raw)) return raw;
+    _logService.logWarn(
+      'Ignoring invalid echServerName value from proxySettings: $raw',
+    );
+    return null;
   }
 
   Future<void> _cacheSuccessfulEch({

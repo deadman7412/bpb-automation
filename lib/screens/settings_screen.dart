@@ -633,6 +633,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
         ),
         const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'BPB Panel v4.1.3+: if ECH Server Name is set in panel settings, ECH generation is handled by client cores (Xray/sing-box). Use a domain that returns an HTTPS record with ech=. If no reliable domain is found, leave ECH Server Name empty and BPB Automation will continue ECH fallback handling.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.blue.shade900,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Try ECH refresh via direct DoH resolvers'),

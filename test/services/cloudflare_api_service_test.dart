@@ -464,6 +464,207 @@ void main() {
           );
         },
       );
+
+      test('updateCleanIPs uses echServerName first when provided', () async {
+        await StorageService.instance.saveCloudflareTryEchViaDirectResolvers(
+          true,
+        );
+        await StorageService.instance.saveCloudflareTryEchViaPanelDoh(false);
+        await StorageService.instance.saveCloudflareTryEchViaProxy(false);
+
+        var queriedFallbackHost = false;
+        final currentSettings = <String, dynamic>{
+          'remoteDNS': 'https://dns.google/dns-query',
+          'remoteDnsHost': {
+            'host': 'stale.example',
+            'isDomain': true,
+            'ipv4': [],
+            'ipv6': [],
+          },
+          'localDNS': '8.8.8.8',
+          'cleanIPs': ['1.1.1.1'],
+          'proxyIPs': [],
+          'enableECH': true,
+          'echServerName': 'liberty.example.com',
+          'echConfig': 'stale-ech',
+        };
+
+        final mockClient = MockClient((request) async {
+          if (request.url.host == 'api.cloudflare.com' &&
+              request.method == 'GET') {
+            return http.Response(jsonEncode(currentSettings), 200);
+          }
+          if (request.url.host == 'dns.google' &&
+              request.url.path == '/resolve' &&
+              request.url.queryParameters['name'] == 'dns.google' &&
+              request.url.queryParameters['type'] == 'A') {
+            return http.Response(jsonEncode({'Answer': []}), 404);
+          }
+          if (request.url.host == 'cloudflare-dns.com' &&
+              request.url.path == '/dns-query' &&
+              request.url.queryParameters['name'] == 'dns.google' &&
+              request.url.queryParameters['type'] == 'A') {
+            return http.Response(
+              jsonEncode({
+                'Answer': [
+                  {'type': 1, 'data': '8.8.8.8'},
+                ],
+              }),
+              200,
+            );
+          }
+          if (request.url.host == 'cloudflare-dns.com' &&
+              request.url.path == '/dns-query' &&
+              request.url.queryParameters['name'] == 'dns.google' &&
+              request.url.queryParameters['type'] == 'AAAA') {
+            return http.Response(
+              jsonEncode({
+                'Answer': [
+                  {'type': 28, 'data': '2001:4860:4860::8888'},
+                ],
+              }),
+              200,
+            );
+          }
+          if (request.url.host == 'dns.google' &&
+              request.url.path == '/resolve' &&
+              request.url.queryParameters['type'] == 'HTTPS') {
+            final name = request.url.queryParameters['name'];
+            if (name == 'dns.google') queriedFallbackHost = true;
+            if (name == 'liberty.example.com') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'data': '1 . alpn="h2,h3" ech=PREFERRED_ECH=='},
+                  ],
+                }),
+                200,
+              );
+            }
+          }
+          if (request.url.host == 'api.cloudflare.com' &&
+              request.method == 'PUT') {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            expect(body['echConfig'], equals('PREFERRED_ECH=='));
+            return http.Response('{"success":true}', 200);
+          }
+          return http.Response('Not found', 404);
+        });
+
+        apiService.setClient(mockClient);
+
+        final result = await apiService.updateCleanIPs(testCredentials, [
+          '2.2.2.2',
+        ]);
+
+        expect(result, isTrue);
+        expect(queriedFallbackHost, isFalse);
+      });
+
+      test(
+        'updateCleanIPs falls back to panel host when echServerName lookup fails',
+        () async {
+          await StorageService.instance.saveCloudflareTryEchViaDirectResolvers(
+            true,
+          );
+          await StorageService.instance.saveCloudflareTryEchViaPanelDoh(false);
+          await StorageService.instance.saveCloudflareTryEchViaProxy(false);
+
+          var queriedPreferredHost = false;
+          var queriedFallbackHost = false;
+          final currentSettings = <String, dynamic>{
+            'remoteDNS': 'https://dns.google/dns-query',
+            'remoteDnsHost': {
+              'host': 'stale.example',
+              'isDomain': true,
+              'ipv4': [],
+              'ipv6': [],
+            },
+            'localDNS': '8.8.8.8',
+            'cleanIPs': ['1.1.1.1'],
+            'proxyIPs': [],
+            'enableECH': true,
+            'echServerName': 'blocked.example.com',
+            'echConfig': 'stale-ech',
+          };
+
+          final mockClient = MockClient((request) async {
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'GET') {
+              return http.Response(jsonEncode(currentSettings), 200);
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'A') {
+              return http.Response(jsonEncode({'Answer': []}), 404);
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'A') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 1, 'data': '8.8.8.8'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'cloudflare-dns.com' &&
+                request.url.path == '/dns-query' &&
+                request.url.queryParameters['name'] == 'dns.google' &&
+                request.url.queryParameters['type'] == 'AAAA') {
+              return http.Response(
+                jsonEncode({
+                  'Answer': [
+                    {'type': 28, 'data': '2001:4860:4860::8888'},
+                  ],
+                }),
+                200,
+              );
+            }
+            if (request.url.host == 'dns.google' &&
+                request.url.path == '/resolve' &&
+                request.url.queryParameters['type'] == 'HTTPS') {
+              final name = request.url.queryParameters['name'];
+              if (name == 'blocked.example.com') {
+                queriedPreferredHost = true;
+                return http.Response(jsonEncode({'Answer': []}), 404);
+              }
+              if (name == 'dns.google') {
+                queriedFallbackHost = true;
+                return http.Response(
+                  jsonEncode({
+                    'Answer': [
+                      {'data': '1 . alpn="h2,h3" ech=FALLBACK_ECH=='},
+                    ],
+                  }),
+                  200,
+                );
+              }
+            }
+            if (request.url.host == 'api.cloudflare.com' &&
+                request.method == 'PUT') {
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              expect(body['echConfig'], equals('FALLBACK_ECH=='));
+              return http.Response('{"success":true}', 200);
+            }
+            return http.Response('Not found', 404);
+          });
+
+          apiService.setClient(mockClient);
+
+          final result = await apiService.updateCleanIPs(testCredentials, [
+            '2.2.2.2',
+          ]);
+
+          expect(result, isTrue);
+          expect(queriedPreferredHost, isTrue);
+          expect(queriedFallbackHost, isTrue);
+        },
+      );
     });
 
     group('Connection Testing', () {
