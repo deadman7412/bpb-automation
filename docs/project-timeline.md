@@ -2501,6 +2501,57 @@ Phase 2 to show -1 ms latency in v2rayN after updating the panel.
 
 ---
 
+## Maintenance Log
+
+Records of dependency updates, binary upgrades, and post-release maintenance performed outside the main phase workflow.
+
+---
+
+### Entry 001 — Xray-core Binary Upgrade
+
+**Date**: May 30, 2026
+**Type**: Dependency upgrade
+**Scope**: All platform binaries
+
+**Summary**:
+Upgraded bundled Xray-core binaries from v26.2.6 to v26.3.27 across all five platforms.
+
+**Platforms updated**:
+- `assets/xray-binaries/android-arm64/xray`
+- `assets/xray-binaries/darwin-amd64/xray`
+- `assets/xray-binaries/darwin-arm64/xray`
+- `assets/xray-binaries/linux-amd64/xray`
+- `assets/xray-binaries/windows-amd64/xray.exe`
+- `android/app/src/main/jniLibs/arm64-v8a/libxray.so` (copy of android-arm64)
+
+**Version details**:
+- Previous version: v26.2.6 (released Feb 6, 2026)
+- New version: v26.3.27 (released March 27, 2026)
+- Source: https://github.com/XTLS/Xray-core/releases/tag/v26.3.27
+- Built with: Go 1.26.1
+
+**Key additions in v26.3.27**:
+- Hysteria2 inbound and transport layer support
+- XHTTP/3 with default BBR congestion control
+- REALITY automatic target probing
+- WireGuard FullCone NAT (inbound and outbound)
+- TLS ECH fingerprint updates (Firefox, Safari)
+- Finalmask: header-custom, Sudoku, fragment, and noise modes
+- mKCP TTI range extended to 10-5000ms
+
+**Code changes**:
+- `lib/services/xray_service.dart`: `xrayVersion` constant updated to `'v26.3.27'`
+- `test/services/xray_service_test.dart`: version assertion updated
+- `assets/xray-binaries/README.md`: version, date, and SHA256 checksums updated
+
+**Verification**:
+- All 8 unit tests passing
+- macOS arm64 binary confirmed: `Xray 26.3.27 (go1.26.1 darwin/arm64)`
+- Android release APK: built successfully (116.7 MB)
+- macOS release app: built successfully (261.8 MB)
+
+---
+
 ## Appendix: Task Management Guidelines
 
 ### How to Update This Document

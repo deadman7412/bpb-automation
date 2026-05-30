@@ -39,7 +39,7 @@ void main() {
     });
 
     test('should have correct xray version', () {
-      expect(XrayService.xrayVersion, 'v26.2.6');
+      expect(XrayService.xrayVersion, 'v26.3.27');
     });
 
     test('should have correct binary file name based on platform', () {

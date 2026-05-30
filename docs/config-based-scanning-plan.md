@@ -224,7 +224,7 @@ Progress streaming enables responsive UI updates during long-running Phase 1 sca
 **Directory**: `assets/xray-binaries/`
 
 **Actions**:
-1. Download Xray-core v26.2.6 from https://github.com/XTLS/Xray-core/releases/tag/v26.2.6
+1. Download Xray-core v26.3.27 from https://github.com/XTLS/Xray-core/releases/tag/v26.3.27
 2. Extract binaries for:
    - `android-arm64/xray`
    - `darwin-amd64/xray`
@@ -236,13 +236,19 @@ Progress streaming enables responsive UI updates during long-running Phase 1 sca
 
 **Completion Summary**: 
 Completed on Feb 18, 2026. Successfully bundled Xray-core v26.2.6 binaries for all platforms:
-- Downloaded official releases from XTLS/Xray-core GitHub (v26.2.6 - latest stable)
+- Downloaded official releases from XTLS/Xray-core GitHub (v26.2.6)
 - Created `assets/xray-binaries/` directory structure with platform subdirectories
 - Extracted and placed binaries: android-arm64 (34MB), darwin-amd64 (33MB), darwin-arm64 (31MB), linux-amd64 (34MB), windows-amd64 (33MB)
 - Updated `pubspec.yaml` to include xray binary assets in Flutter build
 - Created comprehensive README.md with version info, SHA256 checksums, license info, and usage notes
 - Total app size impact: ~165MB for all platforms combined, platform-specific builds only include relevant binary
 All binaries verified with SHA256 checksums and ready for Phase 2 proxy testing implementation.
+
+**Update — May 30, 2026**: Upgraded all platform binaries from v26.2.6 to v26.3.27 (released March 27, 2026).
+Key additions in v26.3.27: Hysteria2 inbound support, XHTTP/3 with BBR congestion control, REALITY auto-probing,
+WireGuard FullCone NAT, TLS ECH fingerprint updates (Firefox/Safari), Finalmask enhancements. Built with Go 1.26.1.
+New SHA256 checksums documented in `assets/xray-binaries/README.md`. Android (`libxray.so`) and all desktop
+binaries replaced. Android and macOS release builds verified successfully.
 
 ---
 

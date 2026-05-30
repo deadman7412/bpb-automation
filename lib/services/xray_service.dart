@@ -25,7 +25,7 @@ class XrayService {
   final LogService _logService = LogService.instance;
 
   /// Current Xray-core version bundled in the app
-  static const String xrayVersion = 'v26.2.6';
+  static const String xrayVersion = 'v26.3.27';
 
   /// External non-Cloudflare target used in Phase 2 to verify the BPB Worker
   /// can reach the real internet. Must NOT be a Cloudflare-hosted domain —

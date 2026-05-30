@@ -4,10 +4,10 @@ This directory contains Xray-core binaries used for Phase 2 proxy testing in con
 
 ## Version Information
 
-- **Version**: v26.2.6
-- **Release Date**: February 6, 2026
-- **Source**: [XTLS/Xray-core](https://github.com/XTLS/Xray-core/releases/tag/v26.2.6)
-- **Bundled Date**: February 18, 2026
+- **Version**: v26.3.27
+- **Release Date**: March 27, 2026
+- **Source**: [XTLS/Xray-core](https://github.com/XTLS/Xray-core/releases/tag/v26.3.27)
+- **Bundled Date**: May 30, 2026
 
 ## Included Platforms
 
@@ -15,31 +15,31 @@ This directory contains Xray-core binaries used for Phase 2 proxy testing in con
 - **Platform**: android-arm64-v8a
 - **File**: `android-arm64/xray`
 - **Size**: ~34 MB
-- **SHA256**: `d3dab5cf776d8619cea6f5317027c2a59004602cffb195dd9acb067038171287`
+- **SHA256**: `19101a8191d6d606da975f719c8cdb80b8710b87ab17edc00ef74b9e39588714`
 
 ### macOS (Intel)
 - **Platform**: darwin-amd64
 - **File**: `darwin-amd64/xray`
 - **Size**: ~33 MB
-- **SHA256**: `c9f5f35e8ad3649a03c75291278eab2c470573bd0e0d34da506bab3a09673172`
+- **SHA256**: `afd0eaebb77994a18f29b00c5f50a4f7fbb77da06e24352d43035f3cad3c3786`
 
 ### macOS (Apple Silicon)
 - **Platform**: darwin-arm64
 - **File**: `darwin-arm64/xray`
 - **Size**: ~31 MB
-- **SHA256**: `76fea3ec3610c2cc462ef39422ddc00e6d306b0c90223c983eaced6b12c8dee8`
+- **SHA256**: `5d9dd24c0aba4b6cfcc6a33a5d67f854816ee17f392bf932ec8176da46f7e404`
 
 ### Linux
 - **Platform**: linux-amd64
 - **File**: `linux-amd64/xray`
 - **Size**: ~34 MB
-- **SHA256**: `3f650abf1fc4a4fbf5abe7fc9990a2658020907cd984214e9c075b4b00989fea`
+- **SHA256**: `8255dd939c34cf966cc91517b6324dd3c8d0bcf49ffac8beca049a38c46845ed`
 
 ### Windows
 - **Platform**: windows-amd64
 - **File**: `windows-amd64/xray.exe`
 - **Size**: ~33 MB
-- **SHA256**: `103da2750f4348a266ae61632c322f95cf3e18dce99eb588e685379f041e97c5`
+- **SHA256**: `15c2d007954ac53ba69b80ec91242786b3c0b71d52649165b4ca1d5cc96ef8f1`
 
 ## License
 
