@@ -53,11 +53,23 @@ class XrayService {
   /// Whether the service has been initialized
   bool _isInitialized = false;
 
+  /// Persistent connection process (proxy/VPN mode, distinct from test processes)
+  Process? _persistentProcess;
+
+  /// Path to the persistent connection config file
+  String? _persistentConfigPath;
+
   /// Get the path to the extracted binary
   String? get binaryPath => _binaryPath;
 
   /// Check if the service is initialized
   bool get isInitialized => _isInitialized;
+
+  /// Whether a persistent proxy process is currently running
+  bool get isPersistentRunning => _persistentProcess != null;
+
+  /// PID of the persistent process, or null if not running
+  int? get persistentPid => _persistentProcess?.pid;
 
   /// Initialize the Xray service
   ///
@@ -343,6 +355,105 @@ class XrayService {
     } catch (e) {
       _logService.logWarn('Failed to get binary version: $e');
       return null;
+    }
+  }
+
+  /// Start a persistent Xray process for proxy/VPN connection mode.
+  ///
+  /// Unlike [testIPWithProxy], this process is long-lived — it keeps running
+  /// until [stopPersistent] is called. The caller is responsible for waiting
+  /// for the SOCKS5 port to become ready before routing traffic.
+  ///
+  /// Throws if the service is not initialized or a persistent process is
+  /// already running.
+  Future<void> startPersistent(XrayConfig config) async {
+    if (!_isInitialized) {
+      throw Exception('XrayService not initialized. Call initialize() first.');
+    }
+    if (_persistentProcess != null) {
+      throw Exception(
+        'Persistent Xray process already running (PID: ${_persistentProcess!.pid}). '
+        'Call stopPersistent() first.',
+      );
+    }
+
+    final configPath = await _getPersistentConfigPath();
+    final configJson = json.encode(config.toJson());
+    final configFile = File(configPath);
+    await configFile.parent.create(recursive: true);
+    await configFile.writeAsString(configJson);
+    _persistentConfigPath = configPath;
+
+    final process = await _startXrayProcess(configPath);
+    _persistentProcess = process;
+    _logService.logInfo(
+      '[Proxy] Persistent Xray process started (PID: ${process.pid})',
+    );
+
+    // Watch for unexpected exits. Capture [process] by value so a later
+    // reconnect that sets _persistentProcess to a new instance does not
+    // trigger cleanup for the wrong config file.
+    process.exitCode.then((exitCode) {
+      if (_persistentProcess == process) {
+        _logService.logWarn(
+          '[Proxy] Persistent Xray process exited unexpectedly (code: $exitCode)',
+        );
+        _persistentProcess = null;
+        _cleanupPersistentConfigSync();
+      }
+    });
+  }
+
+  /// Stop the persistent Xray process and clean up its config file.
+  Future<void> stopPersistent() async {
+    final process = _persistentProcess;
+    _persistentProcess = null;
+
+    if (process != null) {
+      try {
+        process.kill();
+        _logService.logInfo('[Proxy] Persistent Xray process killed');
+      } catch (e) {
+        _logService.logWarn('[Proxy] Failed to kill persistent Xray process: $e');
+      }
+    }
+
+    await _cleanupPersistentConfig();
+  }
+
+  Future<String> _getPersistentConfigPath() async {
+    if (Platform.isAndroid) {
+      final dir = await getApplicationDocumentsDirectory();
+      return path.join(dir.path, 'xray_connection_config.json');
+    }
+    final appDir = await getApplicationDocumentsDirectory();
+    return path.join(appDir.path, 'xray', 'xray_connection_config.json');
+  }
+
+  void _cleanupPersistentConfigSync() {
+    final configPath = _persistentConfigPath;
+    _persistentConfigPath = null;
+    if (configPath != null) {
+      try {
+        final file = File(configPath);
+        if (file.existsSync()) file.deleteSync();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _cleanupPersistentConfig() async {
+    final configPath = _persistentConfigPath;
+    _persistentConfigPath = null;
+    if (configPath != null) {
+      try {
+        final file = File(configPath);
+        if (await file.exists()) {
+          await file.delete();
+          _logService.logInfo('[Proxy] Persistent config file deleted');
+        }
+      } catch (e) {
+        _logService.logWarn('[Proxy] Failed to delete persistent config: $e');
+      }
     }
   }
 

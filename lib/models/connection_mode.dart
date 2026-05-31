@@ -1,0 +1,1 @@
+enum ConnectionMode { proxy, vpn }

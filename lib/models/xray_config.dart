@@ -337,6 +337,112 @@ class XrayConfig {
     );
   }
 
+  /// Creates inbounds for a persistent proxy connection.
+  ///
+  /// [bindAddress] is '127.0.0.1' for local-only or '0.0.0.0' for LAN sharing.
+  /// [socksPort] is the SOCKS5 listen port (default 10808).
+  /// [httpPort] optionally adds an HTTP proxy inbound.
+  XrayConfig withConnectionInbounds({
+    required String bindAddress,
+    required int socksPort,
+    int? httpPort,
+  }) {
+    final inboundsList = <Map<String, dynamic>>[
+      {
+        'port': socksPort,
+        'listen': bindAddress,
+        'protocol': 'socks',
+        'settings': {'auth': 'noauth', 'udp': true},
+        'tag': 'socks-in',
+      },
+    ];
+    if (httpPort != null) {
+      inboundsList.add({
+        'port': httpPort,
+        'listen': bindAddress,
+        'protocol': 'http',
+        'tag': 'http-in',
+      });
+    }
+    return XrayConfig(
+      log: log,
+      inbounds: inboundsList,
+      outbounds: outbounds,
+      routing: routing,
+      dns: dns,
+      policy: policy,
+      stats: stats,
+      api: api,
+      remarks: remarks,
+    );
+  }
+
+  /// Adds xray's built-in stats/API monitoring to the config.
+  ///
+  /// This enables the xray StatsService on an internal gRPC endpoint at
+  /// [apiPort] (typically 10811) so traffic bytes can be queried externally.
+  ///
+  /// Must be called AFTER [withConnectionInbounds] and [withStrippedGeoRules]
+  /// so the API inbound and routing rule are not stripped.
+  XrayConfig withStatsMonitoring({required int apiPort}) {
+    final apiInbound = <String, dynamic>{
+      'port': apiPort,
+      'listen': '127.0.0.1',
+      'protocol': 'dokodemo-door',
+      'settings': {'address': '127.0.0.1'},
+      'tag': 'api-in',
+    };
+
+    final apiRoutingRule = <String, dynamic>{
+      'inboundTag': ['api-in'],
+      'outboundTag': 'api',
+      'type': 'field',
+    };
+
+    // Prepend API rule so it takes priority, preserve all stripped rules.
+    final Map<String, dynamic> updatedRouting;
+    if (routing != null) {
+      final existingRules =
+          List<dynamic>.from(routing!['rules'] as List? ?? []);
+      updatedRouting = {
+        ...routing!,
+        'rules': [apiRoutingRule, ...existingRules],
+      };
+    } else {
+      updatedRouting = {
+        'rules': [apiRoutingRule],
+      };
+    }
+
+    final existingSystem = policy?['system'];
+    final systemMap = existingSystem is Map
+        ? Map<String, dynamic>.from(existingSystem)
+        : <String, dynamic>{};
+    final updatedPolicy = <String, dynamic>{
+      ...(policy ?? {}),
+      'system': <String, dynamic>{
+        ...systemMap,
+        'statsInboundUplink': true,
+        'statsInboundDownlink': true,
+      },
+    };
+
+    return XrayConfig(
+      log: log,
+      inbounds: [...(inbounds ?? []), apiInbound],
+      outbounds: outbounds,
+      routing: updatedRouting,
+      dns: dns,
+      policy: updatedPolicy,
+      stats: const <String, dynamic>{},
+      api: const <String, dynamic>{
+        'tag': 'api',
+        'services': ['StatsService'],
+      },
+      remarks: remarks,
+    );
+  }
+
   /// Returns a brief description for logging/display.
   ///
   /// Example: "VLESS (1.1.1.1:443) TLS - My Config"

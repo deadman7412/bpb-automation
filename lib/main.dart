@@ -10,6 +10,7 @@ import 'screens/debug_screen.dart';
 import 'screens/server_history_screen.dart';
 import 'screens/server_run_detail_screen.dart';
 import 'screens/server_logs_screen.dart';
+import 'screens/connection_screen.dart';
 import 'screens/server_backend_settings_screen.dart';
 import 'services/local_scheduler_service.dart';
 import 'services/log_service.dart';
@@ -104,6 +105,7 @@ class BPBAutomationApp extends StatelessWidget {
             '/server-logs': (context) => const ServerLogsScreen(),
             '/server-backend-settings': (context) =>
                 const ServerBackendSettingsScreen(),
+            '/connection': (context) => const ConnectionScreen(),
           },
         );
       },

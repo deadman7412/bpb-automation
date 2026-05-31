@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../services/storage_service.dart';
+import '../widgets/connection_status_card.dart';
 import '../widgets/logs_action_button.dart';
 import '../widgets/theme_mode_action_button.dart';
 import '../widgets/experimental_server_banner.dart';
@@ -421,6 +422,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
 
+                  const SizedBox(height: 12),
+                  const ConnectionStatusCard(),
+
                   if (webAuthBlocked) ...[
                     const SizedBox(height: 12),
                     Card(
@@ -447,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
 
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 16),
 
                   // Status Card
                   Card(
@@ -695,6 +699,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         Icons.info,
                         Colors.teal,
                         () => Navigator.pushNamed(context, '/about'),
+                      ),
+                      _buildActionCard(
+                        context,
+                        'Connection',
+                        Icons.power,
+                        Colors.indigo,
+                        () => Navigator.pushNamed(context, '/connection'),
                       ),
                       _buildActionCard(
                         context,

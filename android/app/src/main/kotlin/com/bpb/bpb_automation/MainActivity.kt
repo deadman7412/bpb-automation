@@ -91,6 +91,35 @@ class MainActivity : FlutterActivity() {
                             )
                         }
                     }
+                    "startConnectionForegroundService" -> {
+                        try {
+                            val socksPort = call.argument<Int>("socksPort") ?: 10808
+                            val httpPort = call.argument<Int>("httpPort")
+                            val ip = call.argument<String>("ip") ?: ""
+                            XrayConnectionForegroundService.start(this, socksPort, httpPort, ip)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("CONN_FGS_START_FAILED", e.message, null)
+                        }
+                    }
+                    "stopConnectionForegroundService" -> {
+                        try {
+                            XrayConnectionForegroundService.stop(this)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("CONN_FGS_STOP_FAILED", e.message, null)
+                        }
+                    }
+                    "updateConnectionNotification" -> {
+                        try {
+                            val title = call.argument<String>("title") ?: "BPB Proxy running"
+                            val text = call.argument<String>("text") ?: ""
+                            XrayConnectionForegroundService.update(this, title, text)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("CONN_NOTIF_UPDATE_FAILED", e.message, null)
+                        }
+                    }
                     "showLocalNotification" -> {
                         try {
                             val title = call.argument<String>("title") ?: "BPB Automation"

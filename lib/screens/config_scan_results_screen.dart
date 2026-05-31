@@ -13,6 +13,8 @@ import '../services/server_backend_service.dart';
 import '../services/xray_service.dart';
 import '../services/proxy_connectivity_debug_service.dart';
 import '../models/xray_config.dart';
+import '../models/xray_connection_state.dart';
+import '../services/connection_service.dart';
 import '../widgets/experimental_server_banner.dart';
 import '../widgets/logs_action_button.dart';
 
@@ -1437,12 +1439,73 @@ class _ConfigScanResultsScreenState extends State<ConfigScanResultsScreen> {
                   },
                 ),
 
+                const SizedBox(height: 24),
+                _buildConnectSection(),
                 const SizedBox(height: 48),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildConnectSection() {
+    if (_result == null || _result!.workingIPs.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<XrayConnectionState>(
+      stream: ConnectionService.instance.stateStream,
+      initialData: ConnectionService.instance.currentState,
+      builder: (context, snapshot) {
+        final connState = snapshot.data ?? XrayConnectionState.disconnected();
+        final isConnected = connState.isConnected;
+        final isBusy = connState.isBusy;
+        final connectedToThisIP =
+            isConnected && connState.activeIP == _result!.workingIPs.first;
+
+        final label = connectedToThisIP
+            ? 'Connected via ${_result!.workingIPs.first} - View'
+            : 'Connect with Best IP (${_result!.workingIPs.first})';
+        final color = connectedToThisIP ? Colors.green : Colors.indigo;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Built-in Proxy',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: isBusy
+                  ? null
+                  : () => Navigator.pushNamed(
+                      context,
+                      '/connection',
+                      arguments: _result,
+                    ),
+              icon: isBusy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(connectedToThisIP ? Icons.open_in_new : Icons.power),
+              label: Text(label),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
+                backgroundColor: color,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
