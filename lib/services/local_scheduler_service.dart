@@ -333,6 +333,7 @@ class LocalSchedulerService {
     final enableIPv6 = params['enableIPv6'] == 1;
     final ipPoolSize = params['ipPoolSize'] ?? 1000;
     final batchSize = params['scanBatchSize'] ?? 200;
+    final maxPingMs = params['maxPingMs'] ?? 0;
     final fullScan = await _storage.getFullScan();
 
     _log.logInfo('Local scheduler loading subscription configs');
@@ -360,6 +361,7 @@ class LocalSchedulerService {
       ipPoolSize: ipPoolSize,
       batchSize: batchSize,
       fullScan: fullScan,
+      maxPingMs: maxPingMs,
     );
 
     await _storage.saveLastScanTime(result.timestamp);

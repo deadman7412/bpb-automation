@@ -2552,6 +2552,51 @@ Upgraded bundled Xray-core binaries from v26.2.6 to v26.3.27 across all five pla
 
 ---
 
+### Entry 002 — Max Ping Filter Feature
+
+**Date**: 2026-05-31
+**Type**: Feature addition
+**Scope**: Scanner configuration, scan pipeline
+
+**Summary**:
+Added a configurable maximum ping (proxy latency) filter to the clean IP
+scanning workflow. When enabled, the scanner only counts an IP as "working"
+if its Phase 2 proxy latency is at or below the configured limit. The scanner
+continues past high-latency IPs until the desired number of qualifying IPs is
+found or all candidates are exhausted.
+
+**Motivation**:
+Previously all IPs that passed the proxy test were accepted regardless of
+latency (e.g. 15,000 ms IPs were treated the same as 50 ms IPs). Users need
+fine-grained control over which IPs are accepted based on their connection
+quality requirements.
+
+**Behaviour**:
+- Default: disabled (0 ms = no limit, backwards compatible)
+- Range: 100–5000 ms in 100 ms steps
+- When an IP passes the proxy test but exceeds the limit, the scanner logs
+  `[WARN] <ip> proxy OK but latency Xms > max Yms — skipping` and continues
+- Both manual scans and the local scheduler respect the setting
+
+**Files modified**:
+- `lib/services/storage_service.dart` — added `_keyMaxPingMs` key;
+  extended `saveScanParameters()` and `getScanParameters()`
+- `lib/services/dart_scanner_service.dart` — added `maxPingMs` parameter
+  to `executeConfigScanWithConfigs()`; latency gate in Phase 2 working-IP check
+- `lib/screens/scan_progress_screen.dart` — loads and passes `maxPingMs`
+- `lib/services/local_scheduler_service.dart` — loads and passes `maxPingMs`
+- `lib/screens/config_screen.dart` — added toggle + slider UI below
+  "Working IPs to find" section
+- `CHANGELOG.md` — v4.7.1 entry added
+- `pubspec.yaml` — version bumped to `4.7.1+25`
+
+**Verification**:
+- `flutter analyze` — no issues found
+- Android release APK: built successfully (100.8 MB)
+- Android debug APK: built successfully (154 MB)
+
+---
+
 ## Appendix: Task Management Guidelines
 
 ### How to Update This Document

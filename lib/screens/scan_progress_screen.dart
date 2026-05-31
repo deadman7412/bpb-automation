@@ -131,6 +131,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
     final enableIPv6 = params['enableIPv6'] == 1; // 1 = ON, 0 = OFF
     final ipPoolSize = params['ipPoolSize'] ?? 1000;
     final batchSize = params['scanBatchSize'] ?? 200;
+    final maxPingMs = params['maxPingMs'] ?? 0;
     final fullScan = await _storage.getFullScan();
 
     _setStateIfMounted(() {
@@ -286,6 +287,7 @@ class _ScanProgressScreenState extends State<ScanProgressScreen> {
         ipPoolSize: ipPoolSize,
         batchSize: batchSize,
         fullScan: fullScan,
+        maxPingMs: maxPingMs,
       );
 
       await _handleScanResult(result);

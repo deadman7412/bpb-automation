@@ -69,6 +69,7 @@ class StorageService {
   static const String _keyScanBatchSize = 'scan_batch_size';
   static const String _keyLastScanResult = 'last_scan_result';
   static const String _keyFullScan = 'full_scan';
+  static const String _keyMaxPingMs = 'max_ping_ms';
   static const String _keyUseServerBackend = 'use_server_backend';
   static const String _keyServerBackendBaseUrl = 'server_backend_base_url';
   static const String _keyServerBackendToken = 'server_backend_token';
@@ -657,6 +658,7 @@ class StorageService {
     int? ipPoolSize,
     int? scanBatchSize,
     bool? fullScan,
+    int? maxPingMs,
   }) async {
     if (desiredIPCount != null) {
       await _prefs.setInt(_keyDesiredIPCount, desiredIPCount);
@@ -675,6 +677,9 @@ class StorageService {
     }
     if (fullScan != null) {
       await _prefs.setBool(_keyFullScan, fullScan);
+    }
+    if (maxPingMs != null) {
+      await _prefs.setInt(_keyMaxPingMs, maxPingMs);
     }
     _logService.logInfo('Saved scan parameters');
   }
@@ -711,6 +716,7 @@ class StorageService {
       'enableIPv6': _prefs.getInt(_keyEnableIPv6) ?? 0,
       'ipPoolSize': ipPoolSize,
       'scanBatchSize': _prefs.getInt(_keyScanBatchSize) ?? 200,
+      'maxPingMs': _prefs.getInt(_keyMaxPingMs) ?? 0,
     };
   }
 

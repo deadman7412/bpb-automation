@@ -35,6 +35,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
   bool _fullScan = false; // Default: use depth slider, not all survivors
   int _ipPoolSize = 1000; // default: 1000 IPs total
   int _batchSize = 200; // default: 200 concurrent connections
+  bool _enableMaxPing = false;
+  int _maxPingMs = 1000;
   bool _localSchedulerEnabled = false;
   int _localSchedulerIntervalHours = 6;
   LocalSchedulerStatus _schedulerStatus = const LocalSchedulerStatus(
@@ -97,6 +99,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
       _ipPoolSize = params['ipPoolSize'] ?? 1000;
       _batchSize = params['scanBatchSize'] ?? 200;
       _fullScan = fullScan;
+      final rawMaxPing = params['maxPingMs'] ?? 0;
+      _enableMaxPing = rawMaxPing > 0;
+      _maxPingMs = rawMaxPing > 0 ? rawMaxPing : 1000;
       _localSchedulerEnabled = schedulerEnabled ?? false;
       _localSchedulerIntervalHours = schedulerInterval ?? 6;
       _cachedConfigs = configs;
@@ -241,6 +246,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       ipPoolSize: _ipPoolSize,
       scanBatchSize: _batchSize,
       fullScan: _fullScan,
+      maxPingMs: _enableMaxPing ? _maxPingMs : 0,
     );
     await _localScheduler.applySettings(
       enabled: _localSchedulerEnabled,
@@ -681,6 +687,82 @@ class _ConfigScreenState extends State<ConfigScreen> {
                             ),
                             Text(
                               'Scan stops after finding this many working IPs',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: Colors.grey[600]),
+                            ),
+                            const SizedBox(height: 24),
+
+                            // Max ping filter
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Max ping filter',
+                                  style: TextStyle(fontSize: 16),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _enableMaxPing
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.primaryContainer
+                                        : Colors.grey[300],
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    _enableMaxPing ? '$_maxPingMs ms' : 'Off',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: _enableMaxPing
+                                          ? Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimaryContainer
+                                          : Colors.grey[600],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Enable max ping filter',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                                Switch(
+                                  value: _enableMaxPing,
+                                  onChanged: (value) {
+                                    setState(() => _enableMaxPing = value);
+                                  },
+                                ),
+                              ],
+                            ),
+                            Slider(
+                              value: _maxPingMs.toDouble(),
+                              min: 100,
+                              max: 5000,
+                              divisions: 49,
+                              label: '$_maxPingMs ms',
+                              onChanged: _enableMaxPing
+                                  ? (value) {
+                                      setState(
+                                        () =>
+                                            _maxPingMs =
+                                                (value / 100).round() * 100,
+                                      );
+                                    }
+                                  : null,
+                            ),
+                            Text(
+                              _enableMaxPing
+                                  ? 'Only accept IPs with proxy latency at or below $_maxPingMs ms'
+                                  : 'No latency limit — accepts any working IP',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(color: Colors.grey[600]),
                             ),

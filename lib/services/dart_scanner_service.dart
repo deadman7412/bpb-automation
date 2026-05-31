@@ -145,6 +145,7 @@ class DartScannerService {
     int ipPoolSize = 0, // 0 = use platform default
     int batchSize = 200,
     bool fullScan = false, // when true, test all Phase 1 survivors in Phase 2
+    int maxPingMs = 0, // 0 = no limit; positive = max acceptable proxy latency
   }) async {
     // Prevent multiple concurrent scans
     if (_isScanning) {
@@ -414,8 +415,13 @@ class DartScannerService {
 
         phase2Results.add(proxyResult);
 
+        final proxyMs =
+            proxyResult.proxyTestResult?.latencyMs ?? double.infinity;
+        final passesMaxPing = maxPingMs <= 0 || proxyMs <= maxPingMs;
+
         if (proxyResult.proxyTestResult != null &&
-            proxyResult.proxyTestResult!.success) {
+            proxyResult.proxyTestResult!.success &&
+            passesMaxPing) {
           workingCount++;
           _logService.logOk(
             '$candidateIP works! ($workingCount/$desiredIPCount found)',
@@ -446,7 +452,15 @@ class DartScannerService {
             break;
           }
         } else {
-          _logService.logWarn('$candidateIP failed proxy test');
+          if (proxyResult.proxyTestResult != null &&
+              proxyResult.proxyTestResult!.success &&
+              !passesMaxPing) {
+            _logService.logWarn(
+              '$candidateIP proxy OK but latency ${proxyMs.round()}ms > max ${maxPingMs}ms — skipping',
+            );
+          } else {
+            _logService.logWarn('$candidateIP failed proxy test');
+          }
 
           _emitPhase2Progress(
             Phase2Progress(

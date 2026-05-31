@@ -5,6 +5,23 @@ All notable changes to BPB Automation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.7.1] - 2026-05-31
+
+### Added
+- Max ping filter for clean IP scanning. Users can now set a maximum acceptable
+  proxy latency (100–5000 ms, step 100 ms) in the configuration screen. When
+  enabled, the scanner only counts an IP as "working" if its Phase 2 proxy
+  latency is at or below the configured limit, and continues scanning until the
+  desired number of qualifying IPs is found. Disabled by default (no latency
+  limit) for backwards compatibility.
+- New `maxPingMs` scan parameter stored via `StorageService`. Persists across
+  app restarts and is respected by both manual scans and the local scheduler.
+
+### Changed
+- Version bump to `4.7.1+25`.
+
+---
+
 ## [4.6.5] - 2026-02-22
 
 ### Changed
